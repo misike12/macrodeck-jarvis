@@ -150,6 +150,6 @@ return ValueTask.FromResult(reading);
 
 	public Task<IUiSession?> CreateSessionAsync(UiSessionRequest request, CancellationToken cancellationToken) =>
 		_resources is { } registry
-			? new OrbUiProvider(_state, _settings, registry, _logger).CreateSessionAsync(request, cancellationToken)
+			? new OrbUiProvider(_state, registry, _logger).CreateSessionAsync(request, cancellationToken)
 			: Task.FromResult<IUiSession?>(null);
 }

@@ -111,6 +111,8 @@ public sealed record OrbWidgetData
 
 	public SessionScope Scope { get; init; } = SessionScope.Global;
 
+	public static JsonElement DefaultElement => JsonSerializer.Deserialize<JsonElement>(DefaultJson);
+
 	public static OrbWidgetData Parse(JsonElement element)
 	{
 		var fallback = new OrbWidgetData();
@@ -160,12 +162,30 @@ public sealed record OrbWidgetData
 			? value.GetDouble()
 			: fallback;
 
-	private static T ReadEnum<T>(JsonElement element, string name, T fallback) where T : struct, Enum =>
-		element.TryGetProperty(name, out var value)
-			&& value.ValueKind == JsonValueKind.String
-			&& Enum.TryParse<T>(value.GetString(), true, out var parsed)
+	/// <summary>
+	/// Both spellings are accepted: the schema and the configuration surface write kebab-case, while a
+	/// hand-edited payload or an older release may hold the CLR name. <c>Enum.TryParse</c> alone matches
+	/// neither a hyphen nor anything but the exact member name, which made every default payload fall back.
+	/// </summary>
+	private static T ReadEnum<T>(JsonElement element, string name, T fallback) where T : struct, Enum
+	{
+		if (!element.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String)
+		{
+			return fallback;
+		}
+
+		var raw = value.GetString();
+
+		if (string.IsNullOrWhiteSpace(raw))
+		{
+			return fallback;
+		}
+
+		return Enum.TryParse<T>(raw, true, out var parsed)
+			|| Enum.TryParse<T>(raw.Replace("-", string.Empty, StringComparison.Ordinal), true, out parsed)
 				? parsed
 				: fallback;
+	}
 
 	/// <summary>
 	/// Written by the configuration tree, so it validates the shape before the widget can store an

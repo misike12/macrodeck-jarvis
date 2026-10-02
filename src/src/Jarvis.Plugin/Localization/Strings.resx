@@ -421,4 +421,124 @@
   <data name="Orb.TypeDescription" xml:space="preserve">
     <value>A listening orb that shows what JARVIS is doing and what it said.</value>
   </data>
+
+  <data name="Orb.Config.Preset" xml:space="preserve">
+    <value>Shape</value>
+  </data>
+  <data name="Orb.Config.PresetHint" xml:space="preserve">
+    <value>The starting point for the ring layout and the core animation.</value>
+  </data>
+  <data name="Orb.Config.PresetOptions.ArcReactor" xml:space="preserve">
+    <value>Arc reactor</value>
+  </data>
+  <data name="Orb.Config.PresetOptions.Halo" xml:space="preserve">
+    <value>Halo</value>
+  </data>
+  <data name="Orb.Config.PresetOptions.Pulse" xml:space="preserve">
+    <value>Pulse</value>
+  </data>
+  <data name="Orb.Config.PresetOptions.Custom" xml:space="preserve">
+    <value>Custom</value>
+  </data>
+
+  <data name="Orb.Config.Rings" xml:space="preserve">
+    <value>Rings</value>
+  </data>
+  <data name="Orb.Config.RingCount" xml:space="preserve">
+    <value>Ring count</value>
+  </data>
+  <data name="Orb.Config.RingCountHint" xml:space="preserve">
+    <value>How many rings orbit the core. Zero draws a bare core.</value>
+  </data>
+  <data name="Orb.Config.RingSpeed" xml:space="preserve">
+    <value>Ring speed</value>
+  </data>
+  <data name="Orb.Config.RingSpeedHint" xml:space="preserve">
+    <value>How fast the rings sweep. Zero freezes them.</value>
+  </data>
+  <data name="Orb.Config.RingRotation" xml:space="preserve">
+    <value>Rotate rings</value>
+  </data>
+
+  <data name="Orb.Config.Colours" xml:space="preserve">
+    <value>Colours</value>
+  </data>
+  <data name="Orb.Config.AccentColor" xml:space="preserve">
+    <value>Accent</value>
+  </data>
+  <data name="Orb.Config.CoreColor" xml:space="preserve">
+    <value>Core</value>
+  </data>
+  <data name="Orb.Config.TextColor" xml:space="preserve">
+    <value>Text</value>
+  </data>
+  <data name="Orb.Config.Glow" xml:space="preserve">
+    <value>Glow</value>
+  </data>
+  <data name="Orb.Config.GlowHint" xml:space="preserve">
+    <value>Soft halo behind the core.</value>
+  </data>
+  <data name="Orb.Config.BorderStyle" xml:space="preserve">
+    <value>Border style</value>
+  </data>
+
+  <data name="Orb.Config.BorderStyleHint" xml:space="preserve">
+    <value>How each ring is drawn. Try comet for a sweeping tail.</value>
+  </data>
+  <data name="Orb.Config.TextSizeHint" xml:space="preserve">
+    <value>How large the text is inside the orb.</value>
+  </data>
+  <data name="Orb.Config.Text" xml:space="preserve">
+    <value>Text</value>
+  </data>
+  <data name="Orb.Config.ShowText" xml:space="preserve">
+    <value>Show text</value>
+  </data>
+  <data name="Orb.Config.TextMode" xml:space="preserve">
+    <value>What to show</value>
+  </data>
+  <data name="Orb.Config.TextModeOptions.FullTranscript" xml:space="preserve">
+    <value>Full conversation</value>
+  </data>
+  <data name="Orb.Config.TextModeOptions.LastReply" xml:space="preserve">
+    <value>Last reply only</value>
+  </data>
+  <data name="Orb.Config.TextModeOptions.InterimPlusReply" xml:space="preserve">
+    <value>What you said, then the reply</value>
+  </data>
+  <data name="Orb.Config.TextSize" xml:space="preserve">
+    <value>Text size</value>
+  </data>
+
+  <data name="Orb.Config.Reactivity" xml:space="preserve">
+    <value>Reactivity</value>
+  </data>
+  <data name="Orb.Config.AudioReactive" xml:space="preserve">
+    <value>React to audio</value>
+  </data>
+  <data name="Orb.Config.AudioReactiveHint" xml:space="preserve">
+    <value>Scale the orb with what you say and what JARVIS says.</value>
+  </data>
+  <data name="Orb.Config.Sensitivity" xml:space="preserve">
+    <value>Sensitivity</value>
+  </data>
+  <data name="Orb.Config.SensitivityHint" xml:space="preserve">
+    <value>How hard a sound has to push to move the orb.</value>
+  </data>
+
+  <data name="Orb.Config.Behaviour" xml:space="preserve">
+    <value>Behaviour</value>
+  </data>
+  <data name="Orb.Config.Scope" xml:space="preserve">
+    <value>Share state with</value>
+  </data>
+  <data name="Orb.Config.ScopeHint" xml:space="preserve">
+    <value>Global keeps every orb on every deck in step. Local keeps this one to itself.</value>
+  </data>
+  <data name="Orb.Config.ScopeOptions.Global" xml:space="preserve">
+    <value>Every orb on this deck</value>
+  </data>
+  <data name="Orb.Config.ScopeOptions.Local" xml:space="preserve">
+    <value>This orb only</value>
+  </data>
 </root>
