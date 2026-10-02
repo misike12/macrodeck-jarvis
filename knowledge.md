@@ -3,6 +3,11 @@
 Everything learned from reading the Macro Deck 3 source, docs, ADRs and CI. Written for building
 JARVIS, but the platform facts apply to any plugin.
 
+**Where the detail lives now.** This file is the distilled, corrected summary. The full platform
+documentation with verbatim code samples is `docs-research.md` (62 pages), and the complete public API
+surface of the SDK, every constant value and member enumerated by reflection, is `sdk-surface.md`
+(1007 types). Read those instead of guessing; this file records what is worth knowing up front.
+
 Source of truth: `https://github.com/Macro-Deck-App/Macro-Deck` (Apache-2.0)
 Docs: `https://docs.macro-deck.app/`
 
@@ -252,7 +257,7 @@ read finishes.
 - Paths are unversioned. Version negotiated once, in `POST /api/plugins/sessions`.
 - Envelope: `type, id, correlationId, sentAt, protocolVersion, deadlineMs, idempotencyKey, payload | error`
   — **`payload` and `error` are mutually exclusive.**
-- 30 message types. Reply types that require `correlationId`:
+- **28** message types (the docs say "twenty-eight"; an earlier note here said 30, which is wrong). Reply types that require `correlationId`:
   `capability.result`, `capability.declare.ack`, `asset.ack`, `host.result`, `host.asset.ack`.
 - Unknown message type → `UNKNOWN_MESSAGE_TYPE` **with the envelope preserved**, socket stays open.
 - Malformed → `MALFORMED_ENVELOPE`, socket stays open.
@@ -295,18 +300,24 @@ MaxSessionsPerPlugin              1
 MaxUiTreeBytes                196608
 MaxUiPatchBytes                65536
 MaxUiNodesPerTree               2000
+MaxUiTreeBytes                196608
 MaxUiUpdatesPerSecond            30      burst 90
 MaxUiResourceBytes             2 MiB    per plugin 16 MiB / 256 resources
-MaxUiSessionsPerProvider           8
-MaxUiWidgetSessionsPerProvider  128
+MaxUiSessionsPerProvider           8      attachments per session 16
 MaxLogEventsPerSecond             20      burst 500
 ```
+`MaxUiWidgetSessionsPerProvider` also exists but only as a nullable int property, not a constant. An
+earlier note here gave it the value 128; the reflection dump has no such constant, so **128 is wrong and
+the value is unverified**. Do not design against it.
+
 Timeouts: handshake 10 s, request/capability 30 s, asset 60 s, keepalive 20/60 s,
 resume window 60 s, graceful close 5 s.
 
-**UI patch budget is enforced by a per-session token bucket**: starts at 90, refills +30/s, **one
-token per patch regardless of how many operations it carries**. Batching does not help. Exceeding it
-gives `Resync(RATE_LIMITED)` then `Terminate(RATE_LIMITED)`. Design to **≤25/s**.
+**UI patch budget.** The limits are `maxUiUpdatesPerSecond` 30 and `maxUiUpdateBurst` 90, "bounded per
+session". An earlier note here added a token-bucket mechanic, including "one token per patch regardless of
+how many operations it carries"; **the docs do not state that**, so treat it as unverified. What matters
+either way: exceeding it gives `Resync(RATE_LIMITED)` then `Terminate(RATE_LIMITED)`, so design to
+**≤25/s**. The orb's 25 Hz sweep is deliberately under the 30/s ceiling.
 
 ---
 
@@ -454,6 +465,57 @@ event EventHandler? Changed;  event EventHandler<UiSessionFaultedEventArgs>? Fau
 **Declining is not faulting.** `UiEventOutcome.Rejected(reason)` ⇒ dispatch rejected with your reason,
 `HandlerFaulted` NOT raised. A handler that throws ⇒ rejected **and** reported.
 
+### DSL shapes reflection found that the docs do not state
+Full detail in `sdk-surface.md`. These three cost real time:
+
+- **`UiBinding<T>` has no usable public surface.** Its ctor is `private`; `Value` and `CanWrite` are
+  `internal`. `new UiBinding<T>(value, set)` **cannot compile**. Use `Bind.To(UiState<T>)`,
+  `Bind.ReadOnly(UiValue<T>)` or `Bind.Custom(Func<T> get, Action<T> set)`.
+- **`UiValue<T>` and `UiText` are structs with unusable ctors** (`internal` and `private`). Use the
+  factories: `UiValue.Of<T>(constant)`, `UiValue.From<T>(Func<T>)`, `UiValue.None<T>()`,
+  `UiValue.Optional<T>(...)`, and `UiText.Of(string)`, `UiText.Of(LocalizedString)`, `UiText.From(...)`,
+  `UiText.FromLocalized(...)`, `UiText.None()`, `UiText.Optional(...)`. `UiText` has **four** implicit
+  conversions: `string`, `LocalizedString`, `LocalizedText`, `UiValue<string>`. `UiValue` without a type
+  argument is a *static class* holding those factories, a different type from the `UiValue<T>` struct.
+- **`UiValue<T>.IsDeclared` and `UiText.Value` are `internal`.** You cannot ask whether a value was
+  supplied. `UiText.IsDeclared` is public; that is the only readable one.
+
+**Every `[Obsolete]` in beta.14 is compiler-generated noise** on ~200 record copy-constructors, message
+`"Constructors of types with required members are not supported in this version of your compiler."`
+There are **zero** genuinely deprecated public members. Do not chase them.
+
+Only **3 enums** exist in the whole UI stack; everything enum-like is a static class of string constants.
+`UiWidgetAppearanceFields` is an `int` bitfield (`All = 63`).
+
+### Widget configuration surface
+`config` surface with `entryPoint: widget-config`. Check **`WidgetType`** as well as the entry point: a
+widget has no declared field list to fall back to, so declining leaves the user with JSON mode only.
+
+```
+new UiWidgetConfiguration {
+  Key = "root",
+  Properties = new UiWidgetProperties { Key = "properties", Children = [ /* inputs */ ] },
+  Editor      = new UiWidgetEditor      { Key = "editor",      Children = [ /* roomy */ ] },  // optional
+}
+```
+
+- **Macro Deck supplies the widget preview, the split layout, the narrow-window drawer, JSON mode,
+  scrolling, saving and the unsaved-changes prompt.** A plugin supplies fields only. Do not hand-roll a
+  preview; it would duplicate the host's and could not track the host's draft.
+- **A top-level input's node id *is* the widget data key it writes**, in both regions, which share one
+  namespace. `UiObjectInput` and `UiArrayInput` do open a scope, making the id `containerId.key`. Address
+  array items by their own stable key, never by position: a positional id loses focus on every reorder.
+- **A config tree persists nothing.** The host accumulates the edits and writes them through the ordinary
+  save path, which is what keeps schema validation and the unsaved-changes prompt working. A key the tree
+  never mentions survives a save untouched, so partial configuration drops nothing.
+- `UiWidgetAppearance.Section(data, fields, key = "appearance")` builds Macro Deck's own appearance
+  fields, already translated. Pass the groups named in the widget type's `AppearanceProperties` so the
+  appearance actions reach them. It owns the ids `appearance-heading` and `border-heading`.
+- The host runs a widget's **event** flows only from the top-level `flows` key, so bind
+  `UiActionsListEditor` there. Press flows additionally need `SupportsFlows` on the widget type.
+- A `UiState<JsonElement>` must hold a defined value: `default(JsonElement)` has no JSON form and building
+  the view throws a `UiViewException` naming the node and property. Start from an empty array.
+
 ### Resources
 ```csharp
 await ctx.UiResources.RegisterAsync(name, bytes, mediaType)   // ≤2 MiB
@@ -463,7 +525,7 @@ No bytes, no base64, no data URLs in the model. `ContentHash` is a cache hint, n
 
 ---
 
-## 8. Analyzers — 25 diagnostics
+## 8. Analyzers - 26 diagnostics, plus MDP5005/5006/5007 which exist only at run time
 
 | Id | Sev | Checks |
 |---|---|---|
