@@ -142,7 +142,7 @@ public sealed class RuntimeDownloadTests
 		var paths = new RuntimePaths(_root);
 		paths.EnsureComponentDirectory(asset.Component);
 
-		var partial = paths.PartialPath(asset);
+		var partial = paths.PartialPath(asset.Component, asset.FileName);
 
 		// The first 25,000 bytes are already on disk, exactly as an interrupted download would leave them.
 		await File.WriteAllBytesAsync(partial, payload[..25_000], TestContext.CurrentContext.CancellationToken);
@@ -172,7 +172,7 @@ public sealed class RuntimeDownloadTests
 		var paths = new RuntimePaths(_root);
 		paths.EnsureComponentDirectory(asset.Component);
 		await File.WriteAllBytesAsync(
-			paths.PartialPath(asset), RandomPayload(10_000), TestContext.CurrentContext.CancellationToken);
+			paths.PartialPath(asset.Component, asset.FileName), RandomPayload(10_000), TestContext.CurrentContext.CancellationToken);
 
 		var manager = NewManager(ignoreRange: true);
 		var result = await manager.EnsureAsync(asset, progress: null, TestContext.CurrentContext.CancellationToken);

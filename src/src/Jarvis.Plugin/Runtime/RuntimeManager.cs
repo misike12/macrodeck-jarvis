@@ -178,6 +178,60 @@ public sealed class RuntimeManager : IIntegrationIssueProvider
 	}
 
 	/// <summary>
+	/// Where an installed asset lives, or null when it is not installed. Callers that need to run something
+	/// resolve it here rather than recomputing the layout, so a change to where assets land is one change.
+	/// </summary>
+	public string? AssetPath(string assetId) =>
+		AssetCatalog.Find(assetId) is { } asset && Recorded(assetId) is not null ? InstalledPath(asset) : null;
+
+	/// <summary>
+	/// A file inside an unpacked archive. Piper's release unpacks to a nested <c>piper/</c> folder holding
+	/// the executable, its DLLs and the espeak data, so the caller needs to reach into what was unpacked
+	/// rather than treat the archive as a single file.
+	/// </summary>
+	public string? UnpackedFile(string assetId, params string[] relativeSegments)
+	{
+		if (AssetPath(assetId) is not { } root)
+		{
+			return null;
+		}
+
+		var path = Path.Combine([root, .. relativeSegments]);
+
+		return File.Exists(path) ? path : null;
+	}
+
+	/// <summary>
+	/// The voices actually on disk. A voice is a matched <c>.onnx</c> and <c>.onnx.json</c> pair: the
+	/// config carries the phoneme map and the sample rate, so an <c>.onnx</c> without one cannot be
+	/// spoken. Listing only real pairs is what lets the voice dropdown be populated from disk instead of
+	/// from a hardcoded list that drifts.
+	/// </summary>
+	public IReadOnlyList<InstalledVoice> InstalledVoices(string component)
+	{
+		var directory = _paths.ComponentDirectory(component);
+
+		if (!Directory.Exists(directory))
+		{
+			return [];
+		}
+
+		var voices = new List<InstalledVoice>();
+
+		foreach (var model in Directory.EnumerateFiles(directory, "*.onnx", SearchOption.AllDirectories))
+		{
+			var config = Path.ChangeExtension(model, ".onnx.json");
+
+			if (File.Exists(config))
+			{
+				voices.Add(new InstalledVoice(Path.GetFileNameWithoutExtension(model), model, config));
+			}
+		}
+
+		return [.. voices.OrderBy(voice => voice.Name, StringComparer.OrdinalIgnoreCase)];
+	}
+
+	/// <summary>
 	/// One derivation for the issue id, so the failure table is keyed by exactly the id the host will call
 	/// back with. Keying by asset id and prefixing only on the way out makes every retry a silent no-op.
 	/// </summary>
@@ -249,9 +303,14 @@ public sealed class RuntimeManager : IIntegrationIssueProvider
 		};
 	}
 
+	/// <summary>
+	/// Where an asset's contents land. Two assets sharing an install group share this directory, which is
+	/// how a voice's model and its config end up beside each other rather than in two folders that no
+	/// synthesiser would ever pair up.
+	/// </summary>
 	private string InstalledPath(PinnedAsset asset) => asset.Kind == AssetKind.Archive
-		? _paths.ComponentInstallDirectory(asset)
-		: Path.Combine(_paths.ComponentInstallDirectory(asset), asset.FileName);
+		? _paths.ComponentInstallDirectory(asset.Component, asset.Group)
+		: Path.Combine(_paths.ComponentInstallDirectory(asset.Component, asset.Group), asset.FileName);
 
 	private InstalledAsset? Recorded(string assetId)
 	{

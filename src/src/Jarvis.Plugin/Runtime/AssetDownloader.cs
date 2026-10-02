@@ -79,8 +79,8 @@ public sealed class AssetDownloader(HttpClient http, ILogger logger)
 	{
 		paths.EnsureComponentDirectory(asset.Component);
 
-		var partial = paths.PartialPath(asset);
-		var installed = paths.ComponentInstallDirectory(asset);
+		var partial = paths.PartialPath(asset.Component, asset.FileName);
+		var installed = paths.ComponentInstallDirectory(asset.Component, asset.Group);
 		Directory.CreateDirectory(installed);
 
 		try

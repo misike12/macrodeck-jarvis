@@ -24,6 +24,7 @@ public static class PluginServices
 		builder.Services.AddSingleton<ConversationRunner>();
 
 		builder.Services.AddSingleton<WindowsSynthesizer>();
+		builder.Services.AddSingleton<PiperSynthesizer>();
 		builder.Services.AddSingleton<SpeechPlayer>();
 		builder.Services.AddSingleton<VoiceService>();
 

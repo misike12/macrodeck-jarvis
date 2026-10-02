@@ -12,12 +12,14 @@ namespace Jarvis.Plugin.Speech;
 /// </summary>
 public sealed class VoiceService(
 	WindowsSynthesizer synthesizer,
+	PiperSynthesizer piper,
 	SpeechPlayer player,
 	AssistantStateHolder state,
 	JarvisSettingsStore settings,
 	ILogger logger) : IDisposable
 {
 	private readonly WindowsSynthesizer _synthesizer = synthesizer;
+	private readonly PiperSynthesizer _piper = piper;
 	private readonly SpeechPlayer _player = player;
 	private readonly AssistantStateHolder _state = state;
 	private readonly JarvisSettingsStore _settings = settings;
@@ -51,9 +53,9 @@ public sealed class VoiceService(
 			return false;
 		}
 
-var current = _settings.Current;
+		var current = _settings.Current;
 
-		if (current.TextToSpeech != TextToSpeechProvider.WindowsSapi && current.TextToSpeech != TextToSpeechProvider.PiperLocal)
+		if (current.TextToSpeech is not (TextToSpeechProvider.PiperLocal or TextToSpeechProvider.WindowsSapi))
 		{
 			return false;
 		}
@@ -73,17 +75,14 @@ var current = _settings.Current;
 			_workingDirectory!,
 			$"reply-{Convert.ToHexString(RandomNumberGenerator.GetBytes(6)).ToLowerInvariant()}.wav");
 
-try
+		try
 		{
 			_state.Transition(AssistantState.Speaking);
 
-			var voice = current.TextToSpeech == TextToSpeechProvider.WindowsSapi
-				? current.WindowsVoice
-				: current.PiperVoice;
-
-			await _synthesizer
-				.SynthesizeAsync(text, wavPath, voice, 0, 100, token)
-				.ConfigureAwait(false);
+			if (!await RenderAsync(text, wavPath, current, token).ConfigureAwait(false))
+			{
+				return false;
+			}
 
 			token.ThrowIfCancellationRequested();
 
@@ -125,6 +124,39 @@ try
 	private async Task WaitForPlaybackAsync(CancellationToken cancellationToken)
 	{
 		await _player.WaitAsync(cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <summary>
+	/// The fallback chain. Piper is preferred because it is the voice JARVIS is meant to have, but it is
+	/// an optional download, so a machine that has not installed it gets SAPI rather than silence. The
+	/// fallback is silent to the user on purpose: they asked for a spoken reply, not for an explanation of
+	/// which engine produced it, and a missing component is already reported as an issue.
+	/// </summary>
+	private async Task<bool> RenderAsync(
+		string text,
+		string wavPath,
+		JarvisSettings current,
+		CancellationToken cancellationToken)
+	{
+		if (current.TextToSpeech == TextToSpeechProvider.PiperLocal)
+		{
+			if (await _piper
+				.TrySynthesizeAsync(text, wavPath, current.PiperVoice, cancellationToken)
+				.ConfigureAwait(false))
+			{
+				return true;
+			}
+
+			_logger.Information(
+				"Piper is unavailable, falling back to the Windows voice. {Reason}",
+				_piper.IsAvailable ? "the configured voice is not installed" : "the component is not installed");
+		}
+
+		await _synthesizer
+			.SynthesizeAsync(text, wavPath, current.WindowsVoice, 0, 100, cancellationToken)
+			.ConfigureAwait(false);
+
+		return File.Exists(wavPath);
 	}
 
 	/// <summary>Stops mid-word. Used by the cancel action, the wake word and barge-in alike.</summary>

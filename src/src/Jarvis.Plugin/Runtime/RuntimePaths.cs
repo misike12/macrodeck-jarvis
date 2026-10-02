@@ -7,8 +7,8 @@ namespace Jarvis.Plugin.Runtime;
 /// <para>
 /// Everything goes under the plugin data directory rather than beside the executable: the install
 /// directory is immutable per version and disappears on the next update, so a runtime tree written there
-/// would be silently deleted the first time the plugin was upgraded. When the host has not supplied a
-/// data directory the temp path is used, which keeps the plugin working in a test harness rather than
+/// would be silently deleted the first time the plugin was upgraded. When the host has not supplied a data
+/// directory the temp path is used, which keeps the plugin working in a test harness rather than
 /// throwing where the writable root is genuinely unknown.
 /// </para>
 /// </summary>
@@ -41,17 +41,25 @@ public sealed class RuntimePaths
 		return Path.Combine(Root, Guard(component));
 	}
 
-	/// <summary>Where an unpacked archive's contents land.</summary>
-	public string ComponentInstallDirectory(PinnedAsset asset) =>
-		Path.Combine(ComponentDirectory(asset.Component), asset.Id);
+	/// <summary>
+	/// Where an install group's contents land inside its component, for example
+	/// <c>runtime\piper\voice-en_GB-alan-medium\</c>. Two assets sharing a group share this directory, which
+	/// is how a voice's model and its config end up beside each other rather than in two folders no
+	/// synthesiser would ever pair up.
+	/// </summary>
+	public string ComponentInstallDirectory(string component, string group)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(group);
+		return Path.Combine(ComponentDirectory(component), Guard(group));
+	}
 
 	/// <summary>
 	/// Where a partially written download accumulates. Kept beside its target rather than in a shared
 	/// folder so two components downloading at once cannot collide, and named so it can never be mistaken
 	/// for an installed file.
 	/// </summary>
-	public string PartialPath(PinnedAsset asset) =>
-		Path.Combine(ComponentDirectory(asset.Component), asset.FileName + ".part");
+	public string PartialPath(string component, string fileName) =>
+		Path.Combine(ComponentDirectory(component), fileName + ".part");
 
 	public string ManifestPath => Path.Combine(Root, "manifest.json");
 
@@ -60,7 +68,7 @@ public sealed class RuntimePaths
 		Directory.CreateDirectory(ComponentDirectory(component));
 
 	/// <summary>
-	/// Rejects a component or file name that would escape its own directory. The names are pinned rather
+	/// Rejects a component or group name that would escape its own directory. The names are pinned rather
 	/// than user-supplied today, so this is a cheap invariant to hold rather than a real attack surface.
 	/// </summary>
 	private static string Guard(string value)
@@ -90,8 +98,8 @@ public static class AssetDigest
 	}
 
 	/// <summary>
-	/// Digest comparison is constant-time in shape and case-insensitive: a pin is written by a human in a
-	/// message template, so it may arrive upper or lower case.
+	/// Digest comparison is case-insensitive: a pin is written by a human in a message template, so it may
+	/// arrive in either case.
 	/// </summary>
 	public static bool Matches(string expected, string actual) =>
 		string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase);

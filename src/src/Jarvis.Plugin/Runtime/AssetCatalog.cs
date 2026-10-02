@@ -34,8 +34,18 @@ public sealed record PinnedAsset
 	/// <summary>Bytes, when the pin records it. Used only to report progress, never to decide completeness.</summary>
 	public long? SizeBytes { get; init; }
 
+	/// <summary>
+	/// Which directory inside its component this asset unpacks into. Defaults to the asset's own id, which
+	/// is right for a standalone file and wrong for anything that has to sit beside another file: a voice's
+	/// ONNX model and its JSON config share a group, because a config in a different directory is a config
+	/// the synthesiser will never find.
+	/// </summary>
+	public string InstallGroup { get; init; } = string.Empty;
+
 	/// <summary>Human-readable purpose, shown in an issue when the asset cannot be fetched.</summary>
 	public required string Purpose { get; init; }
+
+	internal string Group => string.IsNullOrWhiteSpace(InstallGroup) ? Id : InstallGroup;
 }
 
 /// <summary>
@@ -76,6 +86,7 @@ public static class AssetCatalog
 			Url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx",
 			Sha256 = "0a309668932205e762801f1efc2736cd4b0120329622adf62be09e56339d3330",
 			SizeBytes = 63201294,
+			InstallGroup = "voice-en_GB-alan-medium",
 			Purpose = "The voice JARVIS speaks with when Piper is selected.",
 		},
 
@@ -87,6 +98,7 @@ public static class AssetCatalog
 			Url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx.json",
 			Sha256 = "c0f0d124e5895c00e7c03b35dcc8287f319a6998a365b182deb5c8e752ee8c1e",
 			SizeBytes = 4888,
+			InstallGroup = "voice-en_GB-alan-medium",
 			Purpose = "Piper needs the voice's configuration beside the voice.",
 		},
 
@@ -149,6 +161,12 @@ public sealed record InstalledAsset
 	[JsonPropertyName("installedAt")]
 	public required DateTimeOffset InstalledAt { get; init; }
 }
+
+/// <summary>A synthesiser voice that is actually on disk, model and config together.</summary>
+/// <param name="Name">The voice's name without extension, which is what the settings store holds.</param>
+/// <param name="ModelPath">The ONNX model.</param>
+/// <param name="ConfigPath">The model's JSON config, which carries the phoneme map and sample rate.</param>
+public sealed record InstalledVoice(string Name, string ModelPath, string ConfigPath);
 
 /// <summary>What the runtime directory currently holds.</summary>
 public sealed record RuntimeManifest
