@@ -2,6 +2,7 @@ using Jarvis.Plugin.Actions;
 using Jarvis.Plugin.Audio;
 using Jarvis.Plugin.Core;
 using Jarvis.Plugin.Llm;
+using Jarvis.Plugin.Runtime;
 using Jarvis.Plugin.Speech;
 using MacroDeck.Plugin.Hosting;
 using MacroDeck.Plugin.Serilog;
@@ -35,6 +36,10 @@ public static class PluginServices
 
 		builder.Services.AddSingleton<ChatClient>();
 		builder.Services.AddSingleton<MicrophoneMonitor>();
+
+		builder.Services.AddSingleton(provider => new RuntimeManager(
+			provider.GetRequiredService<IHttpClientFactory>().CreateClient("nim"),
+			provider.GetRequiredService<ILogger>()));
 
 		builder.Services.AddSingleton<ToolRegistry>(provider =>
 		{

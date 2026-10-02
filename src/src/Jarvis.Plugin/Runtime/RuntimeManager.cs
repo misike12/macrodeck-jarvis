@@ -1,0 +1,389 @@
+using System.Text.Json;
+using MacroDeck.Localization;
+using MacroDeck.Sdk.Issues;
+using Serilog;
+
+namespace Jarvis.Plugin.Runtime;
+
+/// <summary>
+/// Installs and keeps track of the native components JARVIS can use.
+/// <para>
+/// Nothing here runs at start-up. A plugin that must answer <c>/_macrodeck/health</c> with an empty
+/// runtime directory cannot also reach for the network while doing it, so every install is demanded by
+/// something that actually needs the component. A component that is missing, corrupt or unreachable is
+/// reported as an issue the user can act on, and the caller falls back rather than failing.
+/// </para>
+/// </summary>
+public sealed class RuntimeManager : IIntegrationIssueProvider
+{
+	private const int ManifestVersion = 1;
+
+	private static readonly Lock ManifestGate = new();
+
+	private readonly HttpClient _http;
+	private readonly AssetDownloader _downloader;
+	private readonly RuntimePaths _paths;
+	private readonly ILogger _logger;
+
+	/// <summary>The logger this manager was built with, for a caller that has no other.</summary>
+	public ILogger Logger => _logger;
+	private readonly Lock _gate = new();
+	private readonly Dictionary<string, FailedAsset> _failures = [];
+
+	private readonly RuntimeProgressReporter _progress = new();
+
+	private RuntimeManifest _manifest = new();
+
+	public RuntimeManager(HttpClient http, ILogger logger, RuntimePaths? paths = null)
+	{
+		_http = http;
+		_logger = logger.ForContext<RuntimeManager>();
+		_paths = paths ?? RuntimePaths.Resolve();
+		_downloader = new AssetDownloader(http, _logger);
+		_manifest = ReadManifest();
+	}
+
+	public RuntimePaths Paths => _paths;
+
+	/// <summary>Progress as an <see cref="IProgress{T}"/> the downloader can report into.</summary>
+	public IProgress<DownloadProgress> Progress => _progress;
+
+	/// <summary>The latest reported progress, for a variable read or a widget opened mid-download.</summary>
+	public RuntimeProgress CurrentProgress => _progress.Current;
+
+	/// <summary>Raised whenever progress changes.</summary>
+	public event Action<RuntimeProgress>? ProgressChanged
+	{
+		add => _progress.Changed += value;
+		remove => _progress.Changed -= value;
+	}
+
+	/// <summary>
+	/// Installs an asset the caller already holds. This is the primary entry point: the catalogue is a
+	/// convenience for the common case, not a gate, so a caller that has a verified asset in hand is not
+	/// forced to smuggle it through a global lookup.
+	/// </summary>
+	public async Task<AssetInstallResult> EnsureAsync(
+		PinnedAsset asset,
+		IProgress<DownloadProgress>? progress,
+		CancellationToken cancellationToken)
+	{
+		ArgumentNullException.ThrowIfNull(asset);
+
+		if (await IsInstalledAsync(asset, cancellationToken).ConfigureAwait(false))
+		{
+			Remember(asset, InstalledPath(asset), alreadyPresent: true);
+			_progress.Finish(asset.Id);
+			return AssetInstallResult.Ok(InstalledPath(asset), alreadyPresent: true);
+		}
+
+		var tracker = new Progress<DownloadProgress>(report =>
+		{
+			progress?.Report(report);
+			_progress.Report(report);
+		});
+
+		var result = await _downloader.InstallAsync(asset, _paths, tracker, cancellationToken).ConfigureAwait(false);
+
+		if (result.Installed && result.Path is { } path)
+		{
+			Remember(asset, path, alreadyPresent: false);
+		}
+		else
+		{
+			Forget(asset.Id);
+			RecordFailure(asset, result.Failure ?? AssetFailure.WriteFailed, result.Detail);
+		}
+
+		_progress.Finish(asset.Id);
+		return result;
+	}
+
+	/// <summary>Installs a catalogue asset by id.</summary>
+	public async Task<AssetInstallResult> EnsureAsync(
+		string assetId,
+		IProgress<DownloadProgress>? progress,
+		CancellationToken cancellationToken)
+	{
+		if (AssetCatalog.Find(assetId) is not { } asset)
+		{
+			return AssetInstallResult.Failed(AssetFailure.WriteFailed, $"'{assetId}' is not a pinned asset.");
+		}
+
+		return await EnsureAsync(asset, progress, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <summary>
+	/// Installs every asset a component needs. The first failure stops the component: a voice without its
+	/// config, or a binary without its model, is not a partial success worth reporting as one.
+	/// </summary>
+	public async Task<AssetInstallResult> EnsureComponentAsync(
+		string component,
+		IProgress<DownloadProgress>? progress,
+		CancellationToken cancellationToken)
+	{
+		var assets = AssetCatalog.ForComponent(component);
+
+		if (assets.Count == 0)
+		{
+			return AssetInstallResult.Failed(AssetFailure.WriteFailed, $"'{component}' is not a known component.");
+		}
+
+		foreach (var asset in assets)
+		{
+			var result = await EnsureAsync(asset.Id, progress, cancellationToken).ConfigureAwait(false);
+
+			if (!result.Installed)
+			{
+				return result;
+			}
+		}
+
+		return AssetInstallResult.Ok(_paths.ComponentDirectory(component), alreadyPresent: true);
+	}
+
+	/// <summary>Whether an asset is on disk and still hashes to its pin.</summary>
+	public async Task<bool> IsInstalledAsync(PinnedAsset asset, CancellationToken cancellationToken)
+	{
+		var path = InstalledPath(asset);
+
+		if (asset.Kind == AssetKind.Archive)
+		{
+			// An archive is verified before it is unpacked, so the manifest record is the evidence. The
+			// archive itself is deleted afterwards, leaving nothing left to re-hash.
+			return Recorded(asset.Id)?.Sha256 is { } digest && AssetDigest.Matches(asset.Sha256, digest);
+		}
+
+		if (!File.Exists(path))
+		{
+			return false;
+		}
+
+		try
+		{
+			return AssetDigest.Matches(asset.Sha256, await AssetDigest.OfFileAsync(path, cancellationToken).ConfigureAwait(false));
+		}
+		catch (IOException)
+		{
+			return false;
+		}
+	}
+
+	/// <summary>The file a component runs, or null when its asset is not installed.</summary>
+	public string? ExecutablePath(string assetId)
+	{
+		var asset = AssetCatalog.Find(assetId);
+
+		return asset is null || Recorded(assetId) is null ? null : InstalledPath(asset);
+	}
+
+	/// <summary>
+	/// One derivation for the issue id, so the failure table is keyed by exactly the id the host will call
+	/// back with. Keying by asset id and prefixing only on the way out makes every retry a silent no-op.
+	/// </summary>
+	private static string IssueIdFor(PinnedAsset asset) => $"runtime-{asset.Id}";
+
+	/// <summary>
+	/// A failure remembers the asset it belongs to, not just a message. A retry therefore reinstalls
+	/// exactly what failed, rather than looking the asset up again and being unable to find an id that was
+	/// never in the catalogue.
+	/// </summary>
+	private sealed record FailedAsset(PinnedAsset Asset, AssetFailure Failure, string? Detail);
+
+	public Task<IReadOnlyList<IntegrationIssue>> GetIssuesAsync(CancellationToken cancellationToken = default)
+	{
+		lock (_gate)
+		{
+			return Task.FromResult<IReadOnlyList<IntegrationIssue>>(
+			[
+				.. _failures.Values.Select(failure => Describe(failure)),
+			]);
+		}
+	}
+
+	public Task<IssueResolution> ResolveIssueAsync(string issueId, CancellationToken cancellationToken = default)
+	{
+		FailedAsset? failure;
+
+		lock (_gate)
+		{
+			if (!_failures.Remove(issueId, out failure) || failure is null)
+			{
+				return Task.FromResult(IssueResolution.Ok());
+			}
+		}
+
+		_logger.Information("Retrying {Asset} after the user asked.", issueId);
+		return RetryAsync(failure.Asset, cancellationToken);
+	}
+
+	private async Task<IssueResolution> RetryAsync(PinnedAsset asset, CancellationToken cancellationToken)
+	{
+		var result = await EnsureAsync(asset, progress: null, cancellationToken).ConfigureAwait(false);
+
+		return result.Installed
+			? IssueResolution.Ok()
+			: IssueResolution.Failed(Strings.Runtime.IssueStillFailing());
+	}
+
+	/// <summary>
+	/// A component that cannot be fetched is a state the user can see and retry, not an error that escapes
+	/// into whoever happened to ask for it. The description carries what the component was for and what
+	/// actually went wrong, because those are the two things worth acting on; the URL is not, because
+	/// there is nothing a user can do with a GitHub path.
+	/// </summary>
+	private static IntegrationIssue Describe(FailedAsset failure)
+	{
+		var corrupt = failure.Failure is AssetFailure.DigestMismatch or AssetFailure.UnpackFailed;
+
+		return new IntegrationIssue
+		{
+			Id = IssueIdFor(failure.Asset),
+			Title = corrupt ? Strings.Runtime.Issue.Digest.Title() : Strings.Runtime.Issue.Unreachable.Title(),
+			Description = Strings.Runtime.Issue.Detail(
+				corrupt ? Strings.Runtime.Issue.Digest.Description() : Strings.Runtime.Issue.Unreachable.Description(),
+				failure.Asset.Purpose,
+				failure.Detail ?? string.Empty),
+			ActionLabel = Strings.Runtime.Issue.Action(),
+			Severity = corrupt ? IntegrationIssueSeverity.Error : IntegrationIssueSeverity.Warning,
+		};
+	}
+
+	private string InstalledPath(PinnedAsset asset) => asset.Kind == AssetKind.Archive
+		? _paths.ComponentInstallDirectory(asset)
+		: Path.Combine(_paths.ComponentInstallDirectory(asset), asset.FileName);
+
+	private InstalledAsset? Recorded(string assetId)
+	{
+		lock (_gate)
+		{
+			return _manifest.Assets.FirstOrDefault(entry =>
+				string.Equals(entry.Id, assetId, StringComparison.OrdinalIgnoreCase));
+		}
+	}
+
+	private void Remember(PinnedAsset asset, string path, bool alreadyPresent)
+	{
+		if (alreadyPresent && Recorded(asset.Id) is not null)
+		{
+			return;
+		}
+
+		InstalledAsset? entry = null;
+
+		if (File.Exists(path))
+		{
+			entry = new InstalledAsset
+			{
+				Id = asset.Id,
+				Component = asset.Component,
+				Sha256 = asset.Sha256,
+				Path = path,
+				Bytes = new FileInfo(path).Length,
+				InstalledAt = DateTimeOffset.UtcNow,
+			};
+		}
+		else if (asset.Kind == AssetKind.Archive && Directory.Exists(path))
+		{
+			entry = new InstalledAsset
+			{
+				Id = asset.Id,
+				Component = asset.Component,
+				Sha256 = asset.Sha256,
+				Path = path,
+				Bytes = 0,
+				InstalledAt = DateTimeOffset.UtcNow,
+			};
+		}
+
+		if (entry is null)
+		{
+			return;
+		}
+
+		lock (_gate)
+		{
+			_manifest = _manifest with
+			{
+				Assets =
+				[
+					.. _manifest.Assets.Where(existing =>
+						!string.Equals(existing.Id, asset.Id, StringComparison.OrdinalIgnoreCase)),
+					entry,
+				],
+			};
+
+			_failures.Remove(IssueIdFor(asset));
+			WriteManifest(_manifest);
+		}
+	}
+
+	private void Forget(string assetId)
+	{
+		lock (_gate)
+		{
+			_manifest = _manifest with
+			{
+				Assets = [.. _manifest.Assets.Where(entry =>
+					!string.Equals(entry.Id, assetId, StringComparison.OrdinalIgnoreCase))],
+			};
+
+			WriteManifest(_manifest);
+		}
+	}
+
+	private void RecordFailure(PinnedAsset asset, AssetFailure failure, string? detail)
+	{
+		lock (_gate)
+		{
+			_failures[IssueIdFor(asset)] = new FailedAsset(asset, failure, detail);
+		}
+
+		_logger.Warning("{Asset} is unavailable. {Failure}: {Detail}", asset.Id, failure, detail);
+	}
+
+	private RuntimeManifest ReadManifest()
+	{
+		try
+		{
+			if (!File.Exists(_paths.ManifestPath))
+			{
+				return new RuntimeManifest { Version = ManifestVersion };
+			}
+
+			var manifest = JsonSerializer.Deserialize<RuntimeManifest>(File.ReadAllText(_paths.ManifestPath));
+
+			return manifest is null || manifest.Version != ManifestVersion
+				? new RuntimeManifest { Version = ManifestVersion }
+				: manifest;
+		}
+		catch (Exception exception) when (exception is IOException or JsonException)
+		{
+			// An unreadable manifest is treated as an empty one. Re-downloading something already present is
+			// wasteful but harmless; trusting a manifest that may be truncated is not.
+			_logger.Warning(exception, "The runtime manifest could not be read and was treated as empty.");
+			return new RuntimeManifest { Version = ManifestVersion };
+		}
+	}
+
+	private void WriteManifest(RuntimeManifest manifest)
+	{
+		try
+		{
+			Directory.CreateDirectory(_paths.Root);
+
+			var temporary = _paths.ManifestPath + ".tmp";
+			File.WriteAllText(temporary, JsonSerializer.Serialize(manifest, JsonOptions));
+
+			// The manifest is a cache, so a half-written one is only a wasted re-download, but writing it
+			// atomically still costs nothing.
+			File.Move(temporary, _paths.ManifestPath, overwrite: true);
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+		{
+			_logger.Warning(exception, "The runtime manifest could not be written.");
+		}
+	}
+
+	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+}

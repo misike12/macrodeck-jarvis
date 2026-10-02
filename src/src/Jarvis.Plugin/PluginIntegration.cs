@@ -3,9 +3,11 @@ using Jarvis.Plugin.Audio;
 using Jarvis.Plugin.Core;
 using Jarvis.Plugin.Llm;
 using Jarvis.Plugin.Orb;
+using Jarvis.Plugin.Runtime;
 using MacroDeck.Sdk;
 using MacroDeck.Sdk.Actions;
 using MacroDeck.Sdk.ConfigFlow;
+using MacroDeck.Sdk.Issues;
 using MacroDeck.Sdk.Ui;
 using MacroDeck.Sdk.Variables;
 using MacroDeck.Sdk.Widgets;
@@ -17,7 +19,7 @@ namespace Jarvis.Plugin;
 /// The integration. Capability opt-in happens by implementing the interface here; each one is
 /// registered automatically by <c>RegisterIntegration</c> so no capability handler is written by hand.
 /// </summary>
-public sealed class PluginIntegration : IPluginIntegration, IConfigFlowProvider, IVariableProvider, IWidgetTypeProvider, IUiProvider
+public sealed class PluginIntegration : IPluginIntegration, IConfigFlowProvider, IVariableProvider, IWidgetTypeProvider, IUiProvider, IIntegrationIssueProvider
 {
 	private readonly ILogger _logger;
 	private readonly JarvisSettingsStore _settings;
@@ -25,6 +27,7 @@ public sealed class PluginIntegration : IPluginIntegration, IConfigFlowProvider,
 	private readonly AssistantSession _session;
 	private readonly OrbWidgetTypeProvider _widgetTypes;
 	private readonly MicrophoneMonitor _microphone;
+	private readonly RuntimeManager _runtime;
 	private IUiResourceRegistry? _resources;
 
 	public PluginIntegration(
@@ -33,13 +36,15 @@ public sealed class PluginIntegration : IPluginIntegration, IConfigFlowProvider,
 		JarvisSettingsStore settings,
 		AssistantStateHolder state,
 		AssistantSession session,
-		MicrophoneMonitor microphone)
+		MicrophoneMonitor microphone,
+		RuntimeManager runtime)
 	{
 		_logger = logger.ForContext<PluginIntegration>();
 		_settings = settings;
 		_state = state;
 		_session = session;
 		_microphone = microphone;
+		_runtime = runtime;
 
 		_widgetTypes = new OrbWidgetTypeProvider(logger);
 
@@ -50,6 +55,7 @@ public sealed class PluginIntegration : IPluginIntegration, IConfigFlowProvider,
 			new ToggleAction(session),
 			new SayAction(session),
 			new CheckModelsAction(chat, settings),
+			new ManageComponentsAction(runtime),
 		];
 
 		Variables =
@@ -58,12 +64,33 @@ public sealed class PluginIntegration : IPluginIntegration, IConfigFlowProvider,
 			VariableDefinition.Eager("jarvis_transcript", VariableType.Text) with { Id = "transcript", Description = Strings.Variables.Transcript.Description() },
 			VariableDefinition.Eager("jarvis_reply", VariableType.Text) with { Id = "reply", Description = Strings.Variables.Reply.Description() },
 			VariableDefinition.Eager("jarvis_amplitude", VariableType.Numeric, decimalPlaces: 3) with { Id = "amplitude", Description = Strings.Variables.Amplitude.Description() },
+			VariableDefinition.Eager("jarvis_download_percent", VariableType.Numeric, decimalPlaces: 0, refreshInterval: TimeSpan.FromSeconds(1)) with
+			{
+				Id = "download-percent",
+				Description = Strings.Variables.DownloadPercent.Description(),
+				SemanticKind = VariableSemanticKinds.Percentage,
+			},
+			VariableDefinition.Eager("jarvis_download_label", VariableType.Text, refreshInterval: TimeSpan.FromSeconds(1)) with
+			{
+				Id = "download-label",
+				Description = Strings.Variables.DownloadLabel.Description(),
+			},
 		];
 	}
 
 	public IReadOnlyList<IActionDefinition> Actions { get; }
 
 	public IReadOnlyList<VariableDefinition> Variables { get; }
+
+	/// <summary>
+	/// Download problems surface here rather than as a failed action. The host polls this, so the manager
+	/// holds the state and the integration only forwards it.
+	/// </summary>
+	public Task<IReadOnlyList<IntegrationIssue>> GetIssuesAsync(CancellationToken cancellationToken = default) =>
+		_runtime.GetIssuesAsync(cancellationToken);
+
+	public Task<IssueResolution> ResolveIssueAsync(string issueId, CancellationToken cancellationToken = default) =>
+		_runtime.ResolveIssueAsync(issueId, cancellationToken);
 
 	public IConfigFlow CreateConfigFlow() => new JarvisConfigFlow();
 
@@ -124,6 +151,7 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		var snapshot = _state.Current;
+		var download = _runtime.CurrentProgress;
 
 		var reading = localId switch
 		{
@@ -131,11 +159,24 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 			"transcript" => VariableReading.Of(snapshot.Transcript),
 			"reply" => VariableReading.Of(snapshot.Reply),
 			"amplitude" => VariableReading.Of(snapshot.Amplitude, 0, 1, 0.01),
+			"download-percent" => VariableReading.Of(download.Active ? download.Percent : 0d, 0, 100, 1),
+			"download-label" => VariableReading.Of(Describe(download)),
 			_ => VariableReading.Unavailable,
 		};
 
-return ValueTask.FromResult(reading);
+		return ValueTask.FromResult(reading);
 	}
+
+	/// <summary>
+	/// The label names what is happening and how far it got, so a button bound to it says something useful
+	/// rather than only moving a percentage bar somewhere else.
+	/// </summary>
+	private static string Describe(RuntimeProgress progress) => progress.AssetId switch
+	{
+		"" or null => string.Empty,
+		_ when !progress.Active => $"{progress.AssetId} done",
+		_ => $"{progress.AssetId} {progress.Phase} {progress.Percent}%",
+	};
 
 	/// <summary>
 	/// Widget types register after the integration initializes and before any other provider hook, and

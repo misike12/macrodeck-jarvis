@@ -422,6 +422,64 @@
     <value>A listening orb that shows what JARVIS is doing and what it said.</value>
   </data>
 
+  <data name="Actions.ManageComponents.Name" xml:space="preserve">
+    <value>Install a JARVIS component</value>
+  </data>
+  <data name="Actions.ManageComponents.Description" xml:space="preserve">
+    <value>Downloads a component JARVIS can use offline, such as local speech or local voice.</value>
+  </data>
+  <data name="Actions.ManageComponents.Component.Label" xml:space="preserve">
+    <value>Component</value>
+  </data>
+  <data name="Actions.ManageComponents.Component.Piper" xml:space="preserve">
+    <value>Local voice (Piper)</value>
+  </data>
+  <data name="Actions.ManageComponents.Component.Whisper" xml:space="preserve">
+    <value>Local speech to text (Whisper)</value>
+  </data>
+
+  <data name="Runtime.UnknownComponent" xml:space="preserve">
+    <value>{component} is not a component JARVIS knows about.</value>
+    <comment>[string] component: the name the user chose.</comment>
+  </data>
+  <data name="Runtime.Installed" xml:space="preserve">
+    <value>{component} is installed.</value>
+    <comment>[string] component: the component just installed.</comment>
+  </data>
+  <data name="Runtime.InstallFailed" xml:space="preserve">
+    <value>{component} could not be installed. JARVIS will keep using the built-in fallback.</value>
+    <comment>[string] component: the component that failed.</comment>
+  </data>
+  <data name="Variables.DownloadPercent.Description" xml:space="preserve">
+    <value>How far the current component download has got, as a percentage.</value>
+  </data>
+  <data name="Variables.DownloadLabel.Description" xml:space="preserve">
+    <value>What JARVIS is downloading right now.</value>
+  </data>
+
+  <data name="Runtime.Issue.Unreachable.Title" xml:space="preserve">
+    <value>A JARVIS component could not be downloaded</value>
+  </data>
+  <data name="Runtime.Issue.Unreachable.Description" xml:space="preserve">
+    <value>No connection, or the download could not be started.</value>
+  </data>
+  <data name="Runtime.Issue.Digest.Title" xml:space="preserve">
+    <value>A JARVIS component failed its integrity check</value>
+  </data>
+  <data name="Runtime.Issue.Digest.Description" xml:space="preserve">
+    <value>The download did not match the pinned checksum, so it was discarded rather than installed.</value>
+  </data>
+  <data name="Runtime.Issue.Action" xml:space="preserve">
+    <value>Try again</value>
+  </data>
+  <data name="Runtime.Issue.Detail" xml:space="preserve">
+    <value>{reason} {purpose} {detail}</value>
+    <comment>[reason][purpose][detail] reason, purpose, and technical detail.</comment>
+  </data>
+  <data name="Runtime.IssueStillFailing" xml:space="preserve">
+    <value>Still unavailable. JARVIS will keep using the built-in fallback.</value>
+  </data>
+
   <data name="Orb.Config.Preset" xml:space="preserve">
     <value>Shape</value>
   </data>

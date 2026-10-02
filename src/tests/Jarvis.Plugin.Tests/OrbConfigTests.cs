@@ -138,8 +138,16 @@ public class OrbConfigTests
 		switch (element)
 		{
 			case MacroDeck.Ui.Config.UiWidgetConfiguration configuration:
-				Collect(configuration.Properties, keys);
-				Collect(configuration.Editor, keys);
+				if (configuration.Properties is { } properties)
+				{
+					Collect(properties, keys);
+				}
+
+				if (configuration.Editor is { } editor)
+				{
+					Collect(editor, keys);
+				}
+
 				break;
 
 			case MacroDeck.Ui.Dsl.UiContainer container:
