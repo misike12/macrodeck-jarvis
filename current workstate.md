@@ -192,11 +192,94 @@ stop    = cut short of full length, IsPlaying False
 **Verification:** `dotnet build` 0 warnings, `dotnet test` **28/28** (probe is `[Explicit]`, so the
 default run stays silent), conformance **33 passed / 0 failed / 16 skipped**, exit 0.
 
+### ? M10 - Widget configuration surface
+- `Orb/OrbConfigView.cs` - every orb key is a real input; the host's appearance fields beside them
+- `Orb/OrbUiProvider.cs` - the config surface is served by `OrbConfigSession`, which checks `WidgetType`
+
+**Macro Deck supplies the widget preview, the split layout, the narrow-window drawer, JSON mode, saving
+and the unsaved-changes prompt.** A plugin supplies fields only. A hand-rolled preview frame would have
+duplicated the host's own and could never have tracked the host's draft. The `Editor` region carries the
+action flows, bound to the top-level `flows` key because that is the only key the host runs event flows
+from. `WidgetType` is checked before serving: a widget has no declared field list to fall back on, so
+declining leaves the user with JSON mode only.
+
+**Two API facts reflection found and the docs do not state** (full detail in `sdk-surface.md`):
+`UiBinding<T>` has a private ctor with `Value`/`CanWrite` internal, so `Bind.To(state)` is the only way
+to bind; `UiValue<T>` and `UiText` are structs whose ctors are internal/private, reachable only through
+`UiValue.Of/From/None/Optional` and `UiText.Of/From/None/Optional`.
+
+**A pre-existing bug the tests found:** `OrbWidgetData` writes its enums kebab-case (`"arc-reactor"`) and
+`ReadEnum` asked `Enum.TryParse` for exactly that string, which matches neither a hyphen nor anything but
+the exact member name. Every default payload silently fell back, so a freshly placed orb drew its preset
+wrong. Both spellings are accepted now.
+
+### ? M11 - Native asset manager
+- `Runtime/AssetCatalog.cs` - pinned assets with **measured** SHA-256, install groups, installed manifest
+- `Runtime/RuntimePaths.cs` - runtime layout under the plugin data directory, path-traversal guard
+- `Runtime/AssetDownloader.cs` - Range resume, digest verify, atomic install
+- `Runtime/RuntimeManager.cs` - `EnsureAsync`, manifest, `IIntegrationIssueProvider` and its retry
+- `Runtime/RuntimeProgressReporter.cs` - progress snapshot for a variable or a widget
+- `Actions/ManageComponentsAction.cs` - the user-facing trigger, and two progress variables
+
+**Digests were measured from the pinned URLs, not copied from a release note.** A pin nobody verified is
+worse than no pin: it fails closed, and the failure looks exactly like a corrupt download.
+
+| Component | Asset | Bytes | SHA-256 (first 16) |
+|---|---|---|---|
+| piper | piper_windows_amd64.zip | 22,477,236 | `f3c58906402b24f3` |
+| piper | en_GB-alan-medium.onnx | 63,201,294 | `0a309668932205e76` |
+| piper | en_GB-alan-medium.onnx.json | 4,888 | `c0f0d124e5895c00` |
+| whisper | whisper-bin-x64.zip | 3,675,974 | `0d2eca299c248f96` |
+| whisper | ggml-tiny.en.bin | 77,704,715 | `921e4cf8686fdd99` |
+
+Both GitHub and Hugging Face honour `Range`, so resume is real rather than aspirational.
+
+**Three properties that had to hold, and do:**
+
+- A partial file is never complete. Distinct path, reused only on a `206`, digest-checked before install.
+  A server that ignores `Range` and answers `200` restarts, because appending a full body to a partial
+  silently concatenates two copies.
+- Installs are atomic: written under a temporary name, verified, then moved into place.
+- Wrong content is **deleted**, not retried: a mirror serving wrong bytes will serve them again.
+
+**Three bugs the tests found:** the failure table was keyed by asset id while the host calls back with the
+issue id, so every retry was a silent no-op; a retry re-entered through the catalogue and so could never
+retry an asset the catalogue did not hold; the progress variables declared camelCase local ids, which the
+plugin harness rejected at `Build()`.
+
+**Verified:** `dotnet test` **52/52**, build 0 warnings, conformance **33/0/16 with nothing downloaded**,
+and both components install and verify against the live URLs (`RuntimeLiveDownloadTests`, `[Explicit]`).
+
+### ? M12 - Piper local voice
+- `Speech/PiperSynthesizer.cs` - child process, stdin text, WAV out, espeak data and tashkeel model resolved
+- `Speech/VoiceService.cs` - Piper first, SAPI fallback, the chain stated once
+
+Piper is the preferred engine with SAPI **kept as the fallback rather than replaced by it**: Piper is an
+optional download, so an uninstalled machine still gets a spoken reply instead of silence. The fallback is
+silent to the user, because they asked for a spoken reply, not an explanation of which engine produced it.
+
+Piper is driven as a child process reading stdin and writing a WAV, which is the only interface it
+offers; reimplementing its ONNX pipeline in-process would add a native dependency for no gain. Measured
+here: **real-time factor 0.16**, roughly six times faster than speaking.
+
+**The bug worth recording:** a voice is an ONNX model *and* its JSON config together, and the config
+carries the phoneme map and the sample rate. The manager gave each asset its own directory, so the two
+landed in different folders and **no complete voice existed on disk at all**. Discovery walks for the
+pair, found nothing, and every reply would have fallen back to SAPI forever while looking healthy.
+Assets now declare an **install group**, and a group shares one directory.
+
+A test asserts the *configured default* voice is among the voices on disk. The failure that matters is
+not a broken render but a default naming a voice nothing installs, which is indistinguishable from
+working.
+
+**Verified:** the component installs through the manager, the binary lands where the synthesizer looks, a
+voice is discovered, and both the discovered voice and the configured default render.
+
 ---
 
 ## ? Git
 
-Repository initialised at `JARVIS/src`, branch `main`, one commit per milestone. `jarvis.settings.json`
+Repository initialised at `JARVIS`, branch `main`, one commit per milestone. `jarvis.settings.json`
 is **gitignored** and has never been committed; `Properties/launchSettings.json` is tracked because it
 holds only the dev launch profile and no secret.
 
@@ -266,19 +349,25 @@ ASR and TTS are **not** in the `/v1/models` text list — they are separate NIM 
 
 ## Next up, in order
 
-Items 1 and the TTS half of 4 are done. Order from here:
+Done: widget config surface, native asset manager, Piper TTS. Order from here:
 
-1. **Widget config surface** - everything configurable, per widget.
-2. **Native asset manager** - download + SHA-256 + progress. Plugin must boot and answer
-   /_macrodeck/health with **nothing downloaded** (conformance must stay green).
-   This unblocks the rest, because Piper, whisper.cpp and Porcupine all arrive through it.
-3. **Piper TTS** - replaces the SAPI fallback behind the same VoiceService surface.
-4. **STT (whisper.cpp) + global hotkey**
-5. **Wake word (Porcupine, NanoWakeWord fallback)**
-6. **Vision (screen + webcam, on demand only)**
-7. **Memory, persona self-modification, remaining PC-control tools**
-8. **German translation**
-9. **Final: conformance + alidate --level publication**
+1. **STT (whisper.cpp)** - the binary and the tiny.en model are already pinned and verified, so this is
+   mostly wiring: capture from the microphone monitor, run whisper-cli, feed the transcript to
+   SayAsync. Activate currently only arms a turn.
+2. **Global hotkey** - register a system-wide key so the assistant can be summoned from any app.
+3. **Wake word (Porcupine, NanoWakeWord fallback)**
+4. **Vision (screen + webcam, on demand only)**
+5. **Memory, persona self-modification, remaining PC-control tools**
+6. **German translation**
+7. **Final: conformance + alidate --level publication**
+
+### Two things to watch in STT
+
+- The **transcript must be ephemeral by default**. A continuously-listening microphone that writes
+  everything to disk is a privacy decision, not an implementation detail. Check plan.md section 11
+  before choosing a default.
+- whisper.cpp prints its progress to **stderr** and the path to stdout. Drain both pipes concurrently or
+  the child will block on a full buffer, which is the same trap Piper had.
 
 ---
 
