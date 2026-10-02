@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schemas.macro-deck.app/plugin-manifest-v1.schema.json",
+  "manifestVersion": 1,
+  "id": "com.misu.jarvis",
+  "name": "JARVIS",
+  "version": "1.0.0",
+  "description": "A voice-driven assistant for your deck.",
+  "icon": "Assets/icon.svg",
+  "entrypoints": {
+    "win-x64": {
+      "executable": "runtimes/win-x64/Jarvis.Plugin.dll",
+      "runtime": {
+        "kind": "FrameworkDependent",
+        "dotnetVersion": "10.0"
+      }
+    }
+  },
+  "publisher": {
+    "name": "misu"
+  },
+  "license": "MIT",
+  "compatibility": {
+    "macroDeck": ">=3.0.0-0"
+  }
+}

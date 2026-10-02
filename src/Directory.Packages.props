@@ -1,0 +1,28 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <!-- The floating 3.0.0-* range resolves to whatever NuGet ranks highest, which is currently
+             3.0.0-preview.10 while the CLI is 3.0.0-beta.14. preview predates beta in SemVer ordering, so
+             the float lands on an older SDK than the tool that builds against it, and newer contracts
+             (SupportsFlows, AppearanceProperties, UiModifier) simply do not exist. Pin the version the CLI
+             is on and override it with -p:MacroDeckSdkVersion=<version> to test against another build. -->
+    <MacroDeckSdkVersion Condition="'$(MacroDeckSdkVersion)' == ''">3.0.0-beta.14</MacroDeckSdkVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="MacroDeck.Localization" Version="$(MacroDeckSdkVersion)" />
+    <PackageVersion Include="MacroDeck.Plugin.Analyzers" Version="$(MacroDeckSdkVersion)" />
+    <PackageVersion Include="MacroDeck.Plugin.Hosting" Version="$(MacroDeckSdkVersion)" />
+    <PackageVersion Include="MacroDeck.Plugin.Serilog" Version="$(MacroDeckSdkVersion)" />
+    <PackageVersion Include="MacroDeck.Plugin.Testing" Version="$(MacroDeckSdkVersion)" />
+    <PackageVersion Include="MacroDeck.Sdk" Version="$(MacroDeckSdkVersion)" />
+    <PackageVersion Include="NAudio" Version="3.1.0" />
+    <PackageVersion Include="NAudio.Wasapi" Version="3.1.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.0" />
+    <PackageVersion Include="NUnit" Version="4.3.2" />
+    <PackageVersion Include="NUnit.Analyzers" Version="4.7.0" />
+    <PackageVersion Include="NUnit3TestAdapter" Version="5.0.0" />
+  </ItemGroup>
+</Project>

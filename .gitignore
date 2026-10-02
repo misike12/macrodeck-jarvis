@@ -1,0 +1,7 @@
+# Never commit the developer settings file or the API keys it holds.
+jarvis.settings.json
+
+# Build output
+**/bin/
+**/obj/
+artifacts/

@@ -1,0 +1,424 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+
+  <data name="Actions.Activate.Name" xml:space="preserve">
+    <value>Activate JARVIS</value>
+  </data>
+  <data name="Actions.Activate.Description" xml:space="preserve">
+    <value>Starts a JARVIS session.</value>
+  </data>
+  <data name="Actions.Activate.Mode.Label" xml:space="preserve">
+    <value>Mode</value>
+  </data>
+  <data name="Actions.Activate.Mode.Description" xml:space="preserve">
+    <value>How much the session runs for.</value>
+  </data>
+  <data name="Actions.Activate.Prompt.Label" xml:space="preserve">
+    <value>Say this instead of speaking</value>
+  </data>
+  <data name="Actions.Activate.Prompt.Description" xml:space="preserve">
+    <value>Optional. Runs this text as the turn instead of listening.</value>
+  </data>
+  <data name="Actions.Activate.WaitForWakeWord.Label" xml:space="preserve">
+    <value>Wait for wake word</value>
+  </data>
+  <data name="Actions.Activate.WaitForWakeWord.Description" xml:space="preserve">
+    <value>Open the microphone but wait until the wake word is spoken.</value>
+  </data>
+  <data name="Actions.Activate.TimeoutSeconds.Label" xml:space="preserve">
+    <value>Conversation timeout (seconds)</value>
+  </data>
+  <data name="Actions.Activate.TimeoutSeconds.Description" xml:space="preserve">
+    <value>How long a conversation stays open while nothing is said.</value>
+  </data>
+
+  <data name="Actions.Cancel.Name" xml:space="preserve">
+    <value>Cancel JARVIS</value>
+  </data>
+  <data name="Actions.Cancel.Description" xml:space="preserve">
+    <value>Stops JARVIS speaking immediately.</value>
+  </data>
+  <data name="Actions.Cancel.KillRunningCommand.Label" xml:space="preserve">
+    <value>Also stop a running command</value>
+  </data>
+  <data name="Actions.Cancel.KillRunningCommand.Description" xml:space="preserve">
+    <value>Terminate any command JARVIS started instead of letting it finish.</value>
+  </data>
+
+  <data name="Actions.Toggle.Name" xml:space="preserve">
+    <value>Toggle JARVIS</value>
+  </data>
+  <data name="Actions.Toggle.Description" xml:space="preserve">
+    <value>Starts JARVIS when idle and cancels it when running.</value>
+  </data>
+  <data name="Actions.Toggle.Mode.Label" xml:space="preserve">
+    <value>Mode</value>
+  </data>
+  <data name="Actions.Toggle.Mode.Description" xml:space="preserve">
+    <value>How much the session runs for.</value>
+  </data>
+
+  <data name="Actions.Say.Name" xml:space="preserve">
+    <value>Say something to JARVIS</value>
+  </data>
+  <data name="Actions.Say.Description" xml:space="preserve">
+    <value>Sends text to JARVIS without using the microphone.</value>
+  </data>
+  <data name="Actions.Say.Prompt.Label" xml:space="preserve">
+    <value>Text</value>
+  </data>
+  <data name="Actions.Say.Prompt.Description" xml:space="preserve">
+    <value>What JARVIS should respond to.</value>
+  </data>
+
+  <data name="Actions.ViewOutput.Name" xml:space="preserve">
+    <value>View JARVIS output</value>
+  </data>
+  <data name="Actions.ViewOutput.Description" xml:space="preserve">
+    <value>Opens the full untruncated output of the last command JARVIS ran.</value>
+  </data>
+
+  <data name="Actions.CheckModels.Name" xml:space="preserve">
+    <value>Check JARVIS models</value>
+  </data>
+  <data name="Actions.CheckModels.Description" xml:space="preserve">
+    <value>Verifies that each configured provider and model is reachable.</value>
+  </data>
+  <data name="Actions.CheckModels.Provider.Label" xml:space="preserve">
+    <value>Which model to check</value>
+  </data>
+  <data name="Actions.CheckModels.Llm.Label" xml:space="preserve">
+    <value>Language model</value>
+  </data>
+  <data name="Actions.CheckModels.Vision.Label" xml:space="preserve">
+    <value>Vision model</value>
+  </data>
+  <data name="Actions.CheckModels.Both.Label" xml:space="preserve">
+    <value>Both</value>
+  </data>
+  <data name="Actions.CheckModels.ReportTitle" xml:space="preserve">
+    <value>Model check</value>
+  </data>
+
+  <data name="Actions.DownloadComponent.Name" xml:space="preserve">
+    <value>Download JARVIS component</value>
+  </data>
+  <data name="Actions.DownloadComponent.Description" xml:space="preserve">
+    <value>Fetches a native binary or model JARVIS needs.</value>
+  </data>
+  <data name="Actions.DownloadComponent.Component.Label" xml:space="preserve">
+    <value>Component</value>
+  </data>
+  <data name="Actions.DownloadComponent.Component.Description" xml:space="preserve">
+    <value>Which native component to fetch.</value>
+  </data>
+  <data name="Actions.DownloadComponent.Variant.Label" xml:space="preserve">
+    <value>Variant</value>
+  </data>
+  <data name="Actions.DownloadComponent.Variant.Description" xml:space="preserve">
+    <value>Which model or voice to fetch for that component.</value>
+  </data>
+
+  <data name="Parameter.Mode.OneShot.Label" xml:space="preserve">
+    <value>One request</value>
+  </data>
+  <data name="Parameter.Mode.Conversation.Label" xml:space="preserve">
+    <value>Conversation</value>
+  </data>
+  <data name="Parameter.Mode.WaitForWakeWord.Label" xml:space="preserve">
+    <value>Wait for wake word</value>
+  </data>
+
+  <data name="States.Idle" xml:space="preserve">
+    <value>Idle</value>
+  </data>
+  <data name="States.Listening" xml:space="preserve">
+    <value>Listening</value>
+  </data>
+  <data name="States.Thinking" xml:space="preserve">
+    <value>Thinking</value>
+  </data>
+  <data name="States.Speaking" xml:space="preserve">
+    <value>Speaking</value>
+  </data>
+  <data name="States.Executing" xml:space="preserve">
+    <value>Working</value>
+  </data>
+  <data name="States.Confirming" xml:space="preserve">
+    <value>Waiting for confirmation</value>
+  </data>
+  <data name="States.Error" xml:space="preserve">
+    <value>Error</value>
+  </data>
+  <data name="States.Unavailable" xml:space="preserve">
+    <value>Not set up</value>
+  </data>
+
+  <data name="ConfigFlow.CompleteTitle" xml:space="preserve">
+    <value>JARVIS</value>
+  </data>
+  <data name="ConfigFlow.UnknownStep" xml:space="preserve">
+    <value>That step is not part of setup.</value>
+  </data>
+  <data name="ConfigFlow.SelfHostedUrlRequired" xml:space="preserve">
+    <value>A self-hosted model server needs an address.</value>
+  </data>
+
+  <data name="ConfigFlow.Option.NvidiaNim" xml:space="preserve">
+    <value>NVIDIA NIM (cloud)</value>
+  </data>
+  <data name="ConfigFlow.Option.SelfHosted" xml:space="preserve">
+    <value>Self-hosted NIM</value>
+  </data>
+  <data name="ConfigFlow.Option.LlamaCpp" xml:space="preserve">
+    <value>Local llama.cpp</value>
+  </data>
+  <data name="ConfigFlow.Option.Sapi" xml:space="preserve">
+    <value>Windows speech (built in)</value>
+  </data>
+
+  <data name="ConfigFlow.Provider.Title" xml:space="preserve">
+    <value>Model provider</value>
+  </data>
+  <data name="ConfigFlow.Provider.Description" xml:space="preserve">
+    <value>Where JARVIS sends what it hears.</value>
+  </data>
+  <data name="ConfigFlow.Provider.Llm.Label" xml:space="preserve">
+    <value>Language model</value>
+  </data>
+  <data name="ConfigFlow.Provider.SelfHostedUrl.Label" xml:space="preserve">
+    <value>Server address</value>
+  </data>
+  <data name="ConfigFlow.Provider.NvidiaBaseUrl.Label" xml:space="preserve">
+    <value>NVIDIA base address</value>
+  </data>
+
+  <data name="ConfigFlow.Keys.Title" xml:space="preserve">
+    <value>Keys</value>
+  </data>
+  <data name="ConfigFlow.Keys.Description" xml:space="preserve">
+    <value>Stored encrypted by Macro Deck. Leave a key blank to keep the one already saved.</value>
+  </data>
+  <data name="ConfigFlow.Keys.Nvidia.Label" xml:space="preserve">
+    <value>NVIDIA API key</value>
+  </data>
+  <data name="ConfigFlow.Keys.Nvidia.Description" xml:space="preserve">
+    <value>From build.nvidia.com settings.</value>
+  </data>
+  <data name="ConfigFlow.Keys.SelfHostedToken.Label" xml:space="preserve">
+    <value>Server token</value>
+  </data>
+  <data name="ConfigFlow.Keys.SelfHostedToken.Description" xml:space="preserve">
+    <value>Only if your server needs one.</value>
+  </data>
+  <data name="ConfigFlow.Keys.Picovoice.Label" xml:space="preserve">
+    <value>Picovoice access key</value>
+  </data>
+  <data name="ConfigFlow.Keys.Picovoice.Description" xml:space="preserve">
+    <value>Only needed for the Porcupine wake word. NanoWakeWord works without one.</value>
+  </data>
+
+  <data name="ConfigFlow.Models.Title" xml:space="preserve">
+    <value>Models</value>
+  </data>
+  <data name="ConfigFlow.Models.Description" xml:space="preserve">
+    <value>Any model name works. Use Check JARVIS models afterwards to confirm it is reachable.</value>
+  </data>
+  <data name="ConfigFlow.Models.Llm.Label" xml:space="preserve">
+    <value>Language model name</value>
+  </data>
+  <data name="ConfigFlow.Models.VisionProvider.Label" xml:space="preserve">
+    <value>Vision provider</value>
+  </data>
+  <data name="ConfigFlow.Models.VisionModel.Label" xml:space="preserve">
+    <value>Vision model name</value>
+  </data>
+  <data name="ConfigFlow.Models.Stt.Label" xml:space="preserve">
+    <value>Speech recognition</value>
+  </data>
+  <data name="ConfigFlow.Models.SttModel.Label" xml:space="preserve">
+    <value>Speech recognition model</value>
+  </data>
+  <data name="ConfigFlow.Models.Option.WhisperCpp" xml:space="preserve">
+    <value>whisper.cpp (offline)</value>
+  </data>
+
+  <data name="ConfigFlow.Voice.Title" xml:space="preserve">
+    <value>Voice and wake word</value>
+  </data>
+  <data name="ConfigFlow.Voice.Description" xml:space="preserve">
+    <value>Language drives recognition and speech together.</value>
+  </data>
+  <data name="ConfigFlow.Voice.Tts.Label" xml:space="preserve">
+    <value>Speech synthesis</value>
+  </data>
+  <data name="ConfigFlow.Voice.PiperVoice.Label" xml:space="preserve">
+    <value>Piper voice</value>
+  </data>
+  <data name="ConfigFlow.Voice.TtsModel.Label" xml:space="preserve">
+    <value>Speech synthesis model</value>
+  </data>
+  <data name="ConfigFlow.Voice.Language.Label" xml:space="preserve">
+    <value>Language</value>
+  </data>
+  <data name="ConfigFlow.Voice.WakeEngine.Label" xml:space="preserve">
+    <value>Wake word engine</value>
+  </data>
+  <data name="ConfigFlow.Voice.WakeWord.Label" xml:space="preserve">
+    <value>Wake word</value>
+  </data>
+  <data name="ConfigFlow.Voice.Hotkey.Label" xml:space="preserve">
+    <value>Push to talk shortcut</value>
+  </data>
+  <data name="ConfigFlow.Voice.Option.Piper" xml:space="preserve">
+    <value>Piper (offline)</value>
+  </data>
+  <data name="ConfigFlow.Voice.Option.Porcupine" xml:space="preserve">
+    <value>Porcupine</value>
+  </data>
+  <data name="ConfigFlow.Voice.Option.NanoWakeWord" xml:space="preserve">
+    <value>NanoWakeWord (no key)</value>
+  </data>
+  <data name="ConfigFlow.Voice.Option.Vosk" xml:space="preserve">
+    <value>Vosk</value>
+  </data>
+
+  <data name="ConfigFlow.Behaviour.Title" xml:space="preserve">
+    <value>Behaviour and safety</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Description" xml:space="preserve">
+    <value>How much JARVIS is allowed to do without asking.</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Safety.Label" xml:space="preserve">
+    <value>Confirmation</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Confirmation.Label" xml:space="preserve">
+    <value>Voice confirmation</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.CancelDepth.Label" xml:space="preserve">
+    <value>Cancel behaviour</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Memory.Label" xml:space="preserve">
+    <value>Memory</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Persona.Label" xml:space="preserve">
+    <value>Personality</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Prompt.Label" xml:space="preserve">
+    <value>Custom instructions</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Notes.Label" xml:space="preserve">
+    <value>Notes JARVIS should always know</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.SafetyConfirmAll" xml:space="preserve">
+    <value>Ask before everything</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.SafetyAllowlist" xml:space="preserve">
+    <value>Ask unless it is on the allowlist</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.SafetyToolPermissions" xml:space="preserve">
+    <value>Per tool permission</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.SafetyAutonomous" xml:space="preserve">
+    <value>Never ask</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.ConfirmYesNo" xml:space="preserve">
+    <value>Ask out loud, answer yes or no</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.ConfirmChallenge" xml:space="preserve">
+    <value>Ask out loud, repeat a random word</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.ConfirmHybrid" xml:space="preserve">
+    <value>Yes or no, random word for anything destructive</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.CancelSpeech" xml:space="preserve">
+    <value>Stop speaking and listening</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.CancelCommand" xml:space="preserve">
+    <value>Also stop a running command</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.MemoryNone" xml:space="preserve">
+    <value>Forget everything</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.MemorySession" xml:space="preserve">
+    <value>Until Macro Deck closes</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.MemoryPersistent" xml:space="preserve">
+    <value>Keep the conversation</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.MemoryNotes" xml:space="preserve">
+    <value>Keep the conversation and my notes</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.PersonaClassic" xml:space="preserve">
+    <value>Classic JARVIS</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.PersonaTerse" xml:space="preserve">
+    <value>Terse</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.PersonaSarcastic" xml:space="preserve">
+    <value>Sarcastic</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.PersonaFormal" xml:space="preserve">
+    <value>Formal</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.PersonaCustom" xml:space="preserve">
+    <value>Custom</value>
+  </data>
+
+  <data name="Variables.State.Description" xml:space="preserve">
+    <value>What JARVIS is doing right now.</value>
+  </data>
+  <data name="Variables.Transcript.Description" xml:space="preserve">
+    <value>The most recent thing that was said to JARVIS.</value>
+  </data>
+  <data name="Variables.Reply.Description" xml:space="preserve">
+    <value>JARVIS's most recent reply.</value>
+  </data>
+  <data name="Variables.Amplitude.Description" xml:space="preserve">
+    <value>How loud the microphone or speaker is, from 0 to 1.</value>
+  </data>
+
+  <data name="Errors.NoModelConfigured" xml:space="preserve">
+    <value>No language model is configured.</value>
+  </data>
+  <data name="Errors.MicUnavailable" xml:space="preserve">
+    <value>No microphone is available.</value>
+  </data>
+  <data name="Errors.ProviderRejected" xml:space="preserve">
+    <value>The model provider refused the request.</value>
+  </data>
+  <data name="Errors.ProviderUnreachable" xml:space="preserve">
+    <value>The model provider could not be reached.</value>
+  </data>
+  <data name="Errors.RateLimited" xml:space="preserve">
+    <value>The model provider is rate limiting requests. Try again shortly.</value>
+  </data>
+  <data name="Errors.ComponentMissing" xml:space="preserve">
+    <value>{component} is not downloaded yet.</value>
+  </data>
+  <data name="Errors.AlreadyRunning" xml:space="preserve">
+    <value>JARVIS is already running.</value>
+  </data>
+  <data name="Errors.NothingToCancel" xml:space="preserve">
+    <value>JARVIS is not running.</value>
+  </data>
+
+  <data name="Orb.TypeName" xml:space="preserve">
+    <value>JARVIS orb</value>
+  </data>
+  <data name="Orb.TypeDescription" xml:space="preserve">
+    <value>A listening orb that shows what JARVIS is doing and what it said.</value>
+  </data>
+</root>

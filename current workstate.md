@@ -1,0 +1,326 @@
+# JARVIS — Current Workstate
+
+Last updated: after the LLM client milestone.
+Plan: `plan.md` · Platform knowledge: `knowledge.md`
+
+---
+
+## Identity
+
+| | |
+|---|---|
+| Plugin id | `com.misu.jarvis` |
+| Display name | `JARVIS` |
+| Target | `win-x64` only, framework-dependent on .NET 10, no Node/Python |
+| Source root | `C:\Users\Misu\Desktop\ideas\JARVIS\src` |
+| Plugin project | `src\src\Jarvis.Plugin\` |
+| CLI | `macrodeck-plugin` 3.0.0-beta.14 (global) |
+
+---
+
+## Milestones
+
+### ✅ M1 — Scaffold
+`macrodeck-plugin new` → manifest, csproj, slnx, test project, icon.
+`run --stub-host` registers as `com.misu.jarvis`, negotiates protocol v3.
+
+### ✅ M2 — State machine + actions
+- `Core/AssistantState.cs` — 8 states
+- `Core/AssistantStateHolder.cs` — single lock, immutable snapshots, 0.04 amplitude deadband
+- `Core/AssistantSession.cs` — turn lifecycle, one CTS per turn, command tracking
+- `Core/ProcessTracker.cs` — `CreateNoWindow`, tree kill via `taskkill`
+- `Actions/SessionActions.cs` — `jarvis-activate`, `jarvis-cancel`, `jarvis-toggle`, `jarvis-say`
+- `Actions/AssistantStateReader.cs` — one shared state set, `unavailable` always present
+- `PluginIntegration.cs` — `IPluginIntegration` + `IVariableProvider` + `IConfigFlowProvider`
+- 4 eager variables: `state`, `transcript`, `reply`, `amplitude`
+
+### ✅ M3 — Settings + config flow
+- `Core/JarvisSettings.cs` — every enum + setting
+- `Core/JarvisSettingsStore.cs` — config flow secret → local file → env, merged
+- `Core/LocalSettingsFile.cs` — `jarvis.settings.json` beside the exe, gitignored
+- `JarvisConfigFlow.cs` — 5 steps: provider → keys → models → voice → behaviour
+
+### ✅ M4 — NIM LLM client + tool calling
+- `Llm/ChatMessages.cs` — `ChatMessage` as `JsonObject`, `ToolCall`, `ToolDefinition`, `ChatRequest`
+- `Llm/ChatClient.cs` — SSE streaming, tool-call assembly by index, `ProbeAsync` for reachability
+- `Llm/ToolRegistry.cs` — safety mode enforced here, refusals returned as tool results
+- `Llm/Tools.cs` — `run_shell`, `read_file`, `write_file`, `list_directory`, `FileGuard`
+- `Core/ConversationRunner.cs` — agentic loop capped at `MaxIterations` (default 4)
+- `Core/PersonaResolver.cs` — immutable safety prefix + editable persona block
+- `Actions/CheckModelsAction.cs` — `jarvis-check-models`
+
+### ✅ M5 — Conformance green
+**30 passed, 0 failed, 19 skipped, exit 0.** The 19 skips are capabilities not declared yet.
+
+**Flake found and fixed.** One run showed MDC0604 (SupervisorShutdown close) failing, and skip counts
+varied between 30/19 and 31/18. Cause: `jarvis-check-models` performed a live call to NVIDIA during
+the suite, and the shared `HttpClient` is on a 120 s timeout, so a probe could hold an invocation open
+and perturb the timing-sensitive shutdown checks. Fixed by giving `ChatClient.ProbeAsync` its own
+10 s `CancellationTokenSource` budget. Three consecutive runs now give an identical 30/0/19.
+
+**Rule going forward: no SDK action may make an unbounded network call.** Timeouts must be owned by
+the call site, not inherited from the shared client.
+
+### ✅ M6 — Orb widget
+- `Orb/OrbWidgetTypeProvider.cs` — `IWidgetTypeProvider`, frozen local id `jarvis-orb`
+- `Orb/OrbWidgetData.cs` — stored config, default JSON + JSON Schema, defensive parse
+- `Orb/OrbUiProvider.cs` — `IUiProvider`, 3 surfaces, declines what it does not serve
+- `Orb/OrbView.cs` — the composition: glow (radial gradient) → core → rings → text
+- `Orb/OrbUiSession.cs` — `IUiSession` bridging the view and `HandlerFaulted` → `Faulted`
+
+Conformance went **30 → 33 passed, 0 failed, 16 skipped**. MDC0306/0307/0308, the `ui` capability
+checks, now pass.
+
+**The orb is currently static geometry only.** The animated WebP core, the `ui.transform` rotation
+patch and the amplitude reactor are the next three items.
+
+### ✅ M7 — Animated orb asset
+- `Orb/AnimatedGif.cs` — hand-written GIF89a encoder, **zero new dependencies**
+- `Orb/OrbFrameRenderer.cs` — analytic RGBA frame renderer, no drawing library, 3x3 supersampled
+- `Orb/OrbAssetCache.cs` — builds one GIF per state on demand, caches, registers as a `UiResource`
+- `Orb/OrbUiSession.cs` — 25 Hz `ui.transform` sweep timer, state-driven asset swap
+- `Orb/OrbView.cs` — glow → animated core → counter-rotating rings → text
+
+**Decisions taken here**
+
+- **Skipped SkiaSharp on purpose.** It would need approval under the dependency rule and a plugin
+  shipping one orb does not justify it. A hand-rolled GIF encoder keeps the dependency count at zero
+  and `image/gif` is explicitly permitted by `UiResourceRules`.
+- **Literal-mode LZW, not run-encoding.** Run-encoding LZW's table-growth bookkeeping is the easiest
+  thing in the GIF format to get subtly wrong, and the failure mode is invisible to a structural check:
+  header, palette, sub-blocks and frame count all validate while the browser renders noise. Literal
+  mode costs about 1.125x raw size and is trivially correct. Measured: **251 KB per state** at 96px /
+  24 frames, ~188 KB for idle's 18 frames, ~1.7 MB total against a 16 MiB per-plugin limit.
+- Frames are generated **on demand** and cached, so a fresh install answers `/_macrodeck/health`
+  immediately and a state nobody reaches is never paid for.
+
+**Verification:** `dotnet test` **20/20 passing**, including an *independent* GIF decoder written
+against the spec rather than against the encoder. Two real bugs were caught this way and would not
+have shown up any other way: the encoder originally wrote all LZW data as one run instead of ≤255-byte
+sub-blocks, and the decoder mis-parsed the image descriptor's left/top as width/height.
+
+Conformance: **35 passed, 0 failed, 14 skipped, exit 0**.
+
+### ✅ M8 — Microphone amplitude reactivity
+- `Audio/AmplitudeMeter.cs` — per-block RMS, fast attack / slow release, perceptual expansion curve
+- `Audio/AudioDeviceCatalog.cs` — endpoint enumeration and id-then-name-then-default resolution
+- `Audio/MicrophoneMonitor.cs` — WASAPI capture, 20 Hz publish, `MemoryMarshal.Cast` off the span
+- `AssemblyInfo.cs` — `[assembly: SupportedOSPlatform("windows")]`
+- `AmplitudeMeterTests.cs` — 8 tests
+
+**Dependency added: NAudio 3.1.0** (+ `NAudio.Wasapi`). Approved by the user for this milestone.
+The alternative was hand-rolling several hundred lines of WASAPI COM vtable interop plus format
+negotiation, which is bad value against the de-facto standard.
+
+**NAudio 3.x gotchas that cost time**
+
+- The package split: `NAudio.CoreAudioApi` **does not exist as a package**. Those types ship inside
+  `NAudio.Wasapi`.
+- `WasapiCapture` is **obsolete**; use `WasapiRecorderBuilder` → `WasapiRecorder`.
+- Both recorder types live in namespace **`NAudio.Wave`**, not `NAudio.Wasapi`. The `NAudio.Wasapi`
+  string in the assembly is only the assembly name, so it looks like the namespace exists.
+- Builder methods: `WithDevice(MMDevice)` · `WithSharedMode()` · `WithPollingSync()` ·
+  `WithFormat(WaveFormat)` · `WithLoopbackCapture()` · `WithProcessLoopback(uint, mode)`.
+- `CaptureDataAvailableHandler` is
+  `(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition)`.
+- `MMDevice` has only an internal constructor; get one from `MMDeviceEnumerator.GetDevice(id)`.
+- `WaveFormat.CreateIeeeFloatWaveFormat(int sampleRate, int channels)` — two arguments.
+- Reflection over the DLL string heap is not enough to find namespaces; load with dependencies resolved
+  and enumerate `GetExportedTypes()`.
+
+**The user's microphone, verified working**
+
+```
+resolved = Mikrofon (WO Mic Device)     <- also the system default
+open ok  = True
+format   = 32 bit IEEEFloat: 48000Hz 1 channels
+3s capture: 143,040 frames = 47,680/s   (exactly 48 kHz, no dropouts)
+level 0.036, peak 0.036                 (room tone, correct when silent)
+```
+
+**A real bug the tests caught:** `AmplitudeMeter` never cleared its sum-of-squares accumulator, so the
+figure was a running average over the whole session — it both lagged badly and never settled. Two tests
+failed on it. The accumulator is now cleared every block.
+
+**Verification:** `dotnet test` **28/28**, `dotnet build` 0 warnings, conformance **0 failures** across
+three consecutive runs. The pass count moves between 33 and 35 because several `Recommended` checks skip
+when no action happened to stay in flight long enough; that is the suite's designed behaviour, not a
+regression.
+
+### ? M9 - Spoken replies
+- `Speech/WindowsSynthesizer.cs` - PowerShell `System.Speech` renderer to a temporary WAV, voice
+  enumeration, RIFF header reader for duration
+- `Speech/SpeechPlayer.cs` - `WasapiPlayer` playback, render-device loopback metering, mid-word stop
+- `Speech/VoiceService.cs` - owns synthesis, playback and the temp file so one token reaches all three
+- `AssistantSession.SpeakReplyAsync` - speaks while the turn is still held; `EndTurn` stops speech
+
+**No new dependency.** SAPI is reached through `powershell.exe` rather than a new package, which keeps
+the plugin framework-dependent and adds nothing to the shipped surface. Piper and the NIM TTS endpoints
+are configured and selectable but not yet implemented; `SpeakAsync` currently renders with SAPI for
+either provider so the feature is usable before those land.
+
+**NAudio 3.x playback gotchas**
+
+- `WaveOutEvent` **exists but throws `NotSupportedException`** in 3.x on this machine. `WasapiOut` is
+  **obsolete** in favour of `WasapiPlayerBuilder` -> `WasapiPlayer` (zero-copy buffers, MMCSS thread
+  priority, `IAudioClient3`). The builder takes `WithDevice(MMDevice)` -> `WithSharedMode()` ->
+  `WithPollingSync()` -> `WithLatency(int)` -> `Build()`.
+- `WasapiPlayer.IsFormatSupported`, `GetPosition`, `Init`, `Volume`, `PlaybackStopped` are the surface
+  that matters; the loudness controls are per-stream, not per-device.
+
+**Three bugs that only a real playback run could find.** All three are invisible to a structural check,
+which is the argument for driving the actual audio stack rather than trusting the code:
+
+1. A missing `AppendLine()` merged `$s.Rate = $rate` and `$s.Volume = $volume` into one line, which is a
+   PowerShell `ParserError: UnexpectedToken`. Synthesis had never worked.
+2. The RIFF walk read `fmt ` and then fell through to the next chunk without skipping the chunk body.
+   `fmt ` is 18 bytes but only 12 were consumed, so every following chunk id was misaligned and **every
+   clip measured as zero length**.
+3. A clip that reached its end on its own released nothing: `IsPlaying` stayed true forever, and the
+   caller could not delete the file because the handle was still open. The stop event now clears the
+   fields and hands disposal to the pool, signalling completion only once the handle is closed.
+
+**Verified against the installed voices** (`TtsProbe`, `[Explicit]` so it never plays unattended):
+
+```
+voices  = Microsoft Zira Desktop | Microsoft David Desktop
+synth   = 208,814 bytes, reported 4.73s, RIFF header 4.73s   (both paths agree)
+play    = 1.90s clip, 1.99s elapsed, IsPlaying False, loopback 187 reports, peak 0.080
+stop    = cut short of full length, IsPlaying False
+```
+
+**Verification:** `dotnet build` 0 warnings, `dotnet test` **28/28** (probe is `[Explicit]`, so the
+default run stays silent), conformance **33 passed / 0 failed / 16 skipped**, exit 0.
+
+---
+
+## ? Git
+
+Repository initialised at `JARVIS/src`, branch `main`, one commit per milestone. `jarvis.settings.json`
+is **gitignored** and has never been committed; `Properties/launchSettings.json` is tracked because it
+holds only the dev launch profile and no secret.
+
+```powershell
+cd C:\Users\Misu\Desktop\ideas\JARVIS\src
+git log --oneline
+```
+
+---
+
+## ⚠️ SDK version pin — do not remove
+
+`Directory.Packages.props` pins `MacroDeckSdkVersion` to **`3.0.0-beta.14`**.
+
+The template default is the floating range `3.0.0-*`, which NuGet resolves to **`3.0.0-preview.10`**,
+older than the `3.0.0-beta.14` CLI, because `preview` sorts below `beta`. Building against it silently
+loses `SupportsFlows`, `AppearanceProperties`, `UiModifier` and other contracts.
+
+Verify after any version change:
+
+```powershell
+(Get-Content src\Jarvis.Plugin\obj\project.assets.json | ConvertFrom-Json).libraries.PSObject.Properties.Name |
+  Where-Object { $_ -match 'MacroDeck' }
+```
+
+**The cloned repo HEAD is newer than the published packages.** Reading repo source to learn an API can
+mislead: check the resolved package before writing against it.
+
+---
+
+## Live environment
+
+- `.NET SDK 10.0.400`, `ASP.NET Core 10.0.11`
+- NVIDIA NIM key present in `bin\Debug\net10.0\jarvis.settings.json` (dev only, never in source)
+- Key verified working: **81 models** offered on `integrate.api.nvidia.com/v1`
+- Tool calling verified end to end: `nemotron-3-super-120b-a12b` emitted
+  `index:0 / id:call-… / name:run_shell / arguments:{…}` with `finish_reason: tool_calls`
+
+### Verified model ids
+| Role | Model |
+|---|---|
+| LLM default | `nvidia/nemotron-3-super-120b-a12b` |
+| LLM fast alt | `nvidia/nemotron-3.5-lightning-30b-a3b` |
+| Vision default | `meta/llama-3.2-90b-vision-instruct` |
+| ASR (separate endpoint) | `nvidia/parakeet-tdt-0.6b-v2` |
+| TTS (separate endpoint) | `nvidia/magpie-tts-flow` |
+
+ASR and TTS are **not** in the `/v1/models` text list — they are separate NIM endpoints, so the
+`ProbeAsync` "not listed" result is expected for them and must not be read as a failure.
+
+---
+
+## Decisions locked
+
+| Item | Decision |
+|---|---|
+| NIM defaults | as above, all editable text fields with a live probe |
+| Orb assets | **generated from C#** via SkiaSharp at build time |
+| Lifetime tier default | `plugin-only` (upgradeable to background-process / tray-companion) |
+| Native binaries | **all downloaded on first run**, pinned version + SHA-256, never bundled |
+| Orb rendering | animated WebP core + `ui.transform` ring at ≤25 Hz + `borderStyle` garnish |
+| Safety default | `confirm-all`; refusal returns a tool result, never throws |
+| Persona | immutable safety prefix blocks JARVIS from editing tool permissions or safety rules |
+| Default language | English; German translation pending |
+
+---
+
+## Next up, in order
+
+Items 1 and the TTS half of 4 are done. Order from here:
+
+1. **Widget config surface** - everything configurable, per widget.
+2. **Native asset manager** - download + SHA-256 + progress. Plugin must boot and answer
+   /_macrodeck/health with **nothing downloaded** (conformance must stay green).
+   This unblocks the rest, because Piper, whisper.cpp and Porcupine all arrive through it.
+3. **Piper TTS** - replaces the SAPI fallback behind the same VoiceService surface.
+4. **STT (whisper.cpp) + global hotkey**
+5. **Wake word (Porcupine, NanoWakeWord fallback)**
+6. **Vision (screen + webcam, on demand only)**
+7. **Memory, persona self-modification, remaining PC-control tools**
+8. **German translation**
+9. **Final: conformance + alidate --level publication**
+
+---
+
+## Known gaps / things to watch
+
+- `Activate` currently only arms a turn; no microphone or wake word is wired yet.
+- `Cancel` and `Toggle` work against the real state machine.
+- `Say` runs a real model turn through `run_shell` and friends.
+- `CheckModelsAction` shows a modal via `context.Ui` with view id `jarvis-model-report`; that view is
+  **not implemented yet**, so the modal renders as an unsupported node until a dialog surface serves it.
+- The orb animation is **done in M7/M8**: animated GIF core, `ui.transform` ring sweep, microphone
+  amplitude at 20 Hz with a deadband, and render-loopback reactivity during speech.
+- Spoken replies are **done in M9** for SAPI. Piper is selected in settings but not implemented yet.
+- The orb `config` surface is declared but `OrbView` does not build a configuration tree yet, so opening
+  the widget editor yields an empty config. This is the next item.
+- `AssistantSession._history` is in-memory only; persistence is the memory milestone.
+- The `PersonaResolver` self-modification path exists but nothing calls it yet.
+- `CoreLayer` and `RingLayer` take a `JarvisSettings` / produce empty children as placeholders; the
+  animated asset fills `CoreLayer`.
+
+---
+
+## Commands
+
+```powershell
+cd C:\Users\Misu\Desktop\ideas\JARVIS\src
+
+dotnet build -v q --nologo                       # must stay 0 warnings / 0 errors
+
+macrodeck-plugin run  --project src/Jarvis.Plugin --stub-host   # blocks forever, Ctrl-C or kill
+macrodeck-plugin test --project src/Jarvis.Plugin --report text
+macrodeck-plugin build   --source src/Jarvis.Plugin --output .\artifacts
+macrodeck-plugin validate --artifact .\artifacts\com.misu.jarvis-1.0.0.macroDeckPlugin --level publication
+```
+
+**Gotcha:** a lingering `run` process locks `bin\Debug\net10.0\Jarvis.Plugin.dll` and the next build
+fails with MSB3021/MSB3027. Kill it before rebuilding.
+
+---
+
+## Verification bar
+
+Build: **0 warnings, 0 errors** (TreatWarningsAsErrors is on, `latest-recommended` analysis).
+Conformance: **exit 0**, no `Required` check failing. Any `Required` check going pass→fail is a
+blocking regression.
