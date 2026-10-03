@@ -792,3 +792,39 @@ From Macro Deck's own `CLAUDE.md`:
 | 0098 | Loopback trust requires a per-launch secret |
 | 0099/0101 | Video streams are host-brokered sessions; the host relays media, clients play HLS/MJPEG only |
 | 0102 | First-fit layouts are chosen by measured text |
+---
+
+## Windows and .NET facts learned the hard way
+
+Each of these was a defect before it was a fact. None of them threw or logged in a way that pointed at
+the cause, which is why they are written down.
+
+| | |
+|---|---|
+| `Encoding.UTF8` writes a byte order mark | On a duplex named pipe the preamble deadlocks against whatever the other end is writing. Where it does not deadlock it arrives as three bytes in front of the JSON and the peer refuses every message. Use `new UTF8Encoding(false)` on both ends of any pipe, socket or length-prefixed stream. |
+| A `Process` has no `Id` before `Start` | Reading `Id` in a constructor throws `InvalidOperationException`. Read it through a property instead of capturing it. |
+| `IsProcessRunning` does not exist in `kernel32.dll` | It was in an old VB6-era snippet. A `DllImport` to a missing entry point throws only when called, so a whole kill path can be dead and nothing says so. |
+| `NamedPipeServerStream` with `MaxAllowedServerInstances` allows unlimited instances on one name | A listener left behind by an earlier test will accept the next test's connection and answer from a pipe nobody is reading. Give tests a unique pipe name rather than trying to detect the interference. |
+| `Task.Wait` in `Dispose` starves the thread pool | Cleanup called from test teardown, ten times over, is enough to deadlock the tests that follow. Cancel a token instead of blocking on the task. |
+| Task Scheduler COM answers `0x800704E3` out of process | The service can be running and the interface still refuse the connection. Reach it through the type library with `dynamic` rather than a hand-written interface map; the map is guesswork about layout that the runtime already knows. |
+| A shell command needs a full path | `schtasks /create` and a registered task resolve a bare name from whatever happens to be on the path when the task runs, which is not something to let a model arrange. |
+| `RegistryKey.CreateSubKey` creates the key even when asked for a read-only handle | Open the key first and create only when it is genuinely absent, or a caller that said not to create still gets one. |
+| `JsonValue.TryGetValue&lt;T&gt;` only returns the type it holds | A `JsonValue` built from an `int` refuses `TryGetValue&lt;long&gt;`. Widen by hand. |
+| WinForms needs `net10.0-windows` | And declaring DPI settings in the application manifest produces warning WFO0003 with no effect, because the runtime reads `ApplicationHighDpiMode` from the project. |
+| NUnit `[Explicit]` tests are still selected by a name filter | `dotnet test --filter FullyQualifiedName~SomeLiveTest` will run it. Filter on a namespace that contains only unit tests when probing, or a live test will hang the run. |
+
+## Registry and process safety notes
+
+- `HKLM` writes from an unelevated plugin fail with a specific error. The message has to say *why*, or a
+  model treats it as transient and retries forever.
+- The keys that break a machine rather than a preference: `\SAM`, `\SECURITY`,
+  `\SYSTEM\CurrentControlSet\Services\Schedule`, `Winlogon`, `Shell`, `Image File Execution
+  Options`, Defender, `\Boot` and `\EFI`. A service reachable by an assistant needs a denylist for
+  these, and needs to re-check the path itself rather than trust the caller.
+- `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` is what makes a plugin safe to kill: closing the handle ends every
+  process in the job without needing this process's cleanup to run. `JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_
+  EXCEPTION` and a job memory ceiling go with it.
+- Nested jobs need Windows 8 or later, and a process is only assigned when the limits allow it, so failure
+  to assign has to be reported per process rather than disabling containment wholesale.
+- Killing a process tree by enumerating parent ids and killing children first is more reliable than
+  shelling out to `taskkill`, which needs a console and a path.

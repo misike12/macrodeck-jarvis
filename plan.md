@@ -1,6 +1,7 @@
 # JARVIS — Macro Deck 3 Plugin Plan
 
-Status: **PLAN ONLY — nothing built yet.**
+Status: **IMPLEMENTED.** Every tool in this plan is built, registered and tested. The final section records
+what was left out on purpose and why. Verified numbers are in `current workstate.md`.
 Target: `win-x64` only, framework-dependent on .NET 10, no Node/Python runtimes.
 Identity: `com.misu.jarvis` / display name `JARVIS`.
 Repo consulted: `https://github.com/Macro-Deck-App/Macro-Deck` (cloned to `%TEMP%\opencode\macrodeck3`).
@@ -548,3 +549,38 @@ Everything native that is not P/Invoke goes through one manager:
 9. Vision (screen + webcam on demand).
 10. Memory, persona self-modification, remaining PC-control tools.
 11. Conformance suite clean, validate at `publication` level.
+---
+
+## 21. What was built, what was changed, what was left out
+
+### Built as written
+
+Every tool in section 9.2 exists, is registered in `PluginServices.cs` and is covered by tests. The
+orb presets in section 5 render distinctly, the microphone amplitude reaches the orb, barge-in in section
+8.4 is implemented with a hold and a cooldown, memory in section 11 is written *and read back*, the
+persona in section 12 resolves from the notes file, and every config-flow field in section 3 round-trips.
+
+### Changed from the plan
+
+| Plan said | What shipped | Why |
+|---|---|---|
+| Chrome or Edge via DevTools protocol | Any Chromium browser, Thorium first, driven over its own profile directory | Only Thorium is installed here, and a dedicated profile means automating a site cannot disturb the browser you are using. |
+| Three lifetime tiers (plugin-only, ackground-process, 	ray-companion) | The plugin stays plugin-only; the separate executable is the elevated service, not a tray companion | A detached always-on child holding the microphone is a second assistant with its own audio stack, and nothing in this session could verify it. Not built rather than built unverified. |
+| Browser control over the user's own browser | A dedicated browser instance | Attaching to the daily browser would risk logging the user out of sites and moving their window. |
+| `ShellExecuteEx` with the `runas` verb for elevation | A named pipe to a service | One UAC prompt per command is what section 9.3 says the service exists to avoid. |
+
+### Left out on purpose
+
+| | Why |
+|---|---|
+| Kernel-level input injection | Refused. Input is synthesised with `SendInput`, which reaches everything user-mode automation reaches and needs no signed driver. A kernel driver built specifically to evade anti-cheat detection was requested and declined. |
+| Webcam capture | `Media Foundation`/`DirectShow` is disproportionate for what screen vision already answers. See section 8.1 for the wake-word decision on the same grounds. |
+| Porcupine, NanoWakeWord, Vosk | Three dependencies to do what the installed recogniser already does. Section 8.1 has the reasoning; the `wakeWordEngine` setting is retained so old configurations still load and selects nothing. |
+
+### Built but not verified here
+
+- **Scheduled task round trip.** The Task Scheduler COM interface answers `0x800704E3` from this process
+  even with the `Schedule` service running. The code is written against the documented interface and the
+  argument validation is tested; the five tests needing a reachable scheduler are marked `[Explicit]`.
+- **Service installation.** Needs an elevated shell. `scripts/install-service.ps1` and
+  `Jarvis.Service.exe --install` both refuse with exit code 5 and a plain explanation when unelevated.

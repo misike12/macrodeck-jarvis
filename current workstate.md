@@ -1,6 +1,7 @@
 # JARVIS — Current Workstate
 
-Last updated: after the LLM client milestone.
+Last updated: after the elevated-service milestone. Every tool in `plan.md` is implemented, the elevated
+service is built, and the test suite is fully green.
 Plan: `plan.md` · Platform knowledge: `knowledge.md`
 
 ---
@@ -478,3 +479,99 @@ fails with MSB3021/MSB3027. Kill it before rebuilding.
 Build: **0 warnings, 0 errors** (TreatWarningsAsErrors is on, `latest-recommended` analysis).
 Conformance: **exit 0**, no `Required` check failing. Any `Required` check going pass→fail is a
 blocking regression.
+---
+
+## Milestone: every plan tool implemented
+
+All 34 tools from `plan.md` are registered in `PluginServices.cs`. Groups added since M18:
+
+| Group | Tools | File |
+|---|---|---|
+| Files | `file_exists`, `search_files`, `move_path`, `delete_path` | `Llm/FileTools.cs` |
+| Windows | `list_windows`, `focus_window`, `close_window`, `open_app` | `Llm/WindowTools.cs` |
+| System | `get_volume`, `media_play_pause`, `media_next`, `set_system_power`, `send_notification` | `Llm/SystemTools.cs` |
+| Input | `mouse_move`, `mouse_click`, `mouse_scroll`, `mouse_drag`, `keyboard_type`, `keyboard_combo`, `keyboard_sequence` | `Llm/InputTools.cs` |
+| Web | `web_fetch`, `web_search`, `web_search_and_read` | `Llm/WebTools.cs` |
+| Browser | `browser_navigate`, `browser_read`, `browser_key`, `browser_type`, `browser_click`, `browser_tabs` | `Llm/BrowserTools.cs` |
+| Registry | `registry_get`, `registry_set`, `registry_delete` | `Llm/RegistryTools.cs` |
+| Tasks | `list_scheduled_tasks`, `get_scheduled_task`, `create_scheduled_task`, `delete_scheduled_task`, `run_scheduled_task` | `Llm/ScheduledTaskTools.cs` |
+| Elevated | `registry_elevated` | `Llm/ElevatedRegistryTool.cs` |
+
+## Milestone: the elevated service
+
+`service/Jarvis.Service` is a separate Windows executable, because it has to be installable and run as
+LocalSystem. It talks to the plugin over a named pipe and does nothing on its own initiative.
+
+| | |
+|---|---|
+| Project | `service/Jarvis.Service/Jarvis.Service.csproj`, `net10.0-windows`, `WinExe` |
+| Modes | service (`--console`) and tray (no arguments) |
+| Pipe | `jarvis-service-<user>`, `PipeOptions.CurrentUserOnly` |
+| Protocol | line-delimited JSON, `Protocol.Version` = 1 |
+| Tray | drawn icon, status, identity, pipe name, start-with-Windows, allow-admin, reconnect, exit |
+| Install | `scripts/install-service.ps1`, or `Jarvis.Service.exe --install` from an elevated shell |
+
+The service is **built but not installed on this machine**: registering a service needs an elevated shell
+and this session is not one. The refusal is deliberate and returns exit code 5 with an explanation rather
+than a raw access-denied error.
+
+### What the service will not do
+
+`ElevatedOperations` re-validates every argument, because the caller is an assistant whose input is a
+model's output. A denylist covers `\SAM`, `\SECURITY`, the `Schedule` service key, `Winlogon`, `Shell`,
+`Image File Execution Options`, Defender, `\Boot` and `\EFI`. Control characters and `..` in paths and
+names are refused rather than stripped.
+
+---
+
+## Bugs found and fixed
+
+Recorded because each was invisible from the outside: nothing threw, nothing logged an error, and the
+feature appeared to work.
+
+| Where | What was wrong |
+|---|---|
+| `ProcessTracker.KillTree` | P/Invoked `IsProcessRunning` from `kernel32.dll`, which does not exist. Cancellation could never terminate a command that was not already dead. |
+| `ProcessTracker` | `Id` was read in the constructor, before `Start`, so any caller touching it before the start threw. |
+| `WakeWordDetector.Mentions` | The window was the word plus two characters, so it could never match "hey jarvis" or "jarvis, what time is it". The wake word did not fire for its most natural phrasing. |
+| `WakeWordDetector.Mentions` | Threw on a null transcript, which is what a failed recogniser returns. |
+| `ToolRegistry` | A confirmation wait had no deadline. One unanswered question held the turn for the rest of the session. Bounded at ten minutes. |
+| `BrowserTools.BrowserNavigateTool` | Connected to, and so launched, a browser *before* validating the address. |
+| `BrowserTools.BuildClickExpression` | Partial matching was reversed, so "Sign" could never match a button reading "Sign in". |
+| `PipeServer` / `ElevatedServiceClient` | Both used `Encoding.UTF8`, whose byte order mark deadlocked on a duplex pipe and would otherwise have prefixed every request with three non-JSON bytes. |
+| `RegistryTools.RegistrySetTool` | `CreateSubKey` creates the key even when the caller said not to. |
+| `RegistryTools` | A text value written as a `dword` became `0` rather than being refused. |
+| `OrbAssetCache` | Keyed on state alone, so whichever preset rendered first filled the cache and every preset showed that one. `OrbPreset` never reached the renderer. |
+| `MemoryStore.LoadHistory` | Written every turn and never read. The notes file was written and never read by `PersonaResolver`. |
+| `WebTools.FromHtml` | The page title was stripped with `<head>` before it was read. |
+
+---
+
+## Deliberate exclusions
+
+| | Why |
+|---|---|
+| Kernel-level input injection | Refused. Input is synthesised with `SendInput`, which reaches everything user-mode automation reaches. A signed kernel driver that deliberately evades anti-cheat detection was not built. |
+| Webcam capture | `Media Foundation`/`DirectShow` is disproportionate. Screen vision covers "what am I looking at". |
+| Porcupine, NanoWakeWord, Vosk | The installed speech recogniser already does the job; see `plan.md` section 8.1. |
+
+## Not verified here
+
+| | |
+|---|---|
+| Scheduled task round trip | The Task Scheduler COM interface returns `0x800704E3` from this process even with the service running. The five tests that need a reachable scheduler are `[Explicit]`; the eighteen validation tests run. |
+| Service installation | Needs an elevated shell. Not performed. |
+| GitHub release | No `gh` CLI and no token in the environment. The artifact is built and validated but not uploaded. |
+
+---
+
+## Test suite
+
+**435 passed, 0 failed**, exit 0, in one invocation. 0 warnings, 0 errors.
+
+The suite used to abort partway through and report a passing count that was really a partial one. The
+cause was a single test: `Tool_permissions_runs_a_permitted_class_without_asking` used a test double, which
+belongs to no permission class, so the gate asked for confirmation and the call waited for an answer that
+never came. Everything sorting after it never ran, and because the host stayed alive rather than exiting,
+the truncation looked like a crash. Fixed in the product (a bounded wait) and in the test (a real
+`write_file` tool).
