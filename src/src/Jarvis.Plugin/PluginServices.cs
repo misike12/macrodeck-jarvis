@@ -3,6 +3,7 @@ using Jarvis.Plugin.Audio;
 using Jarvis.Plugin.Core;
 using Jarvis.Plugin.Input;
 using Jarvis.Plugin.Llm;
+using Jarvis.Plugin.Memory;
 using Jarvis.Plugin.Runtime;
 using Jarvis.Plugin.Speech;
 using Jarvis.Plugin.Vision;
@@ -40,10 +41,12 @@ public static class PluginServices
 			provider.GetRequiredService<JarvisSettingsStore>(),
 			() => provider.GetRequiredService<ConversationRunner>(),
 			provider.GetRequiredService<VoiceService>(),
+			provider.GetRequiredService<MemoryStore>(),
 			provider.GetRequiredService<ILogger>()));
 
 		builder.Services.AddSingleton<ChatClient>();
 		builder.Services.AddSingleton<VisionClient>();
+		builder.Services.AddSingleton<MemoryStore>();
 		builder.Services.AddSingleton<MicrophoneMonitor>();
 
 		builder.Services.AddSingleton(provider => new RuntimeManager(
@@ -64,6 +67,30 @@ public static class PluginServices
 			registry.Register(new WriteFileTool());
 			registry.Register(new ListDirectoryTool());
 			registry.Register(new ScreenshotTool(provider.GetRequiredService<VisionClient>(), logger));
+
+			// The persona tool rewrites only the persona field, through the same immutable-prefix resolver
+			// every prompt is built from, so it structurally cannot reach the safety rules.
+			var settingsStore = provider.GetRequiredService<JarvisSettingsStore>();
+			var memory = provider.GetRequiredService<MemoryStore>();
+
+			registry.Register(new DesktopTools.ListProcessesTool());
+			registry.Register(new DesktopTools.ClipboardReadTool());
+			registry.Register(new DesktopTools.ClipboardWriteTool());
+			registry.Register(new DesktopTools.KillProcessTool());
+			registry.Register(new DesktopTools.SetVolumeTool());
+
+			registry.Register(new SetPersonaTool(
+				(preset, instruction) =>
+				{
+					settingsStore.Apply(settingsStore.Current with
+					{
+						Persona = preset,
+						CustomSystemPrompt = preset == PersonaPreset.Custom ? instruction : string.Empty,
+					});
+
+					memory.SetNotes(instruction);
+				},
+				logger));
 
 			return registry;
 		});

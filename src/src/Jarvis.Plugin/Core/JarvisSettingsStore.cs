@@ -156,6 +156,11 @@ public sealed class JarvisSettingsStore
 		_logger.Debug("Settings reloaded. LLM {Provider}, model {Model}.", next.Llm, next.LlmModel);
 	}
 
+	/// <summary>
+	/// Replaces the current settings in memory, for something the assistant changes about itself at
+	/// runtime. Deliberately does not persist: the integration config stays the user's to edit, and
+	/// anything that must outlive the process is written to the notes file instead.
+	/// </summary>
 	public void Apply(JarvisSettings settings)
 	{
 		lock (_gate)

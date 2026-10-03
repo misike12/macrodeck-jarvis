@@ -1,4 +1,5 @@
 using Jarvis.Plugin.Llm;
+using Jarvis.Plugin.Memory;
 using Jarvis.Plugin.Speech;
 using MacroDeck.Localization;
 using MacroDeck.Sdk;
@@ -25,6 +26,7 @@ public sealed class AssistantSession : IAsyncDisposable
 	private readonly JarvisSettingsStore _settings;
 	private readonly Func<ConversationRunner> _conversation;
 	private readonly VoiceService _voice;
+	private readonly MemoryStore _memory;
 	private readonly ILogger _logger;
 	private readonly Lock _turnGate = new();
 	private readonly Dictionary<Guid, ProcessTracker> _runningCommands = [];
@@ -39,12 +41,14 @@ public sealed class AssistantSession : IAsyncDisposable
 		JarvisSettingsStore settings,
 		Func<ConversationRunner> conversation,
 		VoiceService voice,
+		MemoryStore memory,
 		ILogger logger)
 	{
 		_state = state;
 		_settings = settings;
 		_conversation = conversation;
 		_voice = voice;
+		_memory = memory;
 		_logger = logger.ForContext<AssistantSession>();
 	}
 
@@ -175,6 +179,11 @@ public sealed class AssistantSession : IAsyncDisposable
 			{
 				_history.Add(ChatMessage.User(prompt));
 				_history.Add(ChatMessage.Assistant(result.Reply, []));
+
+				// Remembered after the turn succeeded, so a failed call is not written into history as
+				// something that was said.
+				_memory.Remember("user", prompt, _settings.Current.Memory);
+				_memory.Remember("assistant", result.Reply, _settings.Current.Memory);
 			}
 
 			await SpeakReplyAsync(result.Reply, token).ConfigureAwait(false);
