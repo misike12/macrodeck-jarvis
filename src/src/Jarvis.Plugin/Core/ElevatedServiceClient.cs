@@ -96,14 +96,13 @@ _pipeName,
 	}
 
 	/// <summary>
-	/// The pipe name, derived from this user's security identifier.
+	/// The pipe name, which is fixed on both sides.
 	/// <para>
-	/// It has to match the service's, and the service runs as LocalSystem, so it cannot name the pipe after
-	/// its own user. The identifier is the one thing both processes can agree on: the plugin's own, and the
-	/// service's idea of who is signed in at the console.
+	/// It was once derived from this user's security identifier so the plugin and the service would each
+	/// arrive at the same name. The service cannot do that: it runs as LocalSystem and has no idea who is
+	/// signed in, so the two disagreed whenever that lookup failed and the plugin silently had no service to
+	/// talk to. The descriptor on the pipe is what restricts access.
 	/// </para>
 	/// </summary>
-	public static string ServicePipeName =>
-		ServiceProtocol.PipeNameForSid(
-			System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value);
+	public static string ServicePipeName => ServiceProtocol.PipeName;
 }

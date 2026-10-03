@@ -26,19 +26,19 @@ public static class ServiceProtocol
 	];
 
 	/// <summary>
-/// The pipe name for a specific user, derived from their security identifier rather than their account name.
-/// <para>
-/// The service runs as LocalSystem, so a name built from its own user would be "jarvis-service-SYSTEM" and
-/// the plugin would never reach it. An identifier is stable across a rename and unique per user, which is what
-/// a shared machine needs.
-/// </para>
-/// </summary>
-public static string PipeNameForSid(string? sid, string? suffix = null)
-{
-	var who = string.IsNullOrWhiteSpace(sid) ? "unknown" : sid;
+	/// The pipe name, fixed.
+	/// <para>
+	/// It was once built from this process's security identifier, which the service cannot reproduce: it runs
+	/// as LocalSystem and would have to resolve the signed-in user's identifier for itself. The two sides would
+	/// then disagree on the name whenever that resolution failed, and the plugin could not reach the service.
+	/// A pipe name is world-enumerable anyway, so access is enforced by the descriptor on the pipe rather than
+	/// by what it is called. This must match <c>Protocol.PipeName</c> in the service.
+	/// </para>
+	/// </summary>
+	public const string PipeName = "jarvis-service";
 
-	return suffix is null ? $"jarvis-service-{who}" : $"jarvis-service-{who}-{suffix}";
-}
+	/// <summary>A pipe name carrying a caller-chosen suffix, used by tests that need a listener of their own.</summary>
+	public static string PipeNameForSuffix(string suffix) => $"{PipeName}-{suffix}";
 
 public static JsonObject Request(string operation, JsonObject? arguments = null) => new()
 	{

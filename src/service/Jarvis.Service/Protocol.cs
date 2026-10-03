@@ -22,36 +22,25 @@ public static class Protocol
 	public const int Version = 1;
 
 	/// <summary>
-	/// The pipe name. Includes the user, because the pipe namespace is machine-wide and two users on one
-	/// machine must not be able to talk to each other's service.
+	/// The pipe name, fixed.
+	/// <para>
+	/// It was once derived from the signed-in user's security identifier, which reads well but cannot work: the
+	/// service runs as LocalSystem and has to resolve that identifier itself, through session APIs that fail in
+	/// ways that leave the pipe named for nobody, which the plugin can then never reach. A pipe name is
+	/// world-enumerable anyway, so it was never what provided security. Access is enforced by the descriptor on
+	/// the pipe, which grants the interactive group, LocalSystem and administrators.
+	/// </para>
 	/// </summary>
+	public const string PipeName = "jarvis-service";
+
 	/// <summary>
-/// The pipe name, derived from the signed-in user's security identifier.
-/// <para>
-/// Not from <see cref="Environment.UserName"/>: the service runs as LocalSystem, so that would name the pipe
-/// "jarvis-service-SYSTEM" and the plugin, running as the person at the keyboard, would never reach it. The
-/// identifier is stable across renames and unique per user, which is what a shared machine needs.
-/// </para>
-/// </summary>
-public static string PipeName => PipeNameForSid(InteractiveUserSid());
-
-/// <summary>
-/// The pipe name for a specific user. A suffix exists so a test can stand up a second listener on its own
-/// name: the service allows unlimited instances on one name, so a listener left behind by an earlier test
-/// would silently accept the next test's connection.
-/// </summary>
-public static string PipeNameForSid(string? sid, string? suffix = null)
-{
-	var who = string.IsNullOrWhiteSpace(sid) ? "unknown" : sid;
-
-	return suffix is null ? $"jarvis-service-{who}" : $"jarvis-service-{who}-{suffix}";
-}
-
-/// <summary>Only for tests, which need a listener on a name of its own.</summary>
-public static string PipeNameForTest(string suffix) => PipeNameForSid(suffix, suffix);
-
-/// <summary>The signed-in user's identifier, or null when there is no interactive session.</summary>
-private static string? InteractiveUserSid() => PipeIdentity.InteractiveUserSid();
+	/// A pipe name carrying a caller-chosen suffix.
+	/// <para>
+	/// Used only by tests, which need a listener on a name of its own: the service allows unlimited instances on
+	/// one name, so a listener left behind by an earlier test would silently accept the next test's connection.
+	/// </para>
+	/// </summary>
+	public static string PipeNameForSuffix(string suffix) => $"{PipeName}-{suffix}";
 
 	public static readonly string[] Operations =
 	[

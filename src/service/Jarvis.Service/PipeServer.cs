@@ -41,24 +41,15 @@ public sealed class PipeServer : IDisposable
 	private NamedPipeServerStream? _current;
 	private bool _disposed;
 
-	/// <param name="elevated">
-	/// True for the service, which names the pipe after the signed-in user and grants that user access.
-	/// False for the tray mode, where the creating user already has access and the descriptor only has to
-	/// keep other users out.
-	/// </param>
-	public PipeServer(ILogger logger, string? pipeName = null, bool elevated = false)
+	/// <summary>
+	/// The rules are the same in both modes now: the pipe name no longer names a user, so there is nothing for
+	/// the elevated and unelevated cases to decide differently.
+	/// </summary>
+	public PipeServer(ILogger logger, string? pipeName = null)
 	{
 		_logger = logger;
 		_pipeName = pipeName ?? Protocol.PipeName;
-		_security = BuildSecurity(
-			elevated ? PipeIdentity.InteractiveUserSid() : CurrentUserSid());
-	}
-
-	private static string? CurrentUserSid()
-	{
-		using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
-
-		return identity.User?.Value;
+		_security = BuildSecurity();
 	}
 
 	/// <summary>Whether the service is accepting connections right now.</summary>
@@ -79,15 +70,15 @@ public sealed class PipeServer : IDisposable
 	/// <para>
 	/// Rules are added one at a time rather than parsed from a descriptor string, because the set of
 	/// processes that can open this pipe is the trust boundary to a service running as LocalSystem. Written
-	/// out, the boundary is visible: LocalSystem and administrators have full control, and the signed-in
-	/// user has read and write and nothing else.
+	/// out, the boundary is visible: LocalSystem and administrators have full control, the interactive group
+	/// and the creating user have read and write, and nothing else.
 	/// </para>
 	/// <para>
 	/// Returns null when it cannot be built, which leaves the pipe on the operating system's default
 	/// rather than leaving the service with no pipe at all.
 	/// </para>
 	/// </summary>
-	private static PipeSecurity? BuildSecurity(string? userSid)
+	private static PipeSecurity? BuildSecurity()
 	{
 		try
 		{
@@ -107,10 +98,19 @@ public sealed class PipeServer : IDisposable
 				PipeAccessRights.FullControl,
 				AccessControlType.Allow));
 
-			if (!string.IsNullOrWhiteSpace(userSid))
+			// The interactive group, so the person at the keyboard can reach the service without the service having
+			// to work out who they are. This is what replaced a rule naming one user.
+			security.AddAccessRule(new PipeAccessRule(
+				new SecurityIdentifier(WellKnownSidType.InteractiveSid, null),
+				PipeAccessRights.ReadWrite,
+				AccessControlType.Allow));
+
+			using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+
+			if (identity.User is { } user && !identity.IsSystem)
 			{
 				security.AddAccessRule(new PipeAccessRule(
-					new SecurityIdentifier(userSid),
+					user,
 					PipeAccessRights.ReadWrite,
 					AccessControlType.Allow));
 			}

@@ -31,7 +31,7 @@ internal sealed class JarvisServiceHost : ServiceBase
 		{
 			// Elevated, so the pipe is named after the signed-in user and carries a descriptor granting that
 			// user access. Without this the pipe would belong to LocalSystem and the plugin could not open it.
-			_pipe = new PipeServer(_log, elevated: true);
+			_pipe = new PipeServer(_log);
 			_pipe.Start();
 
 			_log.Information($"{ServiceNames.DisplayName} is listening on {Protocol.PipeName}.");

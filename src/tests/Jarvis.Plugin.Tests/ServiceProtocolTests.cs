@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Jarvis.Plugin.Core;
 using NUnit.Framework;
 
 namespace Jarvis.Service.Tests;
@@ -137,30 +138,29 @@ public class ProtocolTests
 	}
 
 	/// <summary>
-	/// The pipe name is derived from a security identifier, not an account name.
+	/// The plugin and the service agree on the pipe name by both hardcoding it.
 	/// <para>
-	/// It has to be. The service runs as LocalSystem, so a name built from its own user would be
-	/// "jarvis-service-SYSTEM" and the plugin could never reach it. The identifier is the one thing the two
-	/// processes can agree on: the plugin's own, and the service's idea of who is signed in.
+	/// It was once derived from a security identifier, which meant the service had to work out who was signed
+	/// in. It cannot: it runs as LocalSystem, so the two sides disagreed whenever that lookup failed and the
+	/// plugin had no service to talk to. Neither process needs to know anything about the other to name a pipe.
 	/// </para>
 	/// </summary>
 	[Test]
-	public void The_pipe_name_carries_the_user_identifier()
+	public void The_plugin_and_the_service_name_the_pipe_the_same_way()
 	{
-		using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
-		var sid = identity.User?.Value;
-
 		Assert.Multiple(() =>
 		{
-			Assert.That(Protocol.PipeName, Does.StartWith("jarvis-service-"));
-			Assert.That(Protocol.PipeName, Does.Contain(sid ?? "unknown"), $"the pipe name does not carry {sid}");
+			Assert.That(ServiceProtocol.PipeName, Is.EqualTo(Protocol.PipeName));
+			Assert.That(
+				ElevatedServiceClient.ServicePipeName,
+				Is.EqualTo(Protocol.PipeName),
+				"the client would connect to a name the service never opens");
 			Assert.That(
 				Protocol.PipeName.Length,
 				Is.LessThan(250),
 				"a pipe name longer than 256 characters is rejected");
 		});
 	}
-
 	[Test]
 	public void Every_declared_operation_is_lowercase_and_underscored()
 	{

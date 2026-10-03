@@ -157,7 +157,7 @@ public static class Program
 			stop.Set();
 		};
 
-		using var pipe = new PipeServer(log, elevated: true);
+		using var pipe = new PipeServer(log);
 
 		pipe.Start();
 		log.Information($"{ServiceDisplayName} is listening on {Protocol.PipeName}.");
