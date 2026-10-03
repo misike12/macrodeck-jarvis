@@ -114,7 +114,29 @@ internal static class PipeIdentity
 		}
 	}
 
+	/// <summary>
+	/// The security identifier behind a session, or null when it cannot be read.
+	/// <para>
+	/// Every failure here is a null rather than an exception. This runs while the service is starting, so
+	/// anything it throws stops the service from starting at all, which is a far worse answer than a pipe
+	/// named for LocalSystem that the plugin reports it cannot reach.
+	/// </para>
+	/// </summary>
 	private static string? UserSidForSession(uint session)
+	{
+		try
+		{
+			return ReadUserSidForSession(session);
+		}
+		catch (Exception exception) when (
+			exception is EntryPointNotFoundException or DllNotFoundException or System.ComponentModel.Win32Exception)
+		{
+			ServiceLog.Warning($"Session {session} has no readable user: " + exception.Message);
+			return null;
+		}
+	}
+
+	private static string? ReadUserSidForSession(uint session)
 	{
 		if (!WTSQueryUserToken(session, out var token) || token == IntPtr.Zero)
 		{
@@ -161,46 +183,6 @@ internal static class PipeIdentity
 		public uint Attributes;
 	}
 
-	private static string? AnyActiveUserSid()
-	{
-		if (!WTSEnumerateSessions(WtsCurrentServerHandle, 0, 1, out var sessions, out var count))
-		{
-			return null;
-		}
-
-		try
-		{
-			var size = Marshal.SizeOf<WtsSessionInfo>();
-
-			for (var index = 0; index < count; index++)
-			{
-				var info = Marshal.PtrToStructure<WtsSessionInfo>(sessions + (index * size));
-
-				// A disconnected session has nobody at the keyboard, so its pipe would never be opened.
-				if (info.State != SessionStateActive)
-				{
-					continue;
-				}
-
-				var sid = UserSidForSession(info.SessionId);
-
-				if (sid is not null)
-				{
-					return sid;
-				}
-			}
-
-			return null;
-		}
-		finally
-		{
-			if (sessions != IntPtr.Zero)
-			{
-				WTSFreeMemory(sessions);
-			}
-		}
-	}
-
 	[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
 	private struct WtsSessionInfo
 	{
@@ -221,7 +203,10 @@ internal static class PipeIdentity
 	[DllImport("wtsapi32.dll")]
 	private static extern void WTSFreeMemory(IntPtr memory);
 
-	[DllImport("kernel32.dll", SetLastError = true)]
+	// advapi32, not kernel32. Named here because declaring it against kernel32 compiles, runs fine in tray mode
+	// where the early return above skips it, and then throws EntryPointNotFound inside the service, where the
+	// only symptom was the service failing to start.
+	[DllImport("advapi32.dll", SetLastError = true)]
 	private static extern bool GetTokenInformation(
 		IntPtr token, int informationClass, IntPtr information, int length, out int needed);
 

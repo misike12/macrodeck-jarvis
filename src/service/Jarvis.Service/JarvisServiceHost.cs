@@ -27,12 +27,26 @@ internal sealed class JarvisServiceHost : ServiceBase
 	{
 		_log.Information($"{ServiceNames.DisplayName} is starting.");
 
-		// Elevated, so the pipe is named after the signed-in user and carries a descriptor granting that
-		// user access. Without this the pipe would belong to LocalSystem and the plugin could not open it.
-		_pipe = new PipeServer(_log, elevated: true);
-		_pipe.Start();
+		try
+		{
+			// Elevated, so the pipe is named after the signed-in user and carries a descriptor granting that
+			// user access. Without this the pipe would belong to LocalSystem and the plugin could not open it.
+			_pipe = new PipeServer(_log, elevated: true);
+			_pipe.Start();
 
-		_log.Information($"{ServiceNames.DisplayName} is listening on {Protocol.PipeName}.");
+			_log.Information($"{ServiceNames.DisplayName} is listening on {Protocol.PipeName}.");
+		}
+		catch (Exception exception)
+		{
+			// Left to escape, the only record is the service control manager saying the dispatch failed, which
+			// names no cause. The reason is written here first so the next start says what actually went wrong.
+			ServiceLog.Error($"{ServiceNames.DisplayName} could not start: {exception}");
+
+			_pipe?.Dispose();
+			_pipe = null;
+
+			throw;
+		}
 	}
 
 	protected override void OnStop()
