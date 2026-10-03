@@ -72,10 +72,29 @@ if ($running) {
 
 Write-Host "Registering JarvisService from $binary"
 
-# The binary's own output is streamed rather than captured. It is the only thing that says why a
-# registration was refused, and a silent exit code is the least useful thing a failed install can do.
-& $binary --install
-$exit = $LASTEXITCODE
+# The binary's output is captured to a file and printed, rather than streamed. It is a Windows-subsystem
+# executable, so its console output does not reliably reach the calling window, and the only thing that
+# says why a registration was refused is that output. Redirecting to a file works regardless of whether
+# the binary managed to attach to this console.
+$stdout = Join-Path $env:TEMP 'jarvis-install-out.txt'
+$stderr = Join-Path $env:TEMP 'jarvis-install-err.txt'
+
+$process = Start-Process -FilePath $binary -ArgumentList '--install' -Wait -PassThru -NoNewWindow `
+    -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+
+foreach ($file in @($stdout, $stderr)) {
+    if (Test-Path $file) {
+        $text = (Get-Content $file -Raw -ErrorAction SilentlyContinue)
+
+        if ($text) {
+            Write-Host $text.TrimEnd()
+        }
+
+        Remove-Item $file -Force -ErrorAction SilentlyContinue
+    }
+}
+
+$exit = $process.ExitCode
 
 if ($exit -eq 5) {
     Write-Error @'
@@ -96,8 +115,28 @@ if ($exit -ne 0) {
 if ($Start) {
     Write-Host 'Starting JarvisService...'
     Start-Service -Name JarvisService -ErrorAction SilentlyContinue
-    $status = (Get-Service -Name JarvisService -ErrorAction SilentlyContinue).Status
-    Write-Host "JarvisService is $status."
+
+    # Queried rather than assumed. Under StrictMode, reading a property off a null result throws, which
+    # turns "the service is not there" into an unrelated-looking script error instead of a clear message.
+    $service = Get-Service -Name JarvisService -ErrorAction SilentlyContinue
+
+    if ($null -eq $service) {
+        Write-Warning @"
+JarvisService is not registered, even though the installer reported success.
+
+Check what the service manager actually has:
+
+    sc.exe query JarvisService
+    Get-Service | Where-Object { `$_.Name -like '*arvis*' }
+
+and re-run the installer directly to see its full output:
+
+    & "$binary" --install
+"@
+        exit 1
+    }
+
+    Write-Host "JarvisService is $($service.Status)."
 }
 
 Write-Host ''
