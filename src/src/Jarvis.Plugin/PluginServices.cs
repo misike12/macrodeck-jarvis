@@ -98,6 +98,11 @@ public static class PluginServices
 			registry.Register(new RegistryTools.RegistryGetTool());
 			registry.Register(new RegistryTools.RegistrySetTool());
 			registry.Register(new RegistryTools.RegistryDeleteTool());
+			registry.Register(new ScheduledTaskTools.ListScheduledTasksTool());
+			registry.Register(new ScheduledTaskTools.GetScheduledTaskTool());
+			registry.Register(new ScheduledTaskTools.CreateScheduledTaskTool());
+			registry.Register(new ScheduledTaskTools.DeleteScheduledTaskTool());
+			registry.Register(new ScheduledTaskTools.RunScheduledTaskTool());
 			registry.Register(new ScreenshotTool(provider.GetRequiredService<VisionClient>(), logger));
 
 			// The persona tool rewrites only the persona field, through the same immutable-prefix resolver
