@@ -2,9 +2,96 @@ using System.Runtime.Versioning;
 using Jarvis.Plugin.Core;
 using Jarvis.Plugin.Speech;
 using MacroDeck.Sdk.Actions;
+using NAudio.Wave;
 using Serilog;
 
 namespace Jarvis.Plugin.Speech;
+
+/// <summary>
+	/// One utterance, encoded as the WAV the transcriber reads. Kept here because both callers that need a
+	/// temporary WAV - the listening pipeline and the wake word - must agree on the format, and agreeing on
+	/// it in one place is cheaper than agreeing on it twice.
+/// </summary>
+internal static class UtteranceAudio
+{
+	private const int TargetSampleRate = 16_000;
+
+	/// <summary>
+	/// Resamples and writes a 16 kHz mono 16-bit WAV, returning its path. The device runs at 48 kHz, and
+	/// whisper's native rate is 16 kHz, so the conversion happens once here rather than in each caller.
+	/// </summary>
+	public static string WriteWav(float[] samples, int sourceSampleRate)
+	{
+		var resampled = Resample(samples, sourceSampleRate, TargetSampleRate);
+		var pcm = new byte[resampled.Length * 2];
+
+		for (var index = 0; index < resampled.Length; index++)
+		{
+			BitConverter.TryWriteBytes(
+				pcm.AsSpan(index * 2), (short)(Math.Clamp(resampled[index], -1f, 1f) * short.MaxValue));
+		}
+
+		var path = Path.Combine(
+			Path.GetTempPath(),
+			$"jarvis-utt-{Convert.ToHexString(Guid.NewGuid().ToByteArray()).ToLowerInvariant()}.wav");
+
+		using var stream = new MemoryStream(pcm);
+		using var pcmStream = new RawSourceWaveStream(stream, new WaveFormat(TargetSampleRate, 16, 1));
+		WaveFileWriter.CreateWaveFile(path, pcmStream);
+
+		return path;
+	}
+
+	/// <summary>
+	/// Linear interpolation between neighbouring samples. Good enough for speech at this ratio: the point is
+	/// to hand whisper the rate it expects, not to build a resampler.
+	/// </summary>
+	internal static float[] Resample(float[] samples, int from, int to)
+	{
+		if (from <= 0 || to <= 0 || samples.Length == 0)
+		{
+			return [];
+		}
+
+		if (from == to)
+		{
+			return samples;
+		}
+
+		var length = (int)Math.Round(samples.Length * (double)to / from, MidpointRounding.AwayFromZero);
+		var result = new float[length];
+		var step = (double)from / to;
+
+		for (var index = 0; index < length; index++)
+		{
+			var position = index * step;
+			var left = (int)position;
+
+			if (left >= samples.Length - 1)
+			{
+				result[index] = samples[^1];
+				continue;
+			}
+
+			var fraction = (float)(position - left);
+			result[index] = (samples[left] * (1 - fraction)) + (samples[left + 1] * fraction);
+		}
+
+		return result;
+	}
+
+	public static void Delete(string path)
+	{
+		try
+		{
+			File.Delete(path);
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+		{
+			// Nothing more can be done, and failing a turn over a leftover file would be worse.
+		}
+	}
+}
 
 /// <summary>
 /// Turns "someone pressed the button" into a spoken answer: record one utterance, transcribe it, run the

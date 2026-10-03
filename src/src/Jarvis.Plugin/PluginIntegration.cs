@@ -32,6 +32,8 @@ public sealed class PluginIntegration : IPluginIntegration, IConfigFlowProvider,
 private readonly RuntimeManager _runtime;
 	private readonly ListeningPipeline _listening;
 	private readonly GlobalHotkey _hotkey;
+	private readonly WakeWordDetector _wakeWord;
+	private readonly WhisperTranscriber _transcriber;
 	private IUiResourceRegistry? _resources;
 
 	public PluginIntegration(
@@ -43,7 +45,9 @@ private readonly RuntimeManager _runtime;
 		MicrophoneMonitor microphone,
 		RuntimeManager runtime,
 		ListeningPipeline listening,
-		GlobalHotkey hotkey)
+		GlobalHotkey hotkey,
+		WakeWordDetector wakeWord,
+		WhisperTranscriber transcriber)
 	{
 		_logger = logger.ForContext<PluginIntegration>();
 		_settings = settings;
@@ -53,6 +57,8 @@ private readonly RuntimeManager _runtime;
 		_runtime = runtime;
 		_listening = listening;
 		_hotkey = hotkey;
+		_wakeWord = wakeWord;
+		_transcriber = transcriber;
 
 		_widgetTypes = new OrbWidgetTypeProvider(logger);
 
@@ -139,6 +145,8 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 
 		RegisterHotkey(settings);
 
+		ConfigureWakeWord(settings);
+
 		if (!settings.HasLlmCredentials)
 		{
 			_state.Transition(AssistantState.Unavailable);
@@ -187,6 +195,75 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 			catch (Exception exception) when (exception is not OutOfMemoryException)
 			{
 				_logger.Warning(exception, "The hotkey turn failed.");
+			}
+		});
+	}
+
+	/// <summary>
+	/// Wires the offline wake word to the recogniser already configured. The detector decides that someone
+	/// has spoken; the transcriber decides whether the word was in it. Nothing is downloaded and no account
+	/// is needed, which is the point: the wake word works offline out of the box.
+	/// </summary>
+	private void ConfigureWakeWord(JarvisSettings settings)
+	{
+		_wakeWord.Word = settings.WakeWord;
+		_wakeWord.Sensitivity = settings.WakeWordSensitivity;
+		_wakeWord.Enabled = settings.WakeWordEngineEnabled && settings.MicrophoneAlwaysOn;
+
+		if (!_wakeWord.Enabled)
+		{
+			return;
+		}
+
+		_wakeWord.Recognizer = async (samples, token) =>
+		{
+			if (!_transcriber.IsAvailable)
+			{
+				// The microphone is left open and nothing else happens. Failing here would be noise: the
+				// wake word simply cannot work without a recogniser, and that is already an issue.
+				return null;
+			}
+
+			var wav = UtteranceAudio.WriteWav(samples, Audio.MicrophoneMonitor.SampleRate);
+
+			try
+			{
+				var result = await _transcriber
+					.TranscribeAsync(wav, settings.SttLanguage, token)
+					.ConfigureAwait(false);
+
+				return result.Ok ? result.Text : null;
+			}
+			finally
+			{
+				UtteranceAudio.Delete(wav);
+			}
+		};
+
+		_wakeWord.Detected -= OnWakeWordDetected;
+		_wakeWord.Detected += OnWakeWordDetected;
+
+		_microphone.AttachTap(_wakeWord.Buffer);
+	}
+
+	/// <summary>A wake word starts a turn exactly as a button press does.</summary>
+	private void OnWakeWordDetected() => StartListeningTurn();
+
+	/// <summary>
+	/// Runs a turn without blocking the caller. Used by the hotkey and the wake word, both of which fire on
+	/// threads that must stay free: a blocked hotkey thread stops the hotkey being seen again.
+	/// </summary>
+	private void StartListeningTurn()
+	{
+		_ = Task.Run(async () =>
+		{
+			try
+			{
+				await _listening.ListenAndAnswerAsync(prompt: null, CancellationToken.None).ConfigureAwait(false);
+			}
+			catch (Exception exception) when (exception is not OutOfMemoryException)
+			{
+				_logger.Warning(exception, "An unattended turn failed.");
 			}
 		});
 	}

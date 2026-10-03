@@ -20,6 +20,12 @@ public sealed class MicrophoneMonitor : IDisposable
 {
 	private static readonly TimeSpan PublishInterval = TimeSpan.FromMilliseconds(50);
 
+	/// <summary>
+	/// The rate the device is opened at, matching <see cref="AudioDeviceCatalog.TryOpenCapture"/>. Named
+	/// here so a consumer can size a buffer against it without asking the device what it negotiated.
+	/// </summary>
+	public const int SampleRate = 48_000;
+
 	private readonly AssistantStateHolder _state;
 	private readonly ILogger _logger;
 
@@ -27,6 +33,23 @@ public sealed class MicrophoneMonitor : IDisposable
 	private WasapiRecorder? _capture;
 	private Timer? _timer;
 	private AmplitudeMeter _meter = new();
+	private Input.SampleRingBuffer? _tap;
+
+	/// <summary>
+	/// An optional rolling copy of the captured samples. The monitor itself keeps no audio and writes
+	/// nothing: this exists so a wake word can recover the word that has just been said, which a level
+	/// meter alone can never provide.
+	/// </summary>
+	public Input.SampleRingBuffer? Tap => _tap;
+
+	/// <summary>Points the monitor at a rolling buffer. Existing capture keeps running.</summary>
+	public void AttachTap(Input.SampleRingBuffer buffer)
+	{
+		lock (_gate)
+		{
+			_tap = buffer;
+		}
+	}
 
 	public MicrophoneMonitor(AssistantStateHolder state, ILogger logger)
 	{
@@ -144,6 +167,7 @@ public sealed class MicrophoneMonitor : IDisposable
 		lock (_gate)
 		{
 			_meter.Accumulate(samples);
+			_tap?.Append(samples);
 		}
 	}
 
