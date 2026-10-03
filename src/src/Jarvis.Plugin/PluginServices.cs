@@ -42,12 +42,14 @@ public static class PluginServices
 			() => provider.GetRequiredService<ConversationRunner>(),
 			provider.GetRequiredService<VoiceService>(),
 			provider.GetRequiredService<MemoryStore>(),
-			provider.GetRequiredService<ILogger>()));
+			provider.GetRequiredService<ILogger>(),
+			provider.GetRequiredService<BargeInDetector>()));
 
 		builder.Services.AddSingleton<ChatClient>();
 		builder.Services.AddSingleton<VisionClient>();
 		builder.Services.AddSingleton<MemoryStore>();
 		builder.Services.AddSingleton<MicrophoneMonitor>();
+	builder.Services.AddSingleton<BargeInDetector>();
 
 		builder.Services.AddSingleton(provider => new RuntimeManager(
 			provider.GetRequiredService<IHttpClientFactory>().CreateClient("nim"),

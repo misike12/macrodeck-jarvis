@@ -13,9 +13,8 @@ namespace Jarvis.Plugin.Orb;
 /// </summary>
 public sealed class OrbAssetCache(IUiResourceRegistry resources, ILogger logger)
 {
-	private const int IdleFrames = 18;
+private const int IdleFrames = 18;
 	private const int BusyFrames = 24;
-	private const double QuietAmplitude = 0.12;
 
 	private static readonly AssistantState[] AnimatedStates =
 	[
@@ -28,60 +27,118 @@ public sealed class OrbAssetCache(IUiResourceRegistry resources, ILogger logger)
 		AssistantState.Error,
 	];
 
-	private readonly IUiResourceRegistry _resources = resources;
+private readonly IUiResourceRegistry _resources = resources;
 	private readonly ILogger _logger = logger.ForContext<OrbAssetCache>();
-	private readonly ConcurrentDictionary<AssistantState, Lazy<Task<UiResource?>>> _cache = new();
 
-	public async Task<UiResource?> GetAsync(AssistantState target, OrbPalette palette, CancellationToken cancellationToken)
+	/// <summary>
+	/// Keyed on state, preset, palette and an amplitude band rather than on state alone. The key has to
+	/// include all of them: keying on state alone was why every preset produced the same picture, because
+	/// whichever preset was asked for first filled the cache and the rest were served that one.
+	/// </summary>
+	private readonly ConcurrentDictionary<AssetKey, Lazy<Task<UiResource?>>> _cache = new();
+
+	private readonly record struct AssetKey(
+		AssistantState State,
+		OrbPreset Preset,
+		string Accent,
+		string Core,
+		int AmplitudeBand);
+
+	public async Task<UiResource?> GetAsync(
+		AssistantState target,
+		OrbPalette palette,
+		double amplitude,
+		OrbPreset preset,
+		CancellationToken cancellationToken)
 	{
 		if (!AnimatedStates.Contains(target))
 		{
 			return null;
 		}
 
-		var lazy = _cache.GetOrAdd(target, key => new Lazy<Task<UiResource?>>(
-			() => BuildAsync(key, palette, cancellationToken),
+		// Amplitude is quantised into a small number of bands. A distinct asset per amplitude value would
+		// rebuild the animation continuously as a voice rises and falls, which is both expensive and
+		// invisible: the difference between two adjacent levels cannot be seen at 96 pixels.
+		var band = Band(amplitude);
+		var key = new AssetKey(target, preset, Accent(palette), Core(palette), band);
+
+		var lazy = _cache.GetOrAdd(key, entry => new Lazy<Task<UiResource?>>(
+			() => BuildAsync(entry, palette, cancellationToken),
 			LazyThreadSafetyMode.ExecutionAndPublication));
 
 		return await lazy.Value.ConfigureAwait(false);
 	}
 
-	private async Task<UiResource?> BuildAsync(AssistantState target, OrbPalette palette, CancellationToken cancellationToken)
+	private const int AmplitudeBands = 4;
+
+	/// <summary>
+	/// Quiet is its own band so that silence looks like silence rather than like a very quiet voice, and
+	/// loud is its own band so a shout is visibly at the top rather than pinned there.
+	/// </summary>
+	private static int Band(double amplitude) => amplitude switch
+	{
+		< 0.08 => 0,
+		< 0.30 => 1,
+		< 0.65 => 2,
+		_ => 3,
+	};
+
+	private static string Accent(OrbPalette palette) =>
+		$"{palette.Accent.R:F3},{palette.Accent.G:F3},{palette.Accent.B:F3}";
+
+	private static string Core(OrbPalette palette) =>
+		$"{palette.Core.R:F3},{palette.Core.G:F3},{palette.Core.B:F3}";
+
+	private async Task<UiResource?> BuildAsync(AssetKey key, OrbPalette palette, CancellationToken cancellationToken)
 	{
 		try
 		{
-			var frames = target == AssistantState.Idle ? IdleFrames : BusyFrames;
+			var frames = key.State == AssistantState.Idle ? IdleFrames : BusyFrames;
 			var gif = AnimatedGif.Create(OrbFrameRenderer.Size, OrbFrameRenderer.Size);
-			var amplitude = target is AssistantState.Listening or AssistantState.Speaking
-				? QuietAmplitude
-				: 0;
+
+			// The middle of the band, not its floor, so a band renders as the level it represents.
+			var amplitude = key.AmplitudeBand switch
+			{
+				0 => 0.0,
+				1 => 0.19,
+				2 => 0.47,
+				_ => 0.82,
+			};
 
 			for (var frame = 0; frame < frames; frame++)
 			{
 				cancellationToken.ThrowIfCancellationRequested();
 
 				var phase = (frame / (double)frames) * Math.Tau;
-				gif.AddFrame(OrbFrameRenderer.Render(target, phase, palette, amplitude));
+				gif.AddFrame(OrbFrameRenderer.Render(key.State, phase, palette, amplitude, key.Preset));
 			}
 
 			var bytes = gif.Encode();
+			var name = $"orb-{key.State.ToString().ToLowerInvariant()}-{key.Preset.ToString().ToLowerInvariant()}-{key.AmplitudeBand}";
 			var resource = await _resources
-				.RegisterAsync($"orb-{target.ToString().ToLowerInvariant()}", bytes, "image/gif", cancellationToken)
+				.RegisterAsync(name, bytes, "image/gif", cancellationToken)
 				.ConfigureAwait(false);
 
-			_logger.Information("Built orb asset for {State}: {Bytes} bytes, {Frames} frames.", target, bytes.Length, frames);
+			_logger.Debug(
+				"Built orb asset for {State}/{Preset} at band {Band}: {Bytes} bytes, {Frames} frames.",
+				key.State,
+				key.Preset,
+				key.AmplitudeBand,
+				bytes.Length,
+				frames);
+
 			return resource;
 		}
 		catch (OperationCanceledException)
 		{
-			_cache.TryRemove(target, out _);
+			_cache.TryRemove(key, out _);
 			return null;
 		}
 		catch (Exception exception) when (exception is not OutOfMemoryException)
 		{
 			// A missing orb must never take the widget down; the reader draws the placeholder instead.
-			_logger.Warning(exception, "The orb asset for {State} could not be built.", target);
-			_cache.TryRemove(target, out _);
+			_logger.Warning(exception, "The orb asset for {State} could not be built.", key.State);
+			_cache.TryRemove(key, out _);
 			return null;
 		}
 	}

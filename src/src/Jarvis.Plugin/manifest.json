@@ -23,5 +23,13 @@
   "homepage": "https://github.com/misike12/macrodeck-jarvis",
   "compatibility": {
     "macroDeck": ">=3.0.0-0"
-  }
+  },
+  "permissions": [
+    "net:outbound",
+    "fs:user-files",
+    "process:spawn",
+    "events:publish",
+    "host:notifications",
+    "host:widgets"
+  ]
 }

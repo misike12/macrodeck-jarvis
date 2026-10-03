@@ -62,6 +62,37 @@ public sealed class MicrophoneMonitor : IDisposable
 	public string? LastError { get; private set; }
 
 	/// <summary>
+	/// The measured microphone level, separate from whatever the orb is showing.
+	/// <para>
+	/// The orb shows the render loopback while a reply is playing, which is the right thing to look at but
+	/// the wrong thing to decide on: a barge-in has to be judged on the microphone, or JARVIS would interrupt
+	/// itself every time it spoke.
+	/// </para>
+	/// </summary>
+	public double Level
+	{
+		get
+		{
+			lock (_gate)
+			{
+				return _capture is null ? 0 : _meter.Level;
+			}
+		}
+	}
+
+	/// <summary>Whether capture is running, which a barge-in detector needs before it can mean anything.</summary>
+	public bool IsListening
+	{
+		get
+		{
+			lock (_gate)
+			{
+				return _capture is not null;
+			}
+		}
+	}
+
+	/// <summary>
 	/// Opens the configured device. Returns false rather than throwing: a missing microphone degrades the
 	/// orb to a static one and must not stop the plugin from starting.
 	/// </summary>

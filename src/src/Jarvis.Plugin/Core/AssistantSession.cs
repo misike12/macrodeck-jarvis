@@ -31,8 +31,9 @@ public sealed class AssistantSession : IAsyncDisposable
 	private readonly AssistantStateHolder _state;
 	private readonly JarvisSettingsStore _settings;
 	private readonly Func<ConversationRunner> _conversation;
-	private readonly VoiceService _voice;
+private readonly VoiceService _voice;
 	private readonly MemoryStore _memory;
+	private readonly BargeInDetector? _bargeIn;
 	private readonly ILogger _logger;
 	private readonly Lock _turnGate = new();
 	private readonly Dictionary<Guid, ProcessTracker> _runningCommands = [];
@@ -53,15 +54,17 @@ public sealed class AssistantSession : IAsyncDisposable
 		AssistantStateHolder state,
 		JarvisSettingsStore settings,
 		Func<ConversationRunner> conversation,
-		VoiceService voice,
+VoiceService voice,
 		MemoryStore memory,
-		ILogger logger)
+		ILogger logger,
+		BargeInDetector? bargeIn = null)
 	{
 		_state = state;
 		_settings = settings;
 		_conversation = conversation;
 		_voice = voice;
-_memory = memory;
+		_memory = memory;
+		_bargeIn = bargeIn;
 		_logger = logger.ForContext<AssistantSession>();
 
 		// Created once per session rather than per command: a job is a kernel object with a handle, and
@@ -235,16 +238,37 @@ ChatMessage[] history;
 	/// clip ends and a cancel press interrupts it. Speaking never decides the action result: a silent
 	/// failure here must not turn a good answer into a failed turn.
 	/// </summary>
-	private async Task SpeakReplyAsync(string reply, CancellationToken cancellationToken)
+private async Task SpeakReplyAsync(string reply, CancellationToken cancellationToken)
 	{
-		if (!_settings.Current.SpeakReplies || string.IsNullOrWhiteSpace(reply))
+		var current = _settings.Current;
+
+		if (!current.SpeakReplies || string.IsNullOrWhiteSpace(reply))
 		{
 			return;
 		}
 
-		try
+try
 		{
-			await _voice.SpeakAsync(reply, cancellationToken).ConfigureAwait(false);
+			// Barge-in only watches while there is something to interrupt, and only when the user asked for
+			// it. Both are checked here rather than inside the detector so the reason it is off is visible in
+			// this one place.
+			var bargeIn = _bargeIn;
+			var watching = bargeIn is not null && current.BargeInEnabled && _voice.IsSpeaking;
+
+			if (watching)
+			{
+				bargeIn!.Threshold = current.BargeInThreshold;
+				bargeIn.Start();
+			}
+
+			try
+			{
+				await _voice.SpeakAsync(reply, cancellationToken).ConfigureAwait(false);
+			}
+			finally
+			{
+				bargeIn?.Stop();
+			}
 		}
 		catch (OperationCanceledException)
 		{

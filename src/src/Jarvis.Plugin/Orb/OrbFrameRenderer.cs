@@ -17,12 +17,15 @@ public static class OrbFrameRenderer
 		AssistantState state,
 		double phase,
 		OrbPalette palette,
-		double amplitude)
+		double amplitude,
+		OrbPreset preset = OrbPreset.ArcReactor)
 	{
 		var buffer = new byte[Size * Size * 4];
 		var centre = Size / 2.0;
 
+		var shape = ShapeOf(preset);
 		var (coreRadius, glowStrength, ringSpeed, ringAlpha) = ShapeFor(state, amplitude);
+		coreRadius *= shape.CoreScale;
 
 		for (var y = 0; y < Size; y++)
 		{
@@ -53,7 +56,8 @@ public static class OrbFrameRenderer
 							coreRadius,
 							glowStrength,
 							ringAlpha,
-							state);
+							state,
+							shape);
 
 						red += r * a;
 						green += g * a;
@@ -79,6 +83,13 @@ public static class OrbFrameRenderer
 		return buffer;
 	}
 
+	/// <summary>
+	/// The geometry for a state, before the preset is applied.
+	/// <para>
+	/// Amplitude moves the core and the glow, which is what makes the orb visibly react to a voice rather
+	/// than merely reporting that it is listening.
+	/// </para>
+	/// </summary>
 	private static (double CoreRadius, double Glow, double Speed, double RingAlpha) ShapeFor(
 		AssistantState state,
 		double amplitude)
@@ -98,6 +109,29 @@ public static class OrbFrameRenderer
 		};
 	}
 
+	/// <summary>
+	/// What makes each preset a different shape rather than a different colour. Three axes are available
+	/// and each preset differs on all of them, so any two are distinguishable at a glance and in a still
+	/// frame.
+	/// </summary>
+	private readonly record struct PresetShape(int Rings, double RingSpacing, double Segments, double SegmentsOffset, double CoreScale, double RingWeight);
+
+	private static PresetShape ShapeOf(OrbPreset preset) => preset switch
+	{
+		// Three close rings around a small bright core, like a containment field.
+		OrbPreset.ArcReactor => new(3, 0.065, 6, 0.0, 1.00, 1.00),
+
+		// Two wide rings, fewer segments, and a larger core: calmer and more open than a reactor.
+		OrbPreset.Halo => new(2, 0.115, 3, 1.1, 1.35, 1.70),
+
+		// One heavy ring and a small core: a heartbeat rather than a machine.
+		OrbPreset.Pulse => new(1, 0.190, 2, 0.4, 0.70, 2.60),
+
+		// Custom is the arc reactor's geometry with a distinct segment offset, so it is visibly its own
+		// thing without inventing a fourth shape nobody asked for.
+		_ => new(4, 0.048, 8, 2.3, 0.90, 0.80),
+	};
+
 	private static (double R, double G, double B, double A) Shade(
 		double distance,
 		double angle,
@@ -106,7 +140,8 @@ public static class OrbFrameRenderer
 		double coreRadius,
 		double glowStrength,
 		double ringAlpha,
-		AssistantState state)
+		AssistantState state,
+		PresetShape shape)
 	{
 		var outer = Size * 0.46;
 		var red = 0.0;
@@ -131,10 +166,10 @@ public static class OrbFrameRenderer
 			alpha = Math.Max(alpha, coreEdge * 0.96);
 		}
 
-		for (var ring = 0; ring < RingCount; ring++)
+		for (var ring = 0; ring < shape.Rings; ring++)
 		{
-			var radius = (Size * 0.24) + (ring * Size * 0.065);
-			var width = 1.1 + (ring * 0.25);
+			var radius = (Size * 0.24) + (ring * Size * shape.RingSpacing);
+			var width = (1.1 + (ring * 0.25)) * shape.RingWeight;
 			var band = Math.Abs(distance - radius);
 
 			if (band > width)
@@ -142,8 +177,8 @@ public static class OrbFrameRenderer
 				continue;
 			}
 
-			var sweep = (phase * (1.0 + (ring * 0.45))) + (angle * 2.0) - (ring * 1.1);
-			var segments = Math.Cos(sweep * RingSegments) * 0.5 + 0.5;
+			var sweep = (phase * (1.0 + (ring * 0.45))) + (angle * 2.0) - (ring * 1.1) + shape.SegmentsOffset;
+			var segments = Math.Cos(sweep * shape.Segments) * 0.5 + 0.5;
 			var coverage = (1 - (band / width)) * segments * ringAlpha;
 
 			if (coverage <= 0.002)
@@ -168,9 +203,6 @@ public static class OrbFrameRenderer
 
 		return (red, green, blue, Math.Clamp(alpha, 0, 1));
 	}
-
-	private const int RingCount = 3;
-	private const double RingSegments = 6.0;
 
 	private static byte ToByte(double value) => (byte)Math.Clamp(value * 255, 0, 255);
 }

@@ -84,10 +84,13 @@ _view = new UiView(surface, OrbView.Build(data, _orbState, _core, _sweep, _reply
 
 		Changed?.Invoke(this, EventArgs.Empty);
 
-		var target = snapshot.State;
+var target = snapshot.State;
 		var palette = OrbPalette.From(_data);
 
-		_ = _assets.GetAsync(target, palette, _cancellationToken).ContinueWith(
+		// The measured amplitude is passed through, so a voice actually moves the orb. It is read from the
+		// snapshot rather than fetched from the meter here, because the snapshot already carries the value
+		// the deadband decided was worth publishing.
+		_ = _assets.GetAsync(target, palette, snapshot.Amplitude, _data.Preset, _cancellationToken).ContinueWith(
 			task =>
 			{
 				if (task.Status != TaskStatus.RanToCompletion || task.Result is not { } resource)
