@@ -214,9 +214,11 @@ public sealed class WakeWordDetector : IDisposable
 	/// sliding window with an edit distance tolerates "jarvisz" and "jarves" without matching an unrelated
 	/// phrase that happens to contain the letters.
 	/// </summary>
-	public static bool Mentions(string heard, string word)
-	{
-		var needle = Clean(word);
+public static bool Mentions(string? heard, string? word)
+  	{
+  		// A recogniser that failed returns null, and "no transcript" must read as "not said" rather than
+  		// throwing from a wake word check that is only a convenience.
+  		var needle = Clean(word);
 
 		if (needle.Length == 0)
 		{
@@ -230,9 +232,14 @@ public sealed class WakeWordDetector : IDisposable
 			return false;
 		}
 
-		var window = Math.Min(haystack.Length, needle.Length + 2);
+		var window = needle.Length;
 		var tolerance = Math.Max(1, needle.Length / 5);
 
+		// Every position is tried, with a window exactly the length of the word. An earlier version used a
+		// window two characters longer, which meant a window could only ever overlap the word by a couple of
+		// letters, so "hey jarvis" and "jarvis, what time is it" both scored worse than the tolerance and the
+		// wake word never fired for the phrasing people actually use. Scanning every start at the word's own
+		// length fixes that without loosening the tolerance.
 		for (var start = 0; start + window <= haystack.Length; start++)
 		{
 			if (Distance(haystack.AsSpan(start, window), needle) <= tolerance)
@@ -244,8 +251,10 @@ public sealed class WakeWordDetector : IDisposable
 		return false;
 	}
 
-	private static string Clean(string text) =>
-		new(text.ToLowerInvariant().Where(char.IsLetter).ToArray());
+private static string Clean(string? text) =>
+  		text is null
+  			? string.Empty
+  			: new string(text.ToLowerInvariant().Where(char.IsLetter).ToArray());
 
 	/// <summary>Levenshtein distance over the window, which is short enough that the cost does not matter.</summary>
 	private static int Distance(ReadOnlySpan<char> left, string right)

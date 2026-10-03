@@ -134,7 +134,9 @@ public static partial class FileTools
 			{
 				RecurseSubdirectories = true,
 				IgnoreInaccessible = true,
-				MaxRecursionDepth = 32,
+				// Shallow on purpose. A profile is full of directory junctions, and following them is how a search over a
+			// user profile becomes one that never finishes or that walks out of the directory asked for.
+			MaxRecursionDepth = 2,
 			};
 
 			IEnumerator<string> files;

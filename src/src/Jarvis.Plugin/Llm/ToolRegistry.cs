@@ -41,6 +41,17 @@ public sealed class ToolRegistry(
 	private readonly AssistantSession _session = session;
 	private readonly ILogger _logger = logger.ForContext<ToolRegistry>();
 
+	/// <summary>
+	/// How long a tool call waits for a person to answer before it gives up.
+	/// <para>
+	/// Long, because a human has to notice the question, read it and reach for the pad. Bounded anyway,
+	/// because the alternative is a turn that never ends: the confirmation lives on a widget or an action,
+	/// and neither of those can promise the question was ever seen. Without a bound, one unanswered
+	/// question holds the assistant for the rest of the session.
+	/// </para>
+	/// </summary>
+	private static readonly TimeSpan ConfirmationTimeout = TimeSpan.FromMinutes(10);
+
 	public IReadOnlyCollection<string> Names => _tools.Keys;
 
 	public void Register(ITool tool) => _tools[tool.Name] = tool;
@@ -72,13 +83,29 @@ public sealed class ToolRegistry(
 
 			bool approved;
 
+			// Bounded, because nothing else is. The turn's own token covers a cancel, but if the
+			// confirmation is never shown, or is shown on a surface that is not being looked at, the wait
+			// has no natural end and the turn never finishes. A generous bound still lets a person take
+			// their time, and an unanswered question becomes a refusal rather than a wedged session.
+			using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+			deadline.CancelAfter(ConfirmationTimeout);
+
 			try
 			{
-				approved = await _session.WaitForDecisionAsync(cancellationToken).ConfigureAwait(false);
+				approved = await _session.WaitForDecisionAsync(deadline.Token).ConfigureAwait(false);
+			}
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+			{
+				return ToolOutcome.Failure($"{tool.Name} was cancelled before it was approved.");
 			}
 			catch (OperationCanceledException)
 			{
-				return ToolOutcome.Failure($"{tool.Name} was cancelled before it was approved.");
+				_logger.Warning("{Tool} was never approved within {Seconds} seconds.", tool.Name, ConfirmationTimeout.TotalSeconds);
+
+				_session.ResolveConfirmation(approved: false);
+
+				return ToolOutcome.Failure(
+					$"{tool.Name} timed out waiting for approval, so it was not run.");
 			}
 
 			if (!approved)

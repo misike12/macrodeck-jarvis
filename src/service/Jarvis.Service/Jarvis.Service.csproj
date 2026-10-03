@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The service is a separate executable on purpose. It has to be installable by the Windows service
+    control manager, which means it has to be its own process with its own identity, and it cannot live
+    inside the plugin: the plugin runs as the user, which is exactly the thing the service exists to work
+    around.
+
+    It is deliberately plain, with no reference to the plugin. The two talk over a named pipe, so either
+    can be upgraded without the other.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- Windows-specific because of Windows Forms for the tray icon. The service itself is Windows
+         anyway; this states it rather than leaving the SDK to infer it. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <AssemblyName>Jarvis.Service</AssemblyName>
+    <RootNamespace>Jarvis.Service</RootNamespace>
+    <AssemblyTitle>JARVIS Service</AssemblyTitle>
+    <IsPackable>false</IsPackable>
+    <!-- A service host has no console; a subsystem build is what makes a stray message box possible. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Stated in the project rather than only in the manifest: WinForms warns when a manifest carries
+         DPI settings that the runtime will override anyway. -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+  </ItemGroup>
+
+</Project>

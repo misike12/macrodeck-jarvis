@@ -8,6 +8,9 @@
   <Folder Name="/src/">
     <Project Path="src/Jarvis.Plugin/Jarvis.Plugin.csproj" />
   </Folder>
+  <Folder Name="/service/">
+    <Project Path="service/Jarvis.Service/Jarvis.Service.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Jarvis.Plugin.Tests/Jarvis.Plugin.Tests.csproj" />
   </Folder>

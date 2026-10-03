@@ -19,6 +19,27 @@ namespace Jarvis.Plugin.Tests;
 [TestFixture]
 public class SafetyGateTests
 {
+	/// <summary>
+	/// Every session <see cref="Build"/> creates, so they can all be torn down afterwards.
+	/// <para>
+	/// A session owns a process job and a speech player, and a test that leaves one undisposed leaks those.
+	/// Ten of them is enough to keep the test host alive after the last assertion, which is what made this
+	/// fixture look like it hung when every test in it had in fact passed.
+	/// </para>
+	/// </summary>
+	private static readonly List<AssistantSession> Sessions = [];
+
+	[OneTimeTearDown]
+	public static async Task ReleaseSessions()
+	{
+		foreach (var session in Sessions)
+		{
+			await session.DisposeAsync();
+		}
+
+		Sessions.Clear();
+	}
+
 	private static JarvisSettingsStore StoreWith(JarvisSettings settings)
 	{
 		var store = new JarvisSettingsStore(RuntimeTestLog.Logger, LocalSettingsFile.Load(
@@ -74,6 +95,8 @@ public class SafetyGateTests
 
 		var registry = new ToolRegistry(store, session, RuntimeTestLog.Logger);
 		registry.Register(tool);
+
+		Sessions.Add(session);
 
 		return (session, registry);
 	}
@@ -163,31 +186,43 @@ public class SafetyGateTests
 	/// <summary>
 	/// Tool-permissions must be a real mode. It used to fall through to the same branch as confirm-all,
 	/// which made the two indistinguishable and the whole setting decorative.
+	/// <para>
+	/// This uses a real <c>write_file</c> tool rather than a test double. Permissions are decided by the
+	/// tool's class, and a double is not in any class, so a double here would be testing the cautious
+	/// default and would appear to hang while asking a question nobody was ever going to answer.
+	/// </para>
 	/// </summary>
 	[Test]
 	public async Task Tool_permissions_runs_a_permitted_class_without_asking()
 	{
-		var settings = new JarvisSettings
+		var path = Path.Combine(Path.GetTempPath(), $"jarvis-gate-{Guid.CreateVersion7():N}.txt");
+
+		try
 		{
-			Safety = SafetyMode.ToolPermissions,
-			PermitRead = true,
-			PermitExecute = true,
-		};
+			var settings = new JarvisSettings
+			{
+				Safety = SafetyMode.ToolPermissions,
+				PermitRead = true,
+				PermitWrite = true,
+			};
 
-		var (_, registry) = Build(settings, out _);
-		var reader = new RecordingTool("read_thing", confirms: false);
-		var executor = new RecordingTool("run_thing", confirms: true);
-		registry.Register(reader);
-		registry.Register(executor);
+			var (_, registry) = Build(settings, out _);
+			registry.Register(new WriteFileTool());
 
-		await registry.InvokeAsync(Call("read_thing"), CancellationToken.None);
-		var outcome = await registry.InvokeAsync(Call("run_thing"), CancellationToken.None);
+			var outcome = await registry.InvokeAsync(
+				Call("write_file", $$"""{"path":{{JsonValue.Create(path)!.ToJsonString()}},"content":"written"}"""),
+				CancellationToken.None);
 
-		Assert.Multiple(() =>
+			Assert.Multiple(() =>
+			{
+				Assert.That(outcome.Ok, Is.True, "a permitted write still asked");
+				Assert.That(File.Exists(path), Is.True, "the file was not written");
+			});
+		}
+		finally
 		{
-			Assert.That(outcome.Ok, Is.True, "a permitted execute tool still asked");
-			Assert.That(executor.Invocations, Is.EqualTo(1));
-		});
+			File.Delete(path);
+		}
 	}
 
 	[Test]

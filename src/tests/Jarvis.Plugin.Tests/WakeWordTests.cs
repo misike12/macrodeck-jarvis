@@ -9,6 +9,7 @@ namespace Jarvis.Plugin.Tests;
 internal static class Samples
 {
 	internal static readonly float[] Six = [1, 2, 3, 4, 5, 6];
+	internal static readonly float[] LastFourOfSix = [3, 4, 5, 6];
 	internal static readonly float[] Four = [1, 2, 3, 4];
 	internal static readonly float[] FiveMore = [5, 6, 7, 8, 9];
 	internal static readonly float[] Two = [1, 2];
@@ -28,10 +29,13 @@ public class WakeWordTests
 	{
 		var buffer = new SampleRingBuffer(TimeSpan.FromMilliseconds(4), 1000);
 
-		buffer.Append(Samples.Six);
+buffer.Append(Samples.Six);
 
+		// Four milliseconds at 1000 Hz is a capacity of four samples, so six appended leaves four. Asking
+		// for six back would be asking the buffer to have kept more than it was built to hold.
+		Assert.That(buffer.Capacity, Is.EqualTo(4));
 		Assert.That(buffer.TakeLast(3), Is.EqualTo(Samples.LastThreeOfSix));
-		Assert.That(buffer.TakeLast(6), Is.EqualTo(Samples.Six));
+		Assert.That(buffer.TakeLast(6), Is.EqualTo(Samples.LastFourOfSix));
 	}
 
 	/// <summary>The buffer must overwrite oldest-first and never grow, or a long session leaks.</summary>
@@ -152,14 +156,19 @@ public class WakeWordTests
 
 		detector.Buffer.Append(new float[48_000]);
 
-		var concurrent = 0;
+var concurrent = 0;
 		var peak = 0;
 		var gate = new TaskCompletionSource();
+		var started = new TaskCompletionSource();
 
 		detector.Recognizer = async (_, _) =>
 		{
 			var now = Interlocked.Increment(ref concurrent);
 			InterlockedMax(ref peak, now);
+
+			// Signalled before awaiting the gate, so the loop below can tell "a check is running" apart
+			// from "a check has not started yet".
+			started.TrySetResult();
 
 			await gate.Task;
 			Interlocked.Decrement(ref concurrent);
@@ -167,12 +176,20 @@ public class WakeWordTests
 			return null;
 		};
 
-		for (var tick = 0; tick < 10; tick++)
+		// The first offer is started and not awaited. OfferAsync awaits the recogniser, the recogniser is
+		// waiting for the gate, and the gate is opened only after the loop, so awaiting the first offer
+		// here would be a deadlock rather than a test.
+		var first = detector.OfferAsync(0.9, TestContext.CurrentContext.CancellationToken);
+		await started.Task;
+
+		for (var tick = 1; tick < 10; tick++)
 		{
 			await detector.OfferAsync(0.9, TestContext.CurrentContext.CancellationToken);
 		}
 
 		gate.SetResult();
+		await first;
+
 		Assert.That(peak, Is.EqualTo(1), "more than one recognition ran at once");
 	}
 

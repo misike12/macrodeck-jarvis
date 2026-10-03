@@ -50,6 +50,7 @@ public static class PluginServices
 		builder.Services.AddSingleton<MemoryStore>();
 		builder.Services.AddSingleton<MicrophoneMonitor>();
 	builder.Services.AddSingleton<BargeInDetector>();
+	builder.Services.AddSingleton(provider => new ElevatedServiceClient(ElevatedServiceClient.DefaultTimeout));
 
 		builder.Services.AddSingleton(provider => new RuntimeManager(
 			provider.GetRequiredService<IHttpClientFactory>().CreateClient("nim"),
@@ -100,6 +101,7 @@ public static class PluginServices
 			registry.Register(new RegistryTools.RegistryGetTool());
 			registry.Register(new RegistryTools.RegistrySetTool());
 			registry.Register(new RegistryTools.RegistryDeleteTool());
+			registry.Register(new ElevatedRegistryTool(provider.GetRequiredService<ElevatedServiceClient>(), logger));
 			registry.Register(new ScheduledTaskTools.ListScheduledTasksTool());
 			registry.Register(new ScheduledTaskTools.GetScheduledTaskTool());
 			registry.Register(new ScheduledTaskTools.CreateScheduledTaskTool());
