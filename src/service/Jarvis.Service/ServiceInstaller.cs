@@ -126,17 +126,20 @@ public static class ServiceInstaller
 			? "auto"
 			: startType.Equals("Manual", StringComparison.OrdinalIgnoreCase) ? "demand" : "auto";
 
-		var create = Run(
-			"sc.exe",
-			[
-				"create",
-				name,
-				$"binPath= \"{binaryPath}\"",
-				"type= own",
-				$"start= {start}",
-				$"obj= {account}",
-				$"DisplayName= {displayName}",
-			]);
+		// Each option name is its own argument, with the value as the argument after it. sc.exe says so
+		// itself: "the option name includes the equal sign, a space is required between the equal sign and
+		// the value". Passing "type= own" as one argument is what produced "Invalid type= field".
+	var create = Run(
+		"sc.exe",
+		[
+			"create",
+			name,
+			"binPath=", binaryPath,
+			"type=", "own",
+			"start=", start,
+			"obj=", account,
+			"DisplayName=", displayName,
+		]);
 
 		if (create.ExitCode != 0)
 		{
