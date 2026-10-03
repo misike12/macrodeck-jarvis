@@ -42,8 +42,15 @@ public static class InputTools
 	private const uint KeyUp = 0x0002;
 	private const uint KeyUnicode = 0x0004;
 
+	private const uint MouseVirtualDesk = 0x4000;
+
 	private const int SmCxScreen = 0;
 	private const int SmCyScreen = 1;
+
+	private const int SmXVirtualScreen = 76;
+	private const int SmYVirtualScreen = 77;
+	private const int SmCxVirtualScreen = 78;
+	private const int SmCyVirtualScreen = 79;
 
 	private const uint MapVkToVsc = 0;
 
@@ -120,20 +127,42 @@ public static class InputTools
 	};
 
 	/// <summary>
-	/// Absolute coordinates are 0 to 65535 across the screen rather than pixels, because that is what
-	/// SendInput's absolute mode means. It is scaled here so a caller only ever thinks in pixels, and
-	/// clamped so a target past the edge of a multi-monitor desktop lands on the edge rather than wrapping
-	/// around to the opposite side of the screen.
+	/// The whole desktop, which is not the same as the primary monitor and can have a negative origin.
+	/// </summary>
+	private static (int X, int Y, int Width, int Height) VirtualDesktop =>
+	(
+		GetSystemMetrics(SmXVirtualScreen),
+		GetSystemMetrics(SmYVirtualScreen),
+		GetSystemMetrics(SmCxVirtualScreen),
+		GetSystemMetrics(SmCyVirtualScreen));
+
+	/// <summary>
+	/// Absolute coordinates are 0 to 65535 rather than pixels, because that is what SendInput's absolute
+	/// mode means, and they are scaled over the whole virtual desktop rather than the primary monitor.
+	/// <para>
+	/// A second monitor placed above or to the left gives the virtual desktop a negative origin, so the
+	/// origin has to be added before scaling and the result clamped to the virtual rectangle. Mapping over
+	/// the primary monitor instead puts the pointer in the wrong place on any multi-monitor desktop that is
+	/// not an arrangement starting at zero, which is most of them.
+	/// </para>
 	/// </summary>
 	private static (int X, int Y) ToAbsolute(int pixelsX, int pixelsY)
 	{
-		var width = GetSystemMetrics(SmCxScreen);
-		var height = GetSystemMetrics(SmCyScreen);
+		var (left, top, width, height) = VirtualDesktop;
 
-		var x = width <= 0 ? 0 : pixelsX * 65535 / (width - 1);
-		var y = height <= 0 ? 0 : pixelsY * 65535 / (height - 1);
+		if (width <= 0 || height <= 0)
+		{
+			// No desktop metrics at all, which happens in a session with no display attached.
+			(width, height) = (GetSystemMetrics(SmCxScreen), GetSystemMetrics(SmCyScreen));
+			(left, top) = (0, 0);
+		}
 
-		return (Math.Clamp(x, 0, 65535), Math.Clamp(y, 0, 65535));
+		var x = ((pixelsX - left) * 65535L) / Math.Max(1, width - 1);
+		var y = ((pixelsY - top) * 65535L) / Math.Max(1, height - 1);
+
+		return (
+			(int)Math.Clamp(x, 0, 65535),
+			(int)Math.Clamp(y, 0, 65535));
 	}
 
 	private static readonly Dictionary<string, ushort> VirtualKeys = new(StringComparer.OrdinalIgnoreCase)
@@ -232,6 +261,10 @@ public static class InputTools
 		return true;
 	}
 
+	internal static (int X, int Y, int Width, int Height) VirtualDesktopForTest() => VirtualDesktop;
+
+	internal static (int X, int Y) ToAbsoluteForTest(int pixelsX, int pixelsY) => ToAbsolute(pixelsX, pixelsY);
+
 	/// <summary>Reads the current cursor position, for reporting rather than for acting.</summary>
 	internal static bool TryGetCursorPosition(out int x, out int y)
 	{
@@ -311,7 +344,7 @@ public static class InputTools
 			}
 
 			var (absoluteX, absoluteY) = ToAbsolute(targetX, targetY);
-			Send([Mouse(MouseMove | MouseAbsolute, absoluteX, absoluteY)]);
+			Send([Mouse(MouseMove | MouseAbsolute | MouseVirtualDesk, absoluteX, absoluteY)]);
 
 			// Read back rather than reporting the requested position: the desktop clamps, and a tool that
 			// says it moved somewhere it did not is worse than one that admits the clamp.
@@ -377,7 +410,7 @@ public static class InputTools
 			if (x is not null && y is not null)
 			{
 				var (absoluteX, absoluteY) = ToAbsolute(x.Value, y.Value);
-				Send([Mouse(MouseMove | MouseAbsolute, absoluteX, absoluteY)]);
+				Send([Mouse(MouseMove | MouseAbsolute | MouseVirtualDesk, absoluteX, absoluteY)]);
 			}
 
 			Send([Mouse(down, 0, 0), Mouse(up, 0, 0)]);
@@ -489,7 +522,7 @@ public static class InputTools
 			const int MinimumSteps = 4;
 
 			var (startX, startY) = ToAbsolute(fromX.Value, fromY.Value);
-			Send([Mouse(MouseMove | MouseAbsolute, startX, startY), Mouse(MouseLeftDown, 0, 0)]);
+			Send([Mouse(MouseMove | MouseAbsolute | MouseVirtualDesk, startX, startY), Mouse(MouseLeftDown, 0, 0)]);
 
 			// A drag sent as a single jump is usually ignored: applications track the pointer and only start
 			// a drag once they have seen it move while the button is down.
@@ -505,7 +538,7 @@ public static class InputTools
 					(int)Math.Round(fromX.Value + (toX.Value - fromX.Value) * progress),
 					(int)Math.Round(fromY.Value + (toY.Value - fromY.Value) * progress));
 
-				Send([Mouse(MouseMove | MouseAbsolute, moveX, moveY)]);
+				Send([Mouse(MouseMove | MouseAbsolute | MouseVirtualDesk, moveX, moveY)]);
 			}
 
 			Send([Mouse(MouseLeftUp, 0, 0)]);

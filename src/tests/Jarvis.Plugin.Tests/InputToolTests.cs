@@ -359,9 +359,13 @@ public class InputToolTests
 	/// Reading the pointer position does not act, so it is not exposed as a tool of its own. This pins that
 	/// the capability the move tool reports through exists.
 	/// <para>
-	/// The call is allowed to fail. <c>GetCursorPos</c> reports failure transiently while a session switches
-	/// or a remote desktop reconnects, and the tool handles that by saying so rather than pretending to know
-	/// where the pointer is, so a failure here is correct behaviour rather than a fault.
+	/// Coordinates may be negative. A monitor placed above or to the left of the primary gives the virtual
+	/// desktop a negative origin, which is a normal arrangement rather than a fault. Asserting
+	/// non-negativity here failed on exactly such a machine.
+	/// </para>
+	/// <para>
+	/// The call is also allowed to fail: <c>GetCursorPos</c> reports failure transiently while a session
+	/// switches, and the tool handles that by saying so rather than pretending to know where the pointer is.
 	/// </para>
 	/// </summary>
 	[Test]
@@ -374,9 +378,59 @@ public class InputToolTests
 
 		Assert.Multiple(() =>
 		{
-			Assert.That(x, Is.GreaterThanOrEqualTo(0));
-			Assert.That(y, Is.GreaterThanOrEqualTo(0));
+			Assert.That(x, Is.LessThan(32_768));
+			Assert.That(y, Is.LessThan(32_768));
 		});
+	}
+
+	/// <summary>
+	/// The absolute mapping has to cover the whole virtual desktop, and with the right origin. A second
+	/// monitor above or to the left makes that origin negative, and mapping over the primary monitor instead
+	/// puts the pointer in the wrong place.
+	/// </summary>
+	[Test]
+	public void The_absolute_mapping_covers_the_whole_virtual_desktop()
+	{
+		var desktop = InputTools.VirtualDesktopForTest();
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(desktop.Width, Is.GreaterThan(0));
+			Assert.That(desktop.Height, Is.GreaterThan(0));
+			Assert.That(
+				desktop.X,
+				Is.LessThan(0).Or.EqualTo(0),
+				"a virtual desktop with monitors to the left has a negative origin");
+		});
+	}
+
+	/// <summary>
+	/// Every corner of the virtual desktop has to map into the range SendInput accepts. A value outside it
+	/// is clamped, which silently sends the pointer somewhere else entirely.
+	/// </summary>
+	[Test]
+	public void Every_corner_of_the_desktop_maps_into_the_sendable_range()
+	{
+		var desktop = InputTools.VirtualDesktopForTest();
+
+		foreach (var point in new[]
+		{
+			(desktop.X, desktop.Y),
+			(desktop.X + desktop.Width - 1, desktop.Y),
+			(desktop.X, desktop.Y + desktop.Height - 1),
+			(desktop.X + desktop.Width - 1, desktop.Y + desktop.Height - 1),
+			(-1, -1),
+			(int.MaxValue, int.MaxValue),
+		})
+		{
+			var (x, y) = InputTools.ToAbsoluteForTest(point.Item1, point.Item2);
+
+			Assert.Multiple(() =>
+			{
+				Assert.That(x, Is.InRange(0, 65_535), $"x for {point}");
+				Assert.That(y, Is.InRange(0, 65_535), $"y for {point}");
+			});
+		}
 	}
 
 	[Test]

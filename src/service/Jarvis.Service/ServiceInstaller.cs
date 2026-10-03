@@ -109,9 +109,17 @@ public static class ServiceInstaller
 			.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
 	}
 
-	private static string RequireAdministrator(string what)
+	/// <summary>
+	/// The refusal to give when an action needs an administrator, or an empty string when it does not.
+	/// <para>
+	/// Split out from the token check so the decision itself can be tested. The bug this guards against was
+	/// an ``is { }`` pattern, which matches an empty string, so an elevated shell was refused with an empty
+	/// reason and the only symptom was an exit code with nothing behind it.
+	/// </para>
+	/// </summary>
+	public static string RefusalFor(bool isAdministrator, string what)
 	{
-		if (IsAdministrator())
+		if (isAdministrator)
 		{
 			return string.Empty;
 		}
@@ -120,8 +128,11 @@ public static class ServiceInstaller
 			+ "and run the same command again.";
 
 		Console.Error.WriteLine(message);
+
 		return message;
 	}
+
+	private static string RequireAdministrator(string what) => RefusalFor(IsAdministrator(), what);
 
 	/// <summary>
 	/// Installs the service.
@@ -133,11 +144,14 @@ public static class ServiceInstaller
 	/// </summary>
 	public static int Install(ILogger log)
 	{
-		if (RequireAdministrator("Installing the service") is { } denial)
-		{
-			log.Fatal(denial);
-			return ErrorAccessDenied;
-		}
+		// The refusal is a non-empty string and success is an empty one, so the test is on the length.
+		// An `is { }` pattern matches an empty string too, which made an elevated shell fail with a
+		// refusal that had no reason in it.
+		if (RefusalFor(IsAdministrator(), "Installing the service") is { Length: > 0 } denial)
+			{
+				log.Fatal(denial);
+				return ErrorAccessDenied;
+			}
 
 		var executable = Environment.ProcessPath;
 
@@ -185,7 +199,7 @@ public static class ServiceInstaller
 	/// </summary>
 	public static int Uninstall(ILogger log)
 	{
-		if (RequireAdministrator("Removing the service") is { } denial)
+		if (RefusalFor(IsAdministrator(), "Removing the service") is { Length: > 0 } denial)
 		{
 			log.Fatal(denial);
 			return ErrorAccessDenied;
