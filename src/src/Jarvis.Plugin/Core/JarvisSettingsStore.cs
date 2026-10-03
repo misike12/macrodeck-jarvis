@@ -61,9 +61,19 @@ public sealed class JarvisSettingsStore
 	private JarvisSettings _current = new();
 
 	public JarvisSettingsStore(ILogger logger)
+		: this(logger, local: null)
+	{
+	}
+
+	/// <summary>
+	/// Supplies the developer settings file directly rather than looking for one beside the executable.
+	/// Exists so a test can point at a real file without copying a credential into its own output
+	/// directory, where every other test would then read it and believe itself configured.
+	/// </summary>
+	public JarvisSettingsStore(ILogger logger, LocalSettingsFile? local)
 	{
 		_logger = logger.ForContext<JarvisSettingsStore>();
-		_local = LocalSettingsFile.Load(AppContext.BaseDirectory);
+		_local = local ?? LocalSettingsFile.Load(AppContext.BaseDirectory);
 	}
 
 	public JarvisSettings Current

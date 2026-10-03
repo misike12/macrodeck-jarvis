@@ -5,6 +5,7 @@ using Jarvis.Plugin.Input;
 using Jarvis.Plugin.Llm;
 using Jarvis.Plugin.Runtime;
 using Jarvis.Plugin.Speech;
+using Jarvis.Plugin.Vision;
 using MacroDeck.Plugin.Hosting;
 using MacroDeck.Plugin.Serilog;
 using Serilog;
@@ -42,6 +43,7 @@ public static class PluginServices
 			provider.GetRequiredService<ILogger>()));
 
 		builder.Services.AddSingleton<ChatClient>();
+		builder.Services.AddSingleton<VisionClient>();
 		builder.Services.AddSingleton<MicrophoneMonitor>();
 
 		builder.Services.AddSingleton(provider => new RuntimeManager(
@@ -61,6 +63,7 @@ public static class PluginServices
 			registry.Register(new ReadFileTool());
 			registry.Register(new WriteFileTool());
 			registry.Register(new ListDirectoryTool());
+			registry.Register(new ScreenshotTool(provider.GetRequiredService<VisionClient>(), logger));
 
 			return registry;
 		});

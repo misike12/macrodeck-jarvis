@@ -172,13 +172,22 @@ public async Task<ModelProbe> ProbeAsync(string model, CancellationToken cancell
 	/// </summary>
 	private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(10);
 
-	private static (string? BaseUrl, string? Token) ResolveEndpoint(JarvisSettings current) => current.Llm switch
+/// <summary>
+	/// Where the configured provider lives and what to authenticate with. Public because the vision client
+	/// talks to the same endpoints and must not be able to disagree with the text client about which URL a
+	/// provider means.
+	/// </summary>
+	public static (string? BaseUrl, string? Token) ResolveEndpoint(JarvisSettings current) => current.Llm switch
 	{
 		LlmProvider.NvidiaNim => (current.NvidiaBaseUrl, current.NvidiaApiKey),
 		LlmProvider.SelfHostedNim => (current.SelfHostedBaseUrl, CurrentToken(current)),
 		LlmProvider.LocalLlamaCpp => (LocalLlamaBaseUrl, null),
 		_ => (null, null),
 	};
+
+	/// <summary>The full chat-completions URL for the configured provider, or null when there is none.</summary>
+	public static string? ResolveChatUrl(JarvisSettings current) =>
+		ResolveEndpoint(current).BaseUrl is { } baseUrl ? $"{baseUrl.TrimEnd('/')}/chat/completions" : null;
 
 	private static string? CurrentToken(JarvisSettings current) =>
 		string.IsNullOrWhiteSpace(current.SelfHostedToken) ? null : current.SelfHostedToken;
