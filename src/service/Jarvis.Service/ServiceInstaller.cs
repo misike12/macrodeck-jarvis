@@ -101,6 +101,95 @@ public static class ServiceInstaller
 		return Success;
 	}
 
+	/// <summary>
+	/// Creates the service by asking <c>sc.exe</c> to do it.
+	/// <para>
+	/// Deliberately not the service control manager's own entry point. The direct call returns a null handle
+	/// with a last error of <c>ERROR_SUCCESS</c> when it fails, which is no diagnosis at all, and that is
+	/// exactly what it did. <c>sc.exe</c> is the tool Windows ships for this, it validates the same
+	/// parameters, and it explains which parameter it disliked.
+	/// </para>
+	/// <para>
+	/// Updating an existing registration still goes through the API, because that has no equivalent
+	/// <c>sc</c> verb and the update path is not the one that failed.
+	/// </para>
+	/// </summary>
+	private static int CreateWithSc(
+		string name,
+		string displayName,
+		string binaryPath,
+		string startType,
+		string account,
+		string description)
+	{
+		var start = startType.Equals("Automatic", StringComparison.OrdinalIgnoreCase)
+			? "auto"
+			: startType.Equals("Manual", StringComparison.OrdinalIgnoreCase) ? "demand" : "auto";
+
+		var create = Run(
+			"sc.exe",
+			[
+				"create",
+				name,
+				$"binPath= \"{binaryPath}\"",
+				"type= own",
+				$"start= {start}",
+				$"obj= {account}",
+				$"DisplayName= {displayName}",
+			]);
+
+		if (create.ExitCode != 0)
+		{
+			Console.Error.WriteLine($"sc.exe create failed with exit code {create.ExitCode}:");
+			Console.Error.WriteLine(create.Output.TrimEnd());
+			return create.ExitCode;
+		}
+
+		// The description is what a user sees in the Services list, so it is set after the fact. A failure
+		// here is not worth failing the install over.
+		var described = Run("sc.exe", ["description", name, description]);
+
+		if (described.ExitCode != 0)
+		{
+			Console.WriteLine("The service was created, but its description could not be set.");
+			Console.WriteLine(described.Output.TrimEnd());
+		}
+
+		return Success;
+	}
+
+	/// <summary>Runs a program and captures everything it said, which is the point of using it.</summary>
+	private static (int ExitCode, string Output) Run(string fileName, IReadOnlyList<string> arguments)
+	{
+		var info = new System.Diagnostics.ProcessStartInfo
+		{
+			FileName = fileName,
+			UseShellExecute = false,
+			CreateNoWindow = true,
+			RedirectStandardOutput = true,
+			RedirectStandardError = true,
+		};
+
+		foreach (var argument in arguments)
+		{
+			info.ArgumentList.Add(argument);
+		}
+
+		using var process = System.Diagnostics.Process.Start(info);
+
+		if (process is null)
+		{
+			return (Failed, $"{fileName} could not be started.");
+		}
+
+		var output = process.StandardOutput.ReadToEnd();
+		var error = process.StandardError.ReadToEnd();
+
+		process.WaitForExit(30_000);
+
+		return (process.ExitCode, string.Concat(output, error));
+	}
+
 	public static bool IsAdministrator()
 	{
 		using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
@@ -173,12 +262,15 @@ public static class ServiceInstaller
 		// icon as LocalSystem, where nobody could ever see it.
 		var command = $"\"{executable}\" --console";
 
-		var exit = NativeServiceControl.Create(
+		// LocalSystem is the account name the service control manager expects. "SYSTEM" is accepted by
+		// sc.exe on the command line but is not the name the API takes, and using it here was one of the
+		// reasons registration could fail.
+		var exit = CreateWithSc(
 			Program.ServiceName,
 			Program.ServiceDisplayName,
 			command,
-			"SYSTEM",
 			"Automatic",
+			"LocalSystem",
 			"Runs the operations JARVIS needs administrator rights for, on request from the plugin.");
 
 		if (exit != Success)
