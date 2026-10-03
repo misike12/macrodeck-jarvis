@@ -116,6 +116,9 @@ public static class PluginServices
 			registry.Register(new DesktopTools.KillProcessTool());
 			registry.Register(new DesktopTools.SetVolumeTool());
 
+// A named preset carries its text in the resolver, so changing to one clears any leftover custom
+			// instruction. Only a custom style writes the instruction into the notes file, because that is
+			// the text the prompt will actually be built from.
 			registry.Register(new SetPersonaTool(
 				(preset, instruction) =>
 				{
@@ -125,7 +128,7 @@ public static class PluginServices
 						CustomSystemPrompt = preset == PersonaPreset.Custom ? instruction : string.Empty,
 					});
 
-					memory.SetNotes(instruction);
+					memory.SetNotes(preset == PersonaPreset.Custom ? instruction : string.Empty);
 				},
 				logger));
 

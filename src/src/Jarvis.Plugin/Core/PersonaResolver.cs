@@ -9,7 +9,11 @@ namespace Jarvis.Plugin.Core;
 /// </summary>
 public sealed class PersonaResolver
 {
-	private const string SafetyPrefix = """
+	/// <summary>
+	/// The immutable prefix. Internal rather than private because the property that this class guarantees,
+	/// that a persona change cannot reach these rules, is exactly what the tests have to pin.
+	/// </summary>
+	internal const string SafetyPrefix = """
 		You are running inside Macro Deck on a Windows PC, as a voice assistant on a macro pad.
 
 		Hard rules, whatever you are asked:
@@ -65,12 +69,19 @@ public sealed class PersonaResolver
 
 		builder.Append("\nSpeak in the user's language: ").Append(settings.Language).Append(".\n");
 
-		if (settings.Memory != MemoryMode.None && !string.IsNullOrWhiteSpace(settings.Notes))
-		{
-			builder.Append("\nWhat the user asked you to remember:\n")
-				.Append(settings.Notes.Trim())
-				.Append('\n');
-		}
+// The notes file is the authoritative copy: it is what survives a config-flow rewrite and what the
+	// user reads and edits by hand. The config field is only a fallback, which is what a first run looks
+	// like before anything has been remembered.
+	var remembered = string.IsNullOrWhiteSpace(settings.NotesFileText)
+		? settings.Notes
+		: settings.NotesFileText;
+
+	if (settings.Memory != MemoryMode.None && !string.IsNullOrWhiteSpace(remembered))
+	{
+		builder.Append("\nWhat the user asked you to remember:\n")
+			.Append(remembered.Trim())
+			.Append('\n');
+	}
 
 		return builder.ToString();
 	}

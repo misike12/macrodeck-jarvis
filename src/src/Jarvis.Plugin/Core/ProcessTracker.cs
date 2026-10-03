@@ -13,7 +13,6 @@ namespace Jarvis.Plugin.Core;
 /// </summary>
 public sealed class ProcessTracker : IDisposable
 {
-	private const int StillActive = 259;
 	private const int ErrorAccessDenied = 5;
 
 	private readonly Process _process;
@@ -21,16 +20,21 @@ public sealed class ProcessTracker : IDisposable
 	private readonly StringBuilder _output;
 	private readonly Lock _outputGate = new();
 	private readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
+	private readonly JobObject? _job;
 
-	private ProcessTracker(Process process, ILogger logger)
+	private ProcessTracker(Process process, ILogger logger, JobObject? job)
 	{
 		_process = process;
 		_logger = logger.ForContext<ProcessTracker>();
 		_output = new StringBuilder();
-		Id = process.Id;
+		_job = job;
 	}
 
-	public int Id { get; }
+	/// <summary>
+	/// The process id, read from the process rather than captured at construction. A <see cref="Process"/>
+	/// has no id until it has been started, so a value taken before <c>Start</c> would throw.
+	/// </summary>
+	public int Id => _process.Id;
 
 	public bool HasExited
 	{
@@ -81,7 +85,8 @@ public sealed class ProcessTracker : IDisposable
 		string fileName,
 		IReadOnlyList<string> arguments,
 		string? workingDirectory,
-		ILogger logger)
+		ILogger logger,
+		JobObject? job = null)
 	{
 		var info = new ProcessStartInfo
 		{
@@ -101,7 +106,7 @@ public sealed class ProcessTracker : IDisposable
 		}
 
 		var process = new Process { StartInfo = info, EnableRaisingEvents = true };
-		var tracker = new ProcessTracker(process, logger);
+		var tracker = new ProcessTracker(process, logger, job);
 
 		process.Exited += (_, _) => tracker._exited.TrySetResult();
 
@@ -115,6 +120,14 @@ public sealed class ProcessTracker : IDisposable
 		process.BeginErrorReadLine();
 		process.OutputDataReceived += (_, e) => tracker.AppendLine(e.Data);
 		process.ErrorDataReceived += (_, e) => tracker.AppendLine(e.Data);
+
+		// Containment is applied after the start rather than through a suspended process, which is what
+		// closes the window between "running" and "in the job". A process that escapes that gap is still
+		// killable by tree, so containment is an improvement rather than the only defence.
+		if (job is not null && !job.TryAssign(process, process.Id))
+		{
+			logger.Debug("Process {ProcessId} runs without job containment.", process.Id);
+		}
 
 		return tracker;
 	}
@@ -200,30 +213,185 @@ public sealed class ProcessTracker : IDisposable
 		}
 	}
 
-	[DllImport("kernel32.dll", SetLastError = true)]
-	private static extern bool IsProcessRunning(int processId, out int exitCode);
-
-	[DllImport("taskkill.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-	private static extern int TaskKill(int processId, int exitCode, uint flags);
-
-	private void KillTree(int processId)
+	/// <summary>
+	/// taskkill is asked to take the tree, which is the only way to reach a grandchild that killing the
+	/// parent alone would leave running.
+	/// </summary>
+	/// <summary>
+	/// Terminates the tree by walking it from the inside out, killing every child before its parent.
+	/// <para>
+	/// This is done by process enumeration rather than by shelling out to taskkill. Two reasons: the shell
+	/// out needs a console and a path, and the enumeration is synchronous, so a child that spawns a
+	/// grandchild during the walk is still caught by the parent-first ordering.
+	/// </para>
+	/// </summary>
+	private static void KillTree(int processId)
 	{
-		if (!IsProcessRunning(processId, out var exitCode))
+		foreach (var child in ChildProcessIds(processId))
 		{
-			return;
+			KillTree(child);
 		}
 
-		if (exitCode == StillActive)
+		try
 		{
-			var outcome = TaskKill(processId, exitCode, KillTreeFlags);
-			if (outcome == 0)
+			using var process = Process.GetProcessById(processId);
+			process.Kill();
+		}
+		catch (ArgumentException)
+		{
+			// Already gone, which is the desired outcome.
+		}
+		catch (InvalidOperationException)
+		{
+			// Already exited.
+		}
+		catch (Win32Exception)
+		{
+			// The process ended between the enumeration and the kill.
+		}
+	}
+
+	/// <summary>
+	/// The direct children of a process, read from the process snapshot rather than from
+	/// <c>Process.GetProcesses</c> and parent ids, which costs a call per process and races far more.
+	/// </summary>
+	private static List<int> ChildProcessIds(int parentId)
+	{
+		var children = new List<int>();
+		var snapshot = Process.GetProcesses();
+
+		try
+		{
+			foreach (var candidate in snapshot)
 			{
-				_logger.Debug("taskkill reported no outcome for process {ProcessId}.", processId);
+				try
+				{
+					if (candidate.Id != parentId && HasParent(candidate.Id, parentId))
+					{
+						children.Add(candidate.Id);
+					}
+				}
+				catch (InvalidOperationException)
+				{
+					continue;
+				}
+				finally
+				{
+					candidate.Dispose();
+				}
+			}
+		}
+		finally
+		{
+			foreach (var remaining in snapshot)
+			{
+				remaining.Dispose();
+			}
+		}
+
+		return children;
+	}
+
+	private static bool HasParent(int processId, int parentId)
+	{
+		using var process = Process.GetProcessById(processId);
+		using var parent = TryGetParent(processId);
+
+		return parent is not null && parent.Id == parentId;
+	}
+
+	/// <summary>
+	/// The parent of a process. The toolhelp snapshot is used rather than WMI, which is orders of
+	/// magnitude slower and is not available in every hosting context.
+	/// </summary>
+	private static Process? TryGetParent(int processId)
+	{
+		IntPtr snapshot = IntPtr.Zero;
+
+		try
+		{
+			snapshot = CreateToolhelp32Snapshot(SnapshotProcesses, 0);
+
+			if (snapshot == IntPtr.Zero || snapshot == InvalidHandleValue)
+			{
+				return null;
+			}
+
+			var entry = new ProcessEntry32
+			{
+				Size = (uint)Marshal.SizeOf<ProcessEntry32>(),
+			};
+
+			if (!Process32First(snapshot, ref entry))
+			{
+				return null;
+			}
+
+			do
+			{
+				if (entry.ProcessId == (uint)processId && entry.ParentProcessId != 0)
+				{
+					try
+					{
+						return Process.GetProcessById((int)entry.ParentProcessId);
+					}
+					catch (ArgumentException)
+					{
+						// The parent has already gone, which is itself the answer.
+						return null;
+					}
+				}
+			}
+			while (Process32Next(snapshot, ref entry));
+
+			return null;
+		}
+		catch (DllNotFoundException)
+		{
+			return null;
+		}
+		finally
+		{
+			if (snapshot != IntPtr.Zero && snapshot != InvalidHandleValue)
+			{
+				_ = CloseHandle(snapshot);
 			}
 		}
 	}
 
-	private const uint KillTreeFlags = 0x00000001 | 0x00000002 | 0x00000004 | 0x00000008;
+	private const uint SnapshotProcesses = 0x00000002;
+
+	private static readonly IntPtr InvalidHandleValue = new(-1);
+
+	[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+	private struct ProcessEntry32
+	{
+		public uint Size;
+		public uint Usage;
+		public uint ProcessId;
+		public nint DefaultHeapId;
+		public uint ModuleId;
+		public uint Threads;
+		public uint ParentProcessId;
+		public int PriorityClassBase;
+		public uint Flags;
+
+		[MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+		public string ExeFile;
+	}
+
+	[DllImport("kernel32.dll", SetLastError = true)]
+	private static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint processId);
+
+	[DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+	private static extern bool Process32First(IntPtr snapshot, ref ProcessEntry32 entry);
+
+	[DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+	private static extern bool Process32Next(IntPtr snapshot, ref ProcessEntry32 entry);
+
+	[DllImport("kernel32.dll", SetLastError = true)]
+	private static extern bool CloseHandle(IntPtr handle);
+
 
 	private const int MaxCapturedCharacters = 64 * 1024;
 }

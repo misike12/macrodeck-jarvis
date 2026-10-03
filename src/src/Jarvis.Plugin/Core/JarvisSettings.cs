@@ -129,6 +129,14 @@ public sealed record JarvisSettings
 
 	public string Notes { get; init; } = string.Empty;
 
+	/// <summary>
+	/// The notes file's current contents, carried on the settings so the prompt can read it without
+	/// depending on <c>MemoryStore</c>. Set by the integration on each turn. Not persisted and not a config
+	/// field: the file is the thing that is authoritative, and a config copy of it would be a second
+	/// source that could disagree.
+	/// </summary>
+	public string NotesFileText { get; init; } = string.Empty;
+
 	public bool ElevatedServiceEnabled { get; init; }
 
 	public bool ElevatedServiceScheduling { get; init; }

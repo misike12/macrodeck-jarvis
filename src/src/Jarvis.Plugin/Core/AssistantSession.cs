@@ -20,6 +20,12 @@ public enum ActivateMode
 /// here, so there is exactly one place that can move the state machine and exactly one cancellation
 /// token per turn.
 /// </summary>
+/// <remarks>
+/// On the first turn of a process, and only then, the history the model is given is seeded from the
+/// persisted transcript and the persisted notes. Without this the transcript and the notes file were
+/// written on every turn and never read back, so the plugin remembered things and then behaved as
+/// though it had not.
+/// </remarks>
 public sealed class AssistantSession : IAsyncDisposable
 {
 	private readonly AssistantStateHolder _state;
@@ -30,6 +36,12 @@ public sealed class AssistantSession : IAsyncDisposable
 	private readonly ILogger _logger;
 	private readonly Lock _turnGate = new();
 	private readonly Dictionary<Guid, ProcessTracker> _runningCommands = [];
+
+	/// <summary>
+	/// Holds every command the plugin starts, so that closing the job terminates them even if this process
+	/// is killed outright and no cleanup of ours runs.
+	/// </summary>
+	private JobObject? _job;
 	private readonly List<ChatMessage> _history = [];
 
 	private CancellationTokenSource? _turnCts;
@@ -49,11 +61,21 @@ public sealed class AssistantSession : IAsyncDisposable
 		_settings = settings;
 		_conversation = conversation;
 		_voice = voice;
-		_memory = memory;
+_memory = memory;
 		_logger = logger.ForContext<AssistantSession>();
+
+		// Created once per session rather than per command: a job is a kernel object with a handle, and
+		// making one per command would leak handles for the life of the plugin.
+		_job = JobObject.TryCreate(logger);
 	}
 
 	public string LastOutput => _lastOutput;
+
+	/// <summary>
+	/// The job every command is placed in. Exposed so the shell tool can contain the processes it starts;
+	/// the tool has no way to create a job of its own that outlives one call.
+	/// </summary>
+	public JobObject? Job => _job;
 
 	public AssistantSnapshot StateSnapshot => _state.Current;
 
@@ -134,7 +156,10 @@ public sealed class AssistantSession : IAsyncDisposable
 				MacroDeckStrings.Validation.Required(Strings.Actions.Say.Prompt.Label()));
 		}
 
-		var settings = _settings.Current;
+// The notes file is read here so the prompt is built from what is actually on disk. Doing it per turn
+		// rather than at construction is what lets a user edit notes.txt by hand and have the next turn
+		// notice without restarting the plugin.
+		var settings = _settings.Current with { NotesFileText = _memory.Notes };
 
 		if (!settings.HasLlmCredentials)
 		{
@@ -148,9 +173,11 @@ public sealed class AssistantSession : IAsyncDisposable
 
 		try
 		{
-			ChatMessage[] history;
+ChatMessage[] history;
 			lock (_turnGate)
 			{
+				SeedFromMemoryOnce(settings);
+
 				history = _history.TakeLast(MaxHistoryMessages).ToArray();
 			}
 
@@ -230,6 +257,45 @@ public sealed class AssistantSession : IAsyncDisposable
 	}
 
 	private const int MaxHistoryMessages = 20;
+
+	private bool _seeded;
+
+	/// <summary>
+	/// Loads the persisted transcript into the live history, once per process.
+	/// <para>
+	/// Skipped for a mode of <see cref="MemoryMode.None"/>, and skipped once memory is off the persisted
+	/// file is not read at all, because a user who turned memory off should not have their old transcript
+	/// read back into a prompt just because the process happened to restart.
+	/// </para>
+	/// </summary>
+	private void SeedFromMemoryOnce(JarvisSettings settings)
+	{
+		if (_seeded || settings.Memory == MemoryMode.None)
+		{
+			return;
+		}
+
+		_seeded = true;
+
+		foreach (var entry in _memory.LoadHistory(settings.Memory))
+		{
+			if (string.IsNullOrWhiteSpace(entry.Text))
+			{
+				continue;
+			}
+
+			_history.Add(entry.Role switch
+			{
+				"user" => ChatMessage.User(entry.Text),
+				_ => ChatMessage.Assistant(entry.Text, []),
+			});
+		}
+
+		if (_history.Count > 0)
+		{
+			_logger.Information("Resumed with {Count} remembered message(s).", _history.Count);
+		}
+	}
 
 	public void RecordCommandOutput(string output) => _lastOutput = output;
 
@@ -410,10 +476,16 @@ if (cts is null)
 		}
 	}
 
-	public ValueTask DisposeAsync()
+public ValueTask DisposeAsync()
 	{
 		EndTurn();
 		KillRunningCommands();
+
+		// Closing the job is what guarantees no command outlives the plugin, including when this dispose
+		// never runs because the process was killed instead.
+		_job?.Dispose();
+		_job = null;
+
 		return ValueTask.CompletedTask;
 	}
 }

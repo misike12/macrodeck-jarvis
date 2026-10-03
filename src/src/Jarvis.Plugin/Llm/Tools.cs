@@ -66,7 +66,8 @@ public sealed class ShellTool(AssistantSession session, ILogger logger) : ITool
 				"powershell.exe",
 				["-NoProfile", "-NonInteractive", "-Command", command],
 				string.IsNullOrWhiteSpace(workingDirectory) ? UserProfile : workingDirectory,
-				_logger);
+				_logger,
+				session.Job);
 		}
 		catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
 		{
