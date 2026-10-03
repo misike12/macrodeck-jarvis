@@ -344,7 +344,7 @@ placeholders are still substituted in the German sentence.
 
 ### ? M18 - Packaging and the final gate
 `
-macrodeck-plugin build  -> com.misu.jarvis-1.0.0.macroDeckPlugin (27 entries, 2.1 MB)
+macrodeck-plugin build  -> com.misu.jarvis-1.1.0.macroDeckPlugin (27 entries, 2.1 MB)
 macrodeck-plugin inspect-> languages: de, en
 validate --level Publication -> 1 error: 'repository' is required
 test --artifact  -> 38 passed / 0 failed / 11 skipped, conformant
@@ -466,7 +466,7 @@ dotnet build -v q --nologo                       # must stay 0 warnings / 0 erro
 macrodeck-plugin run  --project src/Jarvis.Plugin --stub-host   # blocks forever, Ctrl-C or kill
 macrodeck-plugin test --project src/Jarvis.Plugin --report text
 macrodeck-plugin build   --source src/Jarvis.Plugin --output .\artifacts
-macrodeck-plugin validate --artifact .\artifacts\com.misu.jarvis-1.0.0.macroDeckPlugin --level publication
+macrodeck-plugin validate --artifact .\artifacts\com.misu.jarvis-1.1.0.macroDeckPlugin --level publication
 ```
 
 **Gotcha:** a lingering `run` process locks `bin\Debug\net10.0\Jarvis.Plugin.dll` and the next build
@@ -575,3 +575,23 @@ belongs to no permission class, so the gate asked for confirmation and the call 
 never came. Everything sorting after it never ran, and because the host stayed alive rather than exiting,
 the truncation looked like a crash. Fixed in the product (a bounded wait) and in the test (a real
 `write_file` tool).
+## Version
+
+1.1.0. 1.0.0 stays published with the artifact it shipped with, so a download from that tag still
+matches what that tag claims.
+
+| | |
+|---|---|
+| Artifact | `src/artifacts/com.misu.jarvis-1.1.0.macroDeckPlugin` |
+| Publication validation | 0 errors, 0 warnings |
+| Conformance, project | 34 passed, 0 failed, 15 skipped |
+| Conformance, artifact | 37 passed, 0 failed, 12 skipped |
+| Tests | 447 passed, 0 failed, exit 0 |
+
+### One flaky conformance check
+
+`MDC0604` (a host `SupervisorShutdown` of 4004 must stop a managed subject) failed once with "the
+subject was still live 15 s later", then passed on four consecutive runs with no change in between. It is
+shutdown latency under load rather than a regression, but it is a real observation and is recorded here so
+it is not mistaken for a suite that has never blinked. If it fails consistently it is worth looking at
+what holds the process open on dispose.

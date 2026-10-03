@@ -1,7 +1,7 @@
 # Macro Deck plugin conformance report
 
 Suite version: `1.2.0`  
-Plugin: `com.misu.jarvis` `1.0.0`  
+Plugin: `com.misu.jarvis` `1.1.0`  
 Conformant: **yes**  
 Passed: 37 - Failed: 0 - Skipped: 12
 
