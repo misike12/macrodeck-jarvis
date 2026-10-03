@@ -74,6 +74,18 @@ public static class PluginServices
 			registry.Register(new WindowTools.FocusWindowTool());
 			registry.Register(new WindowTools.CloseWindowTool());
 			registry.Register(new WindowTools.OpenAppTool());
+			registry.Register(new SystemTools.GetVolumeTool());
+			registry.Register(new SystemTools.MediaPlayPauseTool());
+			registry.Register(new SystemTools.MediaNextTool());
+			registry.Register(new SystemTools.SetSystemPowerTool());
+			registry.Register(new SystemTools.SendNotificationTool());
+			registry.Register(new InputTools.MouseMoveTool());
+			registry.Register(new InputTools.MouseClickTool());
+			registry.Register(new InputTools.MouseScrollTool());
+			registry.Register(new InputTools.MouseDragTool());
+			registry.Register(new InputTools.KeyboardTypeTool());
+			registry.Register(new InputTools.KeyboardComboTool());
+			registry.Register(new InputTools.KeyboardSequenceTool());
 			registry.Register(new ScreenshotTool(provider.GetRequiredService<VisionClient>(), logger));
 
 			// The persona tool rewrites only the persona field, through the same immutable-prefix resolver
