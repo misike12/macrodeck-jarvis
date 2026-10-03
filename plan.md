@@ -260,6 +260,11 @@ NVIDIA free tier reality: **no per-token billing**, but **~40 RPM shared per mod
 
 ### 7.4 Vision
 
+**Webcam capture is deliberately not implemented.** It needs Media Foundation or DirectShow, which is a
+large native dependency for a feature that is rarely wanted, and screen vision is the one that matters.
+Noted here so it is not re-added blindly; screen capture and the vision tool are implemented and verified
+against the real display.
+
 Configurable VLM provider (NIM cloud / local llama.cpp), model id a free text field with the same availability probe.
 
 Sources, **all on demand only — never continuous, no spying**:
@@ -272,15 +277,19 @@ The screen capture doubles as the model input for "what am I looking at" and for
 
 ## 8. Wake word and lifetime
 
-### 8.1 Wake word engines
+### 8.1 Wake word
 
-| Engine | Default? | Notes |
-|---|---|---|
-| **Porcupine** (Picovoice) | **yes** | `BuiltInKeyword.JARVIS` exists in the .NET SDK. Custom keywords via the Picovoice Console (`.ppn`). Most accurate, most robust. Needs a free AccessKey. |
-| NanoWakeWord | alt | C# port of openWakeWord. **`hey_jarvis` is embedded** — no key, no signup, one dep (OnnxRuntime). |
-| Vosk | alt | ~40 MB model, detects the wake word by continuous transcription. |
+**There is one wake word implementation, not three.** Porcupine, NanoWakeWord and Vosk were all considered
+and all three were dropped: Porcupine needs a Picovoice account, NanoWakeWord needs an ONNX runtime
+dependency, and Vosk needs a 40 MB model - for a job the speech recognition already installed can do.
 
-All three free. Sensitivity slider. Default = best = Porcupine.
+Instead the microphone's own level decides that someone has spoken, and the audio that triggered it is
+transcribed and checked for the word. The wake word is therefore exactly as good as the recogniser and
+exactly as offline, at the cost of a recognition pass per utterance, which is why the trigger is
+deliberately conservative. Sensitivity is a slider defaulting to 0.06, which sits well above the measured
+0.036 room tone and well below a speaking voice.
+
+The `wakeWordEngine` setting is retained so an existing configuration still loads; it selects nothing.
 
 ### 8.2 Activation methods — all four, all live at once
 

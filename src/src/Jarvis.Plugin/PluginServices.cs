@@ -66,6 +66,14 @@ public static class PluginServices
 			registry.Register(new ReadFileTool());
 			registry.Register(new WriteFileTool());
 			registry.Register(new ListDirectoryTool());
+			registry.Register(new FileTools.FileExistsTool());
+			registry.Register(new FileTools.SearchFilesTool());
+			registry.Register(new FileTools.MovePathTool());
+			registry.Register(new FileTools.DeletePathTool());
+			registry.Register(new WindowTools.ListWindowsTool());
+			registry.Register(new WindowTools.FocusWindowTool());
+			registry.Register(new WindowTools.CloseWindowTool());
+			registry.Register(new WindowTools.OpenAppTool());
 			registry.Register(new ScreenshotTool(provider.GetRequiredService<VisionClient>(), logger));
 
 			// The persona tool rewrites only the persona field, through the same immutable-prefix resolver
