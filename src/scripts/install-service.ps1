@@ -114,29 +114,55 @@ if ($exit -ne 0) {
 
 if ($Start) {
     Write-Host 'Starting JarvisService...'
-    Start-Service -Name JarvisService -ErrorAction SilentlyContinue
+
+    # Not silenced. A service that will not start is the failure worth seeing, and the service control
+    # manager's own message says why in a way no amount of guessing here would.
+    try {
+        Start-Service -Name JarvisService -ErrorAction Stop
+    }
+    catch {
+        Write-Warning "The service did not start: $($_.Exception.Message)"
+    }
 
     # Queried rather than assumed. Under StrictMode, reading a property off a null result throws, which
     # turns "the service is not there" into an unrelated-looking script error instead of a clear message.
     $service = Get-Service -Name JarvisService -ErrorAction SilentlyContinue
 
     if ($null -eq $service) {
-        Write-Warning @"
+        Write-Warning @'
 JarvisService is not registered, even though the installer reported success.
 
 Check what the service manager actually has:
 
-    sc.exe query JarvisService
-    Get-Service | Where-Object { `$_.Name -like '*arvis*' }
-
-and re-run the installer directly to see its full output:
-
-    & "$binary" --install
-"@
+    sc.exe queryex JarvisService
+    sc.exe qc JarvisService
+'@
         exit 1
     }
 
+    # Given a moment. The manager reports Stopped for a moment after a successful start.
+    $deadline = (Get-Date).AddSeconds(15)
+
+    while ($service.Status -ne 'Running' -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 500
+        $service.Refresh()
+    }
+
     Write-Host "JarvisService is $($service.Status)."
+
+    if ($service.Status -ne 'Running') {
+        Write-Warning @"
+The service did not reach Running. The service control manager's reason:
+
+    sc.exe queryex JarvisService
+
+The most recent two service events:
+
+    Get-WinEvent -LogName System -MaxEvents 40 -ErrorAction SilentlyContinue |
+        Where-Object ProviderName -eq 'Service Control Manager' |
+        Select-Object -First 2 TimeCreated, Id, Message
+"@
+    }
 }
 
 Write-Host ''

@@ -118,9 +118,9 @@ public static class Program
 	/// <summary>
 	/// The service control manager mode.
 	/// <para>
-	/// Not the generic host. The service needs to stay alive until it is told to stop and to react to the
-	/// stop signal, and that is a few lines of wait loop rather than a hosting package. The pipe listener
-	/// already provides the work.
+	/// The handshake with the service control manager is what makes this a service rather than a process that
+	/// happens to stay alive. Skipping it installs cleanly and then refuses to start, reporting 1053, because
+	/// nothing ever told the manager the process was there.
 	/// </para>
 	/// </summary>
 	private static int RunAsService()
@@ -129,36 +129,23 @@ public static class Program
 
 		log.Information($"{ServiceDisplayName} is starting as a background service.");
 
-		var operations = new ElevatedOperations();
-		var pipe = new PipeServer(log);
+		ServiceControl.Stopping += () => log.Information($"{ServiceDisplayName} was asked to stop.");
 
-		pipe.Start();
-
-		using var stopping = new ManualResetEventSlim(false);
-
-		// The control manager signals by terminating the process, so the loop waits on the process rather
-		// than on a service handle. Stopping before the process ends keeps the pipe from outliving the
-		// service by a noticeable moment.
-		AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+		return ServiceControl.Run(ServiceName, () =>
 		{
-			ServiceLog.ConsoleOnly = false;
-			stopping.Set();
-		};
+			var operations = new ElevatedOperations();
+			using var pipe = new PipeServer(log);
 
-		Console.CancelKeyPress += (_, args) =>
-		{
-			// Cancel is how a person stops a service in a console, and it has to be handled or Ctrl+C kills
-			// the process without the pipe ever closing.
-			args.Cancel = true;
-			stopping.Set();
-		};
+			pipe.Start();
+			log.Information($"{ServiceDisplayName} is listening on {Protocol.PipeName}.");
 
-		stopping.Wait();
-
-		pipe.Stop();
-
-		log.Information($"{ServiceDisplayName} has stopped.");
-		return 0;
+			// Blocks until the service control manager asks the service to stop, at which point the pipe
+			// closes and the process ends.
+			while (pipe.IsListening)
+			{
+				Thread.Sleep(500);
+			}
+		});
 	}
 
 	/// <summary>
