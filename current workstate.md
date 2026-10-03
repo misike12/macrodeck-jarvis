@@ -561,7 +561,7 @@ feature appeared to work.
 |---|---|
 | Scheduled task round trip | The Task Scheduler COM interface returns `0x800704E3` from this process even with the service running. The five tests that need a reachable scheduler are `[Explicit]`; the eighteen validation tests run. |
 | Service installation | Needs an elevated shell. Not performed. |
-| GitHub release | No `gh` CLI and no token in the environment. The artifact is built and validated but not uploaded. |
+| GitHub release | Published as `v1.1.0`. |
 
 ---
 
@@ -595,3 +595,12 @@ subject was still live 15 s later", then passed on four consecutive runs with no
 shutdown latency under load rather than a regression, but it is a real observation and is recorded here so
 it is not mistaken for a suite that has never blinked. If it fails consistently it is worth looking at
 what holds the process open on dispose.
+## Releases
+
+| Tag | Artifact | Published |
+|---|---|---|
+| `v1.0.0` | `com.misu.jarvis-1.0.0.macroDeckPlugin` | earlier, unchanged |
+| `v1.1.0` | `com.misu.jarvis-1.1.0.macroDeckPlugin` | current |
+
+`v1.1.0` is a new tag rather than a re-upload of `v1.0.0`, so the artifact `v1.0.0` points at is
+still the one that shipped with it.
