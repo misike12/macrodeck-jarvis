@@ -33,6 +33,7 @@ public sealed class AssistantSession : IAsyncDisposable
 	private readonly List<ChatMessage> _history = [];
 
 	private CancellationTokenSource? _turnCts;
+	private TaskCompletionSource<bool>? _decision;
 	private Guid? _turnMarker;
 	private string _lastOutput = string.Empty;
 
@@ -236,18 +237,71 @@ public sealed class AssistantSession : IAsyncDisposable
 	/// The safety gate refused an action, so the turn moves to <see cref="AssistantState.Confirming"/>
 	/// and holds the request for the user to approve or dismiss.
 	/// </summary>
+public PendingConfirmation? PendingConfirmation { get; private set; }
+
+	/// <summary>
+	/// Completes when the user answers the pending confirmation. Absent until something asks, so a caller
+	/// that reaches here with nothing pending is waiting for nothing.
+	/// </summary>
+	public Task<bool> WaitForDecisionAsync(CancellationToken cancellationToken) =>
+		_decision is null
+			? Task.FromResult(false)
+			: _decision.Task.WaitAsync(cancellationToken);
+
+	/// <summary>
+	/// Records that a tool wants confirmation and moves to <see cref="AssistantState.Confirming"/>.
+	/// <para>
+	/// This used to be the end of the road: nothing ever answered, so under the default safety mode every
+	/// tool that needed confirmation was permanently blocked and the assistant could only read things. The
+	/// turn now waits here instead, which is what makes "confirm everything" a policy rather than a denial.
+	/// </para>
+	/// </summary>
 	public void RequestConfirmation(string toolName, string argumentsJson)
 	{
-		PendingConfirmation = new PendingConfirmation(toolName, argumentsJson);
+		lock (_turnGate)
+		{
+			PendingConfirmation = new PendingConfirmation(toolName, argumentsJson);
+			_decision = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+		}
+
 		_state.Transition(AssistantState.Confirming, statusLine: toolName);
 	}
 
-	public PendingConfirmation? PendingConfirmation { get; private set; }
-
+	/// <summary>
+	/// Answers the pending confirmation. Approving lets the waiting turn continue; refusing is treated
+	/// exactly like a refusal by the user, which is the point.
+	/// </summary>
 	public void ResolveConfirmation(bool approved)
 	{
-		PendingConfirmation = null;
-		_state.Reset();
+		TaskCompletionSource<bool>? decision;
+
+		lock (_turnGate)
+		{
+			PendingConfirmation = null;
+			decision = _decision;
+			_decision = null;
+		}
+
+		decision?.TrySetResult(approved);
+
+		if (!approved)
+		{
+			_state.Reset();
+		}
+	}
+
+	/// <summary>
+	/// Fails whatever is waiting, so a turn that is waiting on a decision does not outlive a cancel or a
+	/// config reload. Called from <see cref="EndTurn"/>.
+	/// </summary>
+	private void ReleaseDecision()
+	{
+		lock (_turnGate)
+		{
+			PendingConfirmation = null;
+			_decision?.TrySetResult(false);
+			_decision = null;
+		}
 	}
 
 	public IReadOnlyList<string> RunningCommandIds()
@@ -290,10 +344,14 @@ public sealed class AssistantSession : IAsyncDisposable
 			_turnMarker = null;
 		}
 
-		if (cts is null)
+if (cts is null)
 		{
 			return false;
 		}
+
+		// A turn waiting on a confirmation must be released even when there is no turn token to cancel,
+		// or the waiting tool call outlives the press that started it.
+		ReleaseDecision();
 
 		_voice.Stop();
 

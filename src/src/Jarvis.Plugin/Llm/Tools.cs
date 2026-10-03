@@ -75,21 +75,33 @@ public sealed class ShellTool(AssistantSession session, ILogger logger) : ITool
 
 		using (tracker)
 		{
-			var (exitCode, output) = await tracker.WaitForResultAsync(timeout.Token).ConfigureAwait(false);
+			// Registered with the session so a cancel that asks to kill running commands can actually find
+			// it. Without this the tracking table was always empty and the flag did nothing at all.
+			var handle = Guid.NewGuid();
+			session.TrackCommand(handle, tracker);
 
-			if (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+			try
 			{
-				tracker.Kill();
-				return ToolOutcome.Failure($"The command did not finish within {TimeoutSeconds} seconds and was stopped.");
+				var (exitCode, output) = await tracker.WaitForResultAsync(timeout.Token).ConfigureAwait(false);
+
+				if (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+				{
+					tracker.Kill();
+					return ToolOutcome.Failure($"The command did not finish within {TimeoutSeconds} seconds and was stopped.");
+				}
+
+				session.RecordCommandOutput(output);
+
+				var body = output.Trim();
+
+				return body.Length == 0
+					? ToolOutcome.Success($"The command finished with exit code {exitCode} and produced no output.")
+					: ToolOutcome.Success($"Exit code {exitCode}.\n{body}");
 			}
-
-			session.RecordCommandOutput(output);
-
-			var body = output.Trim();
-
-			return body.Length == 0
-				? ToolOutcome.Success($"The command finished with exit code {exitCode} and produced no output.")
-				: ToolOutcome.Success($"Exit code {exitCode}.\n{body}");
+			finally
+			{
+				session.ReleaseCommand(handle);
+			}
 		}
 	}
 

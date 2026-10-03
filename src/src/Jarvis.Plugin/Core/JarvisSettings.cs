@@ -70,7 +70,12 @@ public sealed record JarvisSettings
 
 	public string WakeWord { get; init; } = "jarvis";
 
-	public double WakeWordSensitivity { get; init; } = 0.6;
+	/// <summary>
+	/// RMS the microphone must exceed before a wake word can fire. Deliberately well under 0.1: measured
+	/// room tone on this machine is 0.036 and a speaking voice peaks far below 0.6, so the earlier default
+	/// of 0.6 sat above anything the microphone would ever see and the wake word could never fire at all.
+	/// </summary>
+	public double WakeWordSensitivity { get; init; } = 0.06;
 
 	public string PushToTalkHotkey { get; init; } = "Ctrl+Alt+J";
 
@@ -90,9 +95,23 @@ public sealed record JarvisSettings
 
 	public bool BargeInEnabled { get; init; } = true;
 
-	public double BargeInThreshold { get; init; } = 0.25;
+	/// <summary>
+	/// RMS above which the user is considered to be speaking over JARVIS. Lower than the wake word's
+	/// threshold would be wrong in the other direction, so it sits between room tone and speech.
+	/// </summary>
+	public double BargeInThreshold { get; init; } = 0.12;
 
 	public SafetyMode Safety { get; init; } = SafetyMode.ConfirmAll;
+
+	/// <summary>
+	/// Standing permissions, used only by <see cref="SafetyMode.ToolPermissions"/>. All false by default, so
+	/// switching to that mode without granting anything asks for everything rather than allowing anything.
+	/// </summary>
+	public bool PermitRead { get; init; }
+
+	public bool PermitWrite { get; init; }
+
+	public bool PermitExecute { get; init; }
 
 	public VoiceConfirmation Confirmation { get; init; } = VoiceConfirmation.Hybrid;
 

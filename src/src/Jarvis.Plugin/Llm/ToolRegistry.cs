@@ -64,11 +64,31 @@ public sealed class ToolRegistry(
 
 		var current = _settings.Current;
 
-		if (!IsAllowed(tool, current, typed))
+		if (RequiresApproval(tool, current, typed))
 		{
-			_logger.Information("Blocked {Tool} by safety mode {Mode}.", tool.Name, current.Safety);
+			_logger.Information("{Tool} needs confirmation under safety mode {Mode}.", tool.Name, current.Safety);
+
 			_session.RequestConfirmation(tool.Name, typed.ToJsonString());
-			return ToolOutcome.Failure("That action needs confirmation and none was given, so it was not run.");
+
+			bool approved;
+
+			try
+			{
+				approved = await _session.WaitForDecisionAsync(cancellationToken).ConfigureAwait(false);
+			}
+			catch (OperationCanceledException)
+			{
+				return ToolOutcome.Failure($"{tool.Name} was cancelled before it was approved.");
+			}
+
+			if (!approved)
+			{
+				return ToolOutcome.Failure(
+					"That action was not approved, so it was not run. Say so plainly if you are asked about it.");
+			}
+
+			// The decision covered this one call. A tool that loops would otherwise inherit a single yes for
+			// every iteration, so the gate is re-evaluated for each call.
 		}
 
 		try
@@ -86,20 +106,59 @@ public sealed class ToolRegistry(
 		}
 	}
 
-	private static bool IsAllowed(ITool tool, JarvisSettings settings, JsonObject arguments)
+	/// <summary>
+	/// Whether this call has to stop and ask. Reads are free and run without asking; anything that acts
+	/// asks under every mode except <see cref="SafetyMode.Autonomous"/>, and an allowlisted command runs
+	/// straight through.
+	/// </summary>
+	private static bool RequiresApproval(ITool tool, JarvisSettings settings, JsonObject arguments)
 	{
 		if (!tool.RequiresConfirmation)
 		{
-			return true;
+			return false;
 		}
 
 		return settings.Safety switch
 		{
-			SafetyMode.Autonomous => true,
-			SafetyMode.Allowlist => IsAllowlisted(tool, settings, arguments),
+			SafetyMode.Autonomous => false,
+			SafetyMode.Allowlist => !IsAllowlisted(tool, settings, arguments),
+			// Tool-permissions is a real branch rather than falling through to the same answer as
+			// confirm-all, which is what made the two modes indistinguishable.
+			SafetyMode.ToolPermissions => !IsPermitted(tool, settings),
+			_ => true,
+		};
+	}
+
+	/// <summary>
+	/// Per-tool-class permission for the mode that trades a single yes/no for a standing decision. The
+	/// classes are coarse on purpose: a fine-grained permission list is a settings UI nobody will fill in,
+	/// and a coarse one the user can reason about beats a fine one they leave at its default.
+	/// </summary>
+	private static bool IsPermitted(ITool tool, JarvisSettings settings)
+	{
+		var classification = Classify(tool);
+
+		return classification switch
+		{
+			ToolClass.Read => settings.PermitRead,
+			ToolClass.Execute => settings.PermitExecute,
+			ToolClass.Write => settings.PermitWrite,
 			_ => false,
 		};
 	}
+
+	/// <summary>Which permission class a tool belongs to. Defaults to the most cautious class.</summary>
+	internal static ToolClass Classify(ITool tool) => tool switch
+	{
+		ReadFileTool or ListDirectoryTool or DesktopTools.ListProcessesTool or DesktopTools.ClipboardReadTool
+			=> ToolClass.Read,
+
+		ShellTool or DesktopTools.KillProcessTool or DesktopTools.SetVolumeTool => ToolClass.Execute,
+
+		WriteFileTool or DesktopTools.ClipboardWriteTool or ScreenshotTool or SetPersonaTool => ToolClass.Write,
+
+		_ => ToolClass.Other,
+	};
 
 	private static bool IsAllowlisted(ITool tool, JarvisSettings settings, JsonObject arguments)
 	{

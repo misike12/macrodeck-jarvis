@@ -344,13 +344,12 @@ match.
 
 ## Workflow
 
-- Work on a branch, not directly on `main`. Use `feature/`, `fix/`, `refactor/`, `chore/`, `docs/` or
-  `ci/` with a short kebab-case description, and an issue number where one exists.
-- Publishing the template package requires a pushed semantic-version tag such as
-  `v3.0.0-preview.3`. The publish workflow removes the leading `v` and uses the rest as the NuGet
-  package version. A push to `main` alone never publishes.
+- **Work on `main` and commit directly to it.** The owner has decided this: they want the history on `main`
+  to be the readable record of what was built and why, one commit per milestone, rather than a set of
+  branches that have to be merged to tell that story. A commit is expected to build on its own.
 - Keep changes focused; no unrelated reformatting.
-- Do not push or open a pull request unless asked.
+- Never commit `jarvis.settings.json` or anything else holding an API key. It is gitignored; check before
+  committing anything new.
 - Do not add AI attribution or co-author trailers.
 - Update `README.md` when the build, run, packaging or capability story changes. Update this file when a
   rule here stops being true.

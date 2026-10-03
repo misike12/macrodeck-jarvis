@@ -70,6 +70,7 @@ private readonly RuntimeManager _runtime;
 			new SayAction(session),
 			new CheckModelsAction(chat, settings),
 			new ManageComponentsAction(runtime),
+			new ConfirmAction(session),
 		];
 
 		Variables =

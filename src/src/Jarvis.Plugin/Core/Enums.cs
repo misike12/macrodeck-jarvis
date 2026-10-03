@@ -41,6 +41,24 @@ public enum VisionProvider
 	LocalLlamaCpp,
 }
 
+/// <summary>
+/// What a tool does, which is what a standing permission is granted against. Coarse on purpose.
+/// </summary>
+public enum ToolClass
+{
+	/// <summary>Only looks at things.</summary>
+	Read,
+
+	/// <summary>Runs something on this machine.</summary>
+	Execute,
+
+	/// <summary>Changes something: a file, the clipboard, an outbound request.</summary>
+	Write,
+
+	/// <summary>Anything a permission has not been thought about, which asks.</summary>
+	Other,
+}
+
 public enum SafetyMode
 {
 	ConfirmAll,

@@ -83,6 +83,27 @@
     <value>What JARVIS should respond to.</value>
   </data>
 
+  <data name="Actions.Confirm.Name" xml:space="preserve">
+    <value>Confirm or refuse</value>
+  </data>
+  <data name="Actions.Confirm.Description" xml:space="preserve">
+    <value>Answers the action JARVIS is waiting to run. Press it when the orb asks.</value>
+  </data>
+  <data name="Actions.Confirm.Approve.Label" xml:space="preserve">
+    <value>Approve</value>
+  </data>
+  <data name="Actions.Confirm.Approve.Description" xml:space="preserve">
+    <value>On, runs the action. Off, refuses it.</value>
+  </data>
+  <data name="Actions.Confirm.Approved" xml:space="preserve">
+    <value>{tool} approved.</value>
+    <comment>[string] tool: the tool the user approved.</comment>
+  </data>
+  <data name="Actions.Confirm.Refused" xml:space="preserve">
+    <value>{tool} refused.</value>
+    <comment>[string] tool: the tool the user refused.</comment>
+  </data>
+
   <data name="Actions.ViewOutput.Name" xml:space="preserve">
     <value>View JARVIS output</value>
   </data>
