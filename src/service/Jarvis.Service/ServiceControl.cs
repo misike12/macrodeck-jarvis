@@ -102,6 +102,10 @@ internal static class ServiceControl
 				{
 					var code = Marshal.GetLastWin32Error();
 
+					// Reported before anything else, because the only other symptom is the service control
+					// manager saying the process ended for no stated reason.
+					ServiceLog.Error($"StartServiceCtrlDispatcher failed with error {code}.");
+
 					// 1063 is "the service process could not connect to the service controller", which is what
 					// happens when this is run by hand rather than by the service control manager. It is not a
 					// fault, so it is not reported as one.
@@ -115,6 +119,11 @@ internal static class ServiceControl
 
 					return Fail($"The service control manager refused the connection (error {code}).");
 				}
+
+				// Reached only if the dispatcher returns, which it does not on a healthy service: it blocks
+				// until the manager asks the service to stop. Noted because the shape is surprising and the
+				// rest of this method looks like it should run first.
+				ServiceLog.Information("StartServiceCtrlDispatcher returned.");
 			}
 			finally
 			{

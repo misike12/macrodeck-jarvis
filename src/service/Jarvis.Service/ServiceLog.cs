@@ -56,10 +56,34 @@ public static class ServiceLog
 
 			Console.Out.WriteLine(line);
 
+			// Also written to a file. A service has no console, and the event log needs a registered source,
+			// so without this the only trace of why the service control manager rejected a start is an
+			// event saying the process ended. A file needs no registration and is readable straight away.
+			TryAppendToFile(line);
+
 			if (!_consoleOnly)
 			{
 				EventLog.Write(level, message);
 			}
+		}
+	}
+
+	private static void TryAppendToFile(string line)
+	{
+		try
+		{
+			var directory = Path.Combine(
+				Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+				"Jarvis");
+
+			Directory.CreateDirectory(directory);
+
+			File.AppendAllText(Path.Combine(directory, "Jarvis.Service.log"), line + Environment.NewLine);
+		}
+		catch (Exception exception) when (
+			exception is UnauthorizedAccessException or IOException or System.Security.SecurityException)
+		{
+			// Nothing to do. The console line already happened.
 		}
 	}
 }
