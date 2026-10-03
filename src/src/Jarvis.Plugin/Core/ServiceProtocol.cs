@@ -25,7 +25,22 @@ public static class ServiceProtocol
 		"shutdown",
 	];
 
-	public static JsonObject Request(string operation, JsonObject? arguments = null) => new()
+	/// <summary>
+/// The pipe name for a specific user, derived from their security identifier rather than their account name.
+/// <para>
+/// The service runs as LocalSystem, so a name built from its own user would be "jarvis-service-SYSTEM" and
+/// the plugin would never reach it. An identifier is stable across a rename and unique per user, which is what
+/// a shared machine needs.
+/// </para>
+/// </summary>
+public static string PipeNameForSid(string? sid, string? suffix = null)
+{
+	var who = string.IsNullOrWhiteSpace(sid) ? "unknown" : sid;
+
+	return suffix is null ? $"jarvis-service-{who}" : $"jarvis-service-{who}-{suffix}";
+}
+
+public static JsonObject Request(string operation, JsonObject? arguments = null) => new()
 	{
 		["v"] = Version,
 		["op"] = operation,

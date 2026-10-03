@@ -253,13 +253,15 @@ public static class ServiceInstaller
 			return Failed;
 		}
 
-		if (AlreadyInstalled(log, out var existing) is { } failure)
+		// Already registered is treated as success rather than a failure. The common case is a reinstall after a
+		// build, and refusing because the previous registration is still there would make that a chore.
+		// Note the `Length: > 0` test: an `is { }` pattern matches an empty string too, which once made an
+		// elevated shell refuse with no reason at all.
+		if (AlreadyInstalled(log) is { Length: > 0 } failure)
 		{
 			Console.Error.WriteLine(failure);
 			return failure.Contains("already installed", StringComparison.Ordinal) ? Success : Failed;
 		}
-
-		_ = existing;
 
 		// The service mode is selected by the --console argument. Without it the binary would show a tray
 		// icon as LocalSystem, where nobody could ever see it.
@@ -318,11 +320,17 @@ public static class ServiceInstaller
 		return Success;
 	}
 
-	/// <summary>Whether the service is registered. Null when it is, a reason when it is not.</summary>
-	private static string? AlreadyInstalled(ILogger log, out string binaryPath)
+	/// <summary>
+	/// Whether the service is registered. Null when it is, a reason when it is not.
+	/// <para>
+	/// It deliberately does not read the registered configuration back. Those string fields are pointers into
+	/// the buffer the service control manager allocated, and treating them as offsets from its own address
+	/// produces a wild pointer and an access violation. It was only ever used for a log line, so it is gone
+	/// rather than fixed. <c>sc.exe qc JarvisService</c> shows the same thing safely.
+	/// </para>
+	/// </summary>
+	private static string? AlreadyInstalled(ILogger log)
 	{
-		binaryPath = string.Empty;
-
 		var manager = OpenSCManager(null, null, 0x0001 /* SC_MANAGER_CONNECT */);
 
 		if (manager == IntPtr.Zero)
@@ -343,16 +351,10 @@ public static class ServiceInstaller
 					: $"The service could not be inspected: {LastErrorText()}";
 			}
 
-			try
-			{
-				binaryPath = NativeServiceControl.ReadBinaryPath(service);
-				log.Information($"{Program.ServiceDisplayName} is already installed at {binaryPath}.");
-				return $"{Program.ServiceDisplayName} is already installed.";
-			}
-			finally
-			{
-				_ = CloseServiceHandle(service);
-			}
+			_ = CloseServiceHandle(service);
+
+			log.Information($"{Program.ServiceDisplayName} is already installed.");
+			return $"{Program.ServiceDisplayName} is already installed.";
 		}
 		finally
 		{

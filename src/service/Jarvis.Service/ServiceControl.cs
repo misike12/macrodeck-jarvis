@@ -86,9 +86,10 @@ internal static class ServiceControl
 
 		try
 		{
-			// The dispatch table is an array of name/procedure pairs terminated by a null pointer. Allocated
-			// and written in one block rather than a struct array, because the procedure is a raw function
-			// pointer and there is no managed way to build the terminator the manager expects.
+			// The dispatch table is an array of name/procedure pairs, terminated by the absence of a further
+			// entry. Exactly two entries are written: the real one and nothing after it. Writing an explicit
+			// null terminator a third entry along runs past the allocation, and the resulting heap corruption
+			// kills the process with 0xc0000409 the moment the manager calls into it.
 			var entrySize = IntPtr.Size * 2;
 			var table = Marshal.AllocHGlobal(entrySize * 2);
 
@@ -96,7 +97,6 @@ internal static class ServiceControl
 			{
 				Marshal.WriteIntPtr(table, name);
 				Marshal.WriteIntPtr(table, entrySize, Marshal.GetFunctionPointerForDelegate(Handler));
-				Marshal.WriteIntPtr(table, entrySize * 2, IntPtr.Zero);
 
 				if (!StartServiceCtrlDispatcher(table))
 				{
@@ -127,6 +127,15 @@ internal static class ServiceControl
 		}
 
 		Report(ServiceRunning, AcceptStop | AcceptShutdown);
+
+		// Registered after the dispatcher connects, because that is when the manager will start sending
+		// control messages. Without it a stop request is never delivered and the service has to be killed.
+		if (!RegisterServiceCtrlHandler(serviceName, Handler, IntPtr.Zero))
+		{
+			ServiceLog.Warning(
+				"The stop handler could not be registered (error " + Marshal.GetLastWin32Error()
+				+ "). The service will have to be stopped by terminating the process.");
+		}
 
 		var worker = new Thread(() => work())
 		{

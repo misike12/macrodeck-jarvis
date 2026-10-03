@@ -137,16 +137,27 @@ public class ProtocolTests
 	}
 
 	/// <summary>
-	/// The pipe name carries the user, because the pipe namespace is machine-wide. Without it, two users on
-	/// one machine would share a service.
+	/// The pipe name is derived from a security identifier, not an account name.
+	/// <para>
+	/// It has to be. The service runs as LocalSystem, so a name built from its own user would be
+	/// "jarvis-service-SYSTEM" and the plugin could never reach it. The identifier is the one thing the two
+	/// processes can agree on: the plugin's own, and the service's idea of who is signed in.
+	/// </para>
 	/// </summary>
 	[Test]
-	public void The_pipe_name_carries_the_user()
+	public void The_pipe_name_carries_the_user_identifier()
 	{
+		using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+		var sid = identity.User?.Value;
+
 		Assert.Multiple(() =>
 		{
-			Assert.That(Protocol.PipeName, Does.Contain(Environment.UserName));
-			Assert.That(Protocol.PipeName.Length, Is.LessThan(250), "a pipe name longer than 256 characters is rejected");
+			Assert.That(Protocol.PipeName, Does.StartWith("jarvis-service-"));
+			Assert.That(Protocol.PipeName, Does.Contain(sid ?? "unknown"), $"the pipe name does not carry {sid}");
+			Assert.That(
+				Protocol.PipeName.Length,
+				Is.LessThan(250),
+				"a pipe name longer than 256 characters is rejected");
 		});
 	}
 

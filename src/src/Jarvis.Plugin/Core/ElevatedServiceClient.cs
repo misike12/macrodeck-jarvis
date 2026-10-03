@@ -96,8 +96,14 @@ _pipeName,
 	}
 
 	/// <summary>
-	/// The pipe name, matched to the service's own. Both include the user, because the pipe namespace is
-	/// machine-wide and two users on one machine must not reach each other's service.
+	/// The pipe name, derived from this user's security identifier.
+	/// <para>
+	/// It has to match the service's, and the service runs as LocalSystem, so it cannot name the pipe after
+	/// its own user. The identifier is the one thing both processes can agree on: the plugin's own, and the
+	/// service's idea of who is signed in at the console.
+	/// </para>
 	/// </summary>
-	public static string ServicePipeName => $"jarvis-service-{Environment.UserName}";
+	public static string ServicePipeName =>
+		ServiceProtocol.PipeNameForSid(
+			System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value);
 }

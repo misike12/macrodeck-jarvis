@@ -31,7 +31,7 @@ public class PipeRoundTripTests
 		// A pipe name of its own per test. The service allows unlimited instances on one name, so a
 		// listener left behind by an earlier test would otherwise accept this test's connection and answer
 		// from a pipe nobody is reading.
-		_pipeName = Protocol.PipeNameFor(Environment.UserName, Guid.CreateVersion7().ToString("N")[..8]);
+		_pipeName = Protocol.PipeNameForTest(Guid.CreateVersion7().ToString("N")[..8]);
 
 		// Short, so a broken pipe fails the test rather than stalling the suite.
 		_client = new ElevatedServiceClient(TimeSpan.FromSeconds(10), _pipeName);
@@ -104,7 +104,7 @@ public class PipeRoundTripTests
 	{
 		_server.Dispose();
 
-		var orphan = new ElevatedServiceClient(TimeSpan.FromSeconds(2), Protocol.PipeNameFor(Environment.UserName, Guid.CreateVersion7().ToString("N")[..8]));
+		var orphan = new ElevatedServiceClient(TimeSpan.FromSeconds(2), Protocol.PipeNameForTest(Guid.CreateVersion7().ToString("N")[..8]));
 
 		Assert.That(await orphan.IsAvailableAsync(CancellationToken.None), Is.False);
 	}

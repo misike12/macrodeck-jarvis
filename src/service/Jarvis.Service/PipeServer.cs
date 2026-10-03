@@ -1,4 +1,6 @@
 using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -12,9 +14,9 @@ namespace Jarvis.Service;
 /// put that backpressure.
 /// </para>
 /// <para>
-/// The pipe is created with <see cref="PipeOptions.CurrentUserOnly"/>. A machine-wide named pipe is
-/// reachable by every process on the machine, and without this any of them could ask the service to write
-/// under HKLM. The kernel enforces the user restriction, so it does not depend on the plugin behaving.
+/// The pipe carries an explicit security descriptor. It cannot use
+/// <see cref="PipeOptions.CurrentUserOnly"/>, because in the elevated service this process is LocalSystem
+/// and that flag would restrict the pipe to LocalSystem, locking the plugin out by construction.
 /// </para>
 /// </summary>
 public sealed class PipeServer : IDisposable
@@ -33,15 +35,30 @@ public sealed class PipeServer : IDisposable
 	private readonly ILogger _logger;
 	private readonly CancellationTokenSource _stopping = new();
 	private readonly string _pipeName;
+	private readonly PipeSecurity? _security;
 
 	private Task? _listener;
 	private NamedPipeServerStream? _current;
 	private bool _disposed;
 
-	public PipeServer(ILogger logger, string? pipeName = null)
+	/// <param name="elevated">
+	/// True for the service, which names the pipe after the signed-in user and grants that user access.
+	/// False for the tray mode, where the creating user already has access and the descriptor only has to
+	/// keep other users out.
+	/// </param>
+	public PipeServer(ILogger logger, string? pipeName = null, bool elevated = false)
 	{
 		_logger = logger;
 		_pipeName = pipeName ?? Protocol.PipeName;
+		_security = BuildSecurity(
+			elevated ? PipeIdentity.InteractiveUserSid() : CurrentUserSid());
+	}
+
+	private static string? CurrentUserSid()
+	{
+		using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+
+		return identity.User?.Value;
 	}
 
 	/// <summary>Whether the service is accepting connections right now.</summary>
@@ -58,12 +75,62 @@ public sealed class PipeServer : IDisposable
 	}
 
 	/// <summary>
+	/// Builds the pipe's security.
+	/// <para>
+	/// Rules are added one at a time rather than parsed from a descriptor string, because the set of
+	/// processes that can open this pipe is the trust boundary to a service running as LocalSystem. Written
+	/// out, the boundary is visible: LocalSystem and administrators have full control, and the signed-in
+	/// user has read and write and nothing else.
+	/// </para>
+	/// <para>
+	/// Returns null when it cannot be built, which leaves the pipe on the operating system's default
+	/// rather than leaving the service with no pipe at all.
+	/// </para>
+	/// </summary>
+	private static PipeSecurity? BuildSecurity(string? userSid)
+	{
+		try
+		{
+			var security = new PipeSecurity();
+
+			// Protection is set and inheritance dropped, so the rules below are the whole list. Without this
+			// the machine default would be merged in and could be wider than intended.
+			security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+
+			security.AddAccessRule(new PipeAccessRule(
+				new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+				PipeAccessRights.FullControl,
+				AccessControlType.Allow));
+
+			security.AddAccessRule(new PipeAccessRule(
+				new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
+				PipeAccessRights.FullControl,
+				AccessControlType.Allow));
+
+			if (!string.IsNullOrWhiteSpace(userSid))
+			{
+				security.AddAccessRule(new PipeAccessRule(
+					new SecurityIdentifier(userSid),
+					PipeAccessRights.ReadWrite,
+					AccessControlType.Allow));
+			}
+
+			return security;
+		}
+		catch (ArgumentException exception)
+		{
+			ServiceLog.Error("The pipe security could not be built: " + exception.Message);
+			return null;
+		}
+	}
+
+	/// <summary>
 	/// Stops accepting and closes the current connection. The listener task is not awaited: a client that
 	/// has gone away mid-request must not be able to hold up a shutdown.
 	/// <para>
-	/// Safe to call more than once. A cleanup path and an explicit teardown both reaching this is normal,
-	/// and a second call throwing on a disposed cancellation source would turn a successful run into a
-	/// failure at the end of it.
+	/// Safe to call more than once. A cleanup path and an explicit teardown both reaching this is normal, and
+	/// a second call throwing on a disposed cancellation source would turn a successful run into a failure at
+	/// the end of it.
 	/// </para>
 	/// </summary>
 	public void Stop()
@@ -92,9 +159,8 @@ public sealed class PipeServer : IDisposable
 		}
 
 		// The listener is not waited for. Waiting would block a thread-pool thread, and this is called from
-		// teardown in the tests as well as from shutdown, so enough of these starve the pool and the tests
-		// that depend on it deadlock instead of failing. Cancelling the token is enough: the listener
-		// observes it and returns on its own, and it owns nothing that needs collecting here.
+		// teardown in the tests as well as from shutdown, so enough of them starve the pool and the tests
+		// that depend on it deadlock instead of failing. Cancelling the token is enough.
 		_listener = null;
 	}
 
@@ -120,12 +186,25 @@ public sealed class PipeServer : IDisposable
 		{
 			try
 			{
-				using var server = new NamedPipeServerStream(
-					_pipeName,
-					PipeDirection.InOut,
-					NamedPipeServerStream.MaxAllowedServerInstances,
-					PipeTransmissionMode.Byte,
-					PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+				// Created fresh each time, because a NamedPipeServerStream owns its security descriptor and
+				// cannot be reconfigured once it exists. NamedPipeServerStreamAcl is the security-aware
+				// factory; the plain constructor has no way to express one.
+				using var server = _security is null
+					? new NamedPipeServerStream(
+						_pipeName,
+						PipeDirection.InOut,
+						NamedPipeServerStream.MaxAllowedServerInstances,
+						PipeTransmissionMode.Byte,
+						PipeOptions.Asynchronous)
+					: NamedPipeServerStreamAcl.Create(
+						_pipeName,
+						PipeDirection.InOut,
+						NamedPipeServerStream.MaxAllowedServerInstances,
+						PipeTransmissionMode.Byte,
+						PipeOptions.Asynchronous,
+						0,
+						0,
+						_security);
 
 				_current = server;
 
@@ -139,7 +218,8 @@ public sealed class PipeServer : IDisposable
 			}
 			catch (Exception exception) when (exception is not OutOfMemoryException)
 			{
-				// A failed accept must not end the service. The pipe is recreated and the next attempt made.
+				// A failed accept must not end the service. The pipe is recreated and the next attempt made,
+				// because a failed accept says nothing about the next one.
 				_logger.LogError("A connection could not be served.", exception);
 				await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
 			}
@@ -156,9 +236,8 @@ public sealed class PipeServer : IDisposable
 	/// </summary>
 	private async Task ServeAsync(NamedPipeServerStream server, CancellationToken cancellationToken)
 	{
-		// The writer is built first. Order matters only in that it keeps the two wrappers from being
-		// constructed around each other while a message is in flight, but it is fixed so the sequence is
-		// obvious rather than incidental.
+		// The writer is built first, so the two wrappers are not constructed around each other while a
+		// message is in flight. Fixed rather than incidental so the sequence is obvious.
 		await using var writer = new StreamWriter(server, Wire, 1024, leaveOpen: true)
 		{
 			AutoFlush = true,

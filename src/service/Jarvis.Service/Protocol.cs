@@ -25,19 +25,33 @@ public static class Protocol
 	/// The pipe name. Includes the user, because the pipe namespace is machine-wide and two users on one
 	/// machine must not be able to talk to each other's service.
 	/// </summary>
-	public static string PipeName => PipeNameFor(Environment.UserName);
-
-/// <summary>
-/// Builds a pipe name for a specific user.
+	/// <summary>
+/// The pipe name, derived from the signed-in user's security identifier.
 /// <para>
-/// The suffix exists so a test can stand up a second listener on its own name. The default name is shared
-/// by every instance on the machine, and because the server allows unlimited instances, one leftover
-/// listener from an earlier test would silently accept the next test's connection and answer it from a
-/// disposed pipe. A unique name per test removes the interference rather than trying to detect it.
+/// Not from <see cref="Environment.UserName"/>: the service runs as LocalSystem, so that would name the pipe
+/// "jarvis-service-SYSTEM" and the plugin, running as the person at the keyboard, would never reach it. The
+/// identifier is stable across renames and unique per user, which is what a shared machine needs.
 /// </para>
 /// </summary>
-public static string PipeNameFor(string user, string? suffix = null) =>
-		suffix is null ? $"jarvis-service-{user}" : $"jarvis-service-{user}-{suffix}";
+public static string PipeName => PipeNameForSid(InteractiveUserSid());
+
+/// <summary>
+/// The pipe name for a specific user. A suffix exists so a test can stand up a second listener on its own
+/// name: the service allows unlimited instances on one name, so a listener left behind by an earlier test
+/// would silently accept the next test's connection.
+/// </summary>
+public static string PipeNameForSid(string? sid, string? suffix = null)
+{
+	var who = string.IsNullOrWhiteSpace(sid) ? "unknown" : sid;
+
+	return suffix is null ? $"jarvis-service-{who}" : $"jarvis-service-{who}-{suffix}";
+}
+
+/// <summary>Only for tests, which need a listener on a name of its own.</summary>
+public static string PipeNameForTest(string suffix) => PipeNameForSid(suffix, suffix);
+
+/// <summary>The signed-in user's identifier, or null when there is no interactive session.</summary>
+private static string? InteractiveUserSid() => PipeIdentity.InteractiveUserSid();
 
 	public static readonly string[] Operations =
 	[

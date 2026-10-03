@@ -34,37 +34,6 @@ internal static class NativeServiceControl
 	private const int ErrorServiceMarkedForDelete = 1072;
 	private const int ErrorServiceNotActive = 1062;
 
-	/// <summary>
-	/// The documented QUERY_SERVICE_CONFIG layout, field for field and in order.
-	/// <para>
-	/// The strings are offsets from the start of the buffer rather than pointers, so they are read through
-	/// <see cref="ReadString"/> with the buffer's address as the base. Taking them as absolute pointers
-	/// reads whatever happens to be at those addresses, which is how a service's command line ends up as a
-	/// string of unrelated memory.
-	/// </para>
-	/// </summary>
-	[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-	private struct ServiceEntry
-	{
-		public uint ServiceType;
-		public uint CurrentState;
-		public uint ControlsAccepted;
-		public uint Win32ExitCode;
-		public uint ServiceSpecificExitCode;
-		public uint CheckPoint;
-		public uint WaitHint;
-		public uint ProcessId;
-		public uint ServiceFlags;
-		public nint ServiceName;
-		public nint DisplayName;
-		public nint BinaryPathName;
-		public nint LoadOrderGroup;
-		public uint TagId;
-		public nint Dependencies;
-		public nint ServiceStartName;
-		public nint Password;
-	}
-
 	[DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "OpenSCManagerW")]
 	private static extern IntPtr OpenSCManager(string? machine, string? database, uint access);
 
@@ -98,9 +67,6 @@ internal static class NativeServiceControl
 
 	[DllImport("advapi32.dll", SetLastError = true)]
 	private static extern bool QueryServiceStatus(IntPtr service, out ServiceStatus status);
-
-	[DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "QueryServiceConfigW")]
-	private static extern bool QueryServiceConfig(IntPtr service, IntPtr buffer, uint size, out uint needed);
 
 	[DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "ChangeServiceConfigW")]
 	private static extern bool ChangeServiceConfig(
@@ -338,51 +304,6 @@ internal static class NativeServiceControl
 		}
 
 		log.Warning($"{name} did not stop within fifteen seconds.");
-	}
-
-	/// <summary>The command line the control manager will run, read back from the service itself.</summary>
-	internal static string ReadBinaryPath(IntPtr service)
-	{
-		uint needed;
-
-		_ = QueryServiceConfig(service, IntPtr.Zero, 0, out needed);
-
-		if (needed == 0)
-		{
-			return string.Empty;
-		}
-
-		var buffer = Marshal.AllocHGlobal((int)needed);
-
-		try
-		{
-			if (!QueryServiceConfig(service, buffer, needed, out _))
-			{
-				return string.Empty;
-			}
-
-			var entry = Marshal.PtrToStructure<ServiceEntry>(buffer);
-
-			return ReadString(buffer, entry.BinaryPathName);
-		}
-		finally
-		{
-			Marshal.FreeHGlobal(buffer);
-		}
-	}
-
-	/// <summary>
-	/// Reads a string the service config block points into. The pointers are offsets from the block rather
-	/// than absolute, so the base is subtracted; getting that wrong yields a string of unrelated memory.
-	/// </summary>
-	private static string ReadString(IntPtr baseAddress, nint offset)
-	{
-		if (offset == 0)
-		{
-			return string.Empty;
-		}
-
-		return Marshal.PtrToStringUni(baseAddress + (int)offset) ?? string.Empty;
 	}
 
 	private static string LastError() =>

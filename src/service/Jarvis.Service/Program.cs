@@ -134,7 +134,9 @@ public static class Program
 		return ServiceControl.Run(ServiceName, () =>
 		{
 			var operations = new ElevatedOperations();
-			using var pipe = new PipeServer(log);
+			// Elevated, so the pipe is named after the signed-in user and carries a descriptor granting that
+			// user access. Without this the pipe would belong to LocalSystem and the plugin could not open it.
+			using var pipe = new PipeServer(log, elevated: true);
 
 			pipe.Start();
 			log.Information($"{ServiceDisplayName} is listening on {Protocol.PipeName}.");
