@@ -95,6 +95,9 @@ public static class PluginServices
 			registry.Register(new BrowserTools.BrowserTypeTool());
 			registry.Register(new BrowserTools.BrowserClickTool());
 			registry.Register(new BrowserTools.BrowserTabsTool());
+			registry.Register(new RegistryTools.RegistryGetTool());
+			registry.Register(new RegistryTools.RegistrySetTool());
+			registry.Register(new RegistryTools.RegistryDeleteTool());
 			registry.Register(new ScreenshotTool(provider.GetRequiredService<VisionClient>(), logger));
 
 			// The persona tool rewrites only the persona field, through the same immutable-prefix resolver
