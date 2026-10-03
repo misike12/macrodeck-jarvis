@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Windows.Forms;
 
@@ -19,10 +20,56 @@ public static class Program
 
 	public const string ServiceDisplayName = "JARVIS Service";
 
+	private const int AttachParentProcess = -1;
+
+	[DllImport("kernel32.dll", SetLastError = true)]
+	private static extern bool AttachConsole(int processId);
+
+	/// <summary>
+	/// Attaches to the console that launched this process, so its output is visible.
+	/// <para>
+	/// The binary is a Windows-subsystem executable so that tray mode has no console window. The cost of
+	/// that is that a WinExe has no console of its own, so every <c>Console.WriteLine</c> went nowhere: the
+	/// installer refused with exit code 5 and printed nothing at all. Re-attaching to the parent's console
+	/// makes the diagnostics visible again without giving the tray icon a window.
+	/// </para>
+	/// </summary>
+	private static void AttachToParentConsole()
+	{
+		try
+		{
+			// Fails harmlessly when there is no parent console, which is the normal case for the service.
+			_ = AttachConsole(AttachParentProcess);
+		}
+		catch (DllNotFoundException)
+		{
+			// Not present before Windows 10, where there is no parent console to attach to either.
+		}
+		catch (EntryPointNotFoundException)
+		{
+			// As above.
+		}
+	}
+
 	[STAThread]
 	public static int Main(string[] args)
 	{
+		AttachToParentConsole();
+
 		var console = new ConsoleLogger();
+
+		if (args.Any(argument => argument.Equals("--help", StringComparison.OrdinalIgnoreCase)
+			|| argument.Equals("-h", StringComparison.OrdinalIgnoreCase)
+			|| argument.Equals("/?", StringComparison.Ordinal)))
+		{
+			PrintUsage(console);
+			return 0;
+		}
+
+		if (args.Any(argument => argument.Equals("--diagnose", StringComparison.OrdinalIgnoreCase)))
+		{
+			return ServiceInstaller.Diagnose(console);
+		}
 
 		if (args.Any(argument => argument.Equals("--install", StringComparison.OrdinalIgnoreCase)))
 		{
@@ -39,7 +86,33 @@ public static class Program
 			return RunAsService();
 		}
 
+		// An argument that is not one of the modes above is a mistake, and starting an always-on tray
+		// application because someone typed the wrong switch is a worse answer than saying so and stopping.
+		if (args.Length > 0)
+		{
+			ConsoleLogger.ErrorMessage($"'{args[0]}' is not one of the modes this service understands. Nothing was started.");
+			PrintUsage(console);
+			return ServiceInstaller.Failed;
+		}
+
 		return RunWithTray(console);
+	}
+
+	private static void PrintUsage(ConsoleLogger log)
+	{
+		Console.WriteLine("JARVIS Service");
+		Console.WriteLine();
+		Console.WriteLine("  (no arguments)   Run with a notification-area icon and settings.");
+		Console.WriteLine("  --console        Run as a Windows service. This is what the service entry uses.");
+		Console.WriteLine("  --diagnose       Print who this is, whether it is elevated, and whether the");
+		Console.WriteLine("                    service is installed. Exits.");
+		Console.WriteLine("  --install        Register the service. Needs an elevated shell.");
+		Console.WriteLine("  --uninstall      Remove the service. Needs an elevated shell.");
+		Console.WriteLine();
+		Console.WriteLine("Registering a service needs an administrator PowerShell. To check a shell:");
+		Console.WriteLine("  ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent())");
+		Console.WriteLine("    .IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)");
+		log.Information("Usage printed.");
 	}
 
 	/// <summary>

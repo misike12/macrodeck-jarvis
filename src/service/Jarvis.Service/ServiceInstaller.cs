@@ -68,6 +68,39 @@ public static class ServiceInstaller
 		public uint WaitHint;
 	}
 
+	/// <summary>
+	/// Whether this process is elevated, and who it is running as.
+	/// <para>
+	/// A separate entry point because "the service would not install" and "the shell did not elevate" look
+	/// identical from outside, and the difference is one question to ask.
+	/// </para>
+	/// </summary>
+	public static int Diagnose(ILogger log)
+	{
+		using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+		var principal = new System.Security.Principal.WindowsPrincipal(identity);
+
+		var elevated = principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+
+		Console.WriteLine("JARVIS Service diagnostics");
+		Console.WriteLine($"  Identity            {identity.Name}");
+		Console.WriteLine($"  Elevated            {elevated}");
+		Console.WriteLine($"  Service installed   {IsInstalled()}");
+		Console.WriteLine($"  Service running     {IsRunning()}");
+		Console.WriteLine($"  Executable          {Environment.ProcessPath}");
+		Console.WriteLine($"  Pipe name           {Protocol.PipeName}");
+
+		if (!elevated)
+		{
+			Console.WriteLine();
+			Console.WriteLine("Registering the service needs an elevated shell.");
+			Console.WriteLine("Close this window, right-click PowerShell, choose Run as administrator, and try again.");
+			return ErrorAccessDenied;
+		}
+
+		return Success;
+	}
+
 	public static bool IsAdministrator()
 	{
 		using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();

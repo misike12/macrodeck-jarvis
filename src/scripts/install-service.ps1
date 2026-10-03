@@ -37,6 +37,10 @@ if (-not (Test-Elevated)) {
 This has to run elevated.
 
 Right-click Windows Terminal or PowerShell, choose "Run as administrator", and run this script again.
+
+To check whether a shell is elevated:
+
+    ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 '@
     exit 5
 }
@@ -55,13 +59,38 @@ if (-not (Test-Path $binary)) {
     exit 1
 }
 
+# A tray-mode instance holds its own executable open, so a rebuild over it fails with MSB3026 and the
+# install then runs a stale binary. Stopped first rather than reported, because the only thing it can be is
+# an instance of this same service.
+$running = Get-Process -Name 'Jarvis.Service' -ErrorAction SilentlyContinue
+
+if ($running) {
+    Write-Host "Stopping $($running.Count) running Jarvis Service instance(s) so the binary can be replaced."
+    $running | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+}
+
 Write-Host "Registering JarvisService from $binary"
 
-$process = Start-Process -FilePath $binary -ArgumentList '--install' -Wait -PassThru -NoNewWindow
+# The binary's own output is streamed rather than captured. It is the only thing that says why a
+# registration was refused, and a silent exit code is the least useful thing a failed install can do.
+& $binary --install
+$exit = $LASTEXITCODE
 
-if ($process.ExitCode -ne 0) {
-    Write-Error "The service was not registered. Exit code $($process.ExitCode)."
-    exit $process.ExitCode
+if ($exit -eq 5) {
+    Write-Error @'
+The service binary reported that this shell is not elevated.
+
+Check it directly, then run again from an elevated PowerShell:
+
+    & "C:\Users\Misu\Desktop\ideas\JARVIS\src\service\Jarvis.Service\bin\Release\net10.0-windows\Jarvis.Service.exe" --diagnose
+'@
+    exit 5
+}
+
+if ($exit -ne 0) {
+    Write-Error "The service was not registered. Exit code $exit."
+    exit $exit
 }
 
 if ($Start) {

@@ -27,6 +27,13 @@ public sealed class ConsoleLogger : ILogger
 
 	public void LogError(string message, Exception? exception = null) => ServiceLog.Error(message, exception);
 
+	/// <summary>Writes to standard error as well as the log, so a refusal reaches the window that asked.</summary>
+	public static void ErrorMessage(string message)
+	{
+		Console.Error.WriteLine(message);
+		ServiceLog.Error(message);
+	}
+
 	public void Fatal(string message) => ServiceLog.Fatal(message);
 }
 
