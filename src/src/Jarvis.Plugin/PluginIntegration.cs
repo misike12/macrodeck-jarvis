@@ -1,6 +1,7 @@
 using Jarvis.Plugin.Actions;
 using Jarvis.Plugin.Audio;
 using Jarvis.Plugin.Core;
+using Jarvis.Plugin.Input;
 using Jarvis.Plugin.Llm;
 using Jarvis.Plugin.Orb;
 using Jarvis.Plugin.Runtime;
@@ -28,7 +29,9 @@ public sealed class PluginIntegration : IPluginIntegration, IConfigFlowProvider,
 	private readonly AssistantSession _session;
 	private readonly OrbWidgetTypeProvider _widgetTypes;
 	private readonly MicrophoneMonitor _microphone;
-	private readonly RuntimeManager _runtime;
+private readonly RuntimeManager _runtime;
+	private readonly ListeningPipeline _listening;
+	private readonly GlobalHotkey _hotkey;
 	private IUiResourceRegistry? _resources;
 
 	public PluginIntegration(
@@ -39,7 +42,8 @@ public sealed class PluginIntegration : IPluginIntegration, IConfigFlowProvider,
 		AssistantSession session,
 		MicrophoneMonitor microphone,
 		RuntimeManager runtime,
-		ListeningPipeline listening)
+		ListeningPipeline listening,
+		GlobalHotkey hotkey)
 	{
 		_logger = logger.ForContext<PluginIntegration>();
 		_settings = settings;
@@ -47,6 +51,8 @@ public sealed class PluginIntegration : IPluginIntegration, IConfigFlowProvider,
 		_session = session;
 		_microphone = microphone;
 		_runtime = runtime;
+		_listening = listening;
+		_hotkey = hotkey;
 
 		_widgetTypes = new OrbWidgetTypeProvider(logger);
 
@@ -131,6 +137,8 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 			}
 		}
 
+		RegisterHotkey(settings);
+
 		if (!settings.HasLlmCredentials)
 		{
 			_state.Transition(AssistantState.Unavailable);
@@ -139,6 +147,48 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 		{
 			_state.Reset();
 		}
+	}
+
+	/// <summary>
+	/// Binds the global hotkey. Registration can legitimately fail because another program owns the chord,
+	/// so the failure becomes an issue the user can act on rather than a hotkey that silently does nothing.
+	/// </summary>
+	private void RegisterHotkey(JarvisSettings settings)
+	{
+		if (HotkeyChord.Parse(settings.PushToTalkHotkey) is not { } chord)
+		{
+			_logger.Debug("No global hotkey is configured.");
+			return;
+		}
+
+		_hotkey.Pressed -= OnHotkeyPressed;
+		_hotkey.Pressed += OnHotkeyPressed;
+
+		if (_hotkey.Register(chord))
+		{
+			return;
+		}
+
+		_logger.Warning("The global hotkey {Chord} is not available. {Reason}", chord, _hotkey.LastError);
+	}
+
+	/// <summary>
+	/// The hotkey does what a press of the button does. The press is fire-and-forget because it runs on
+	/// the hotkey's own message thread: blocking there would stop the hotkey from being seen again.
+	/// </summary>
+	private void OnHotkeyPressed()
+	{
+		_ = Task.Run(async () =>
+		{
+			try
+			{
+				await _listening.ListenAndAnswerAsync(prompt: null, CancellationToken.None).ConfigureAwait(false);
+			}
+			catch (Exception exception) when (exception is not OutOfMemoryException)
+			{
+				_logger.Warning(exception, "The hotkey turn failed.");
+			}
+		});
 	}
 
 	public Task ShutdownAsync()

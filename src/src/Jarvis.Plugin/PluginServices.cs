@@ -1,6 +1,7 @@
 using Jarvis.Plugin.Actions;
 using Jarvis.Plugin.Audio;
 using Jarvis.Plugin.Core;
+using Jarvis.Plugin.Input;
 using Jarvis.Plugin.Llm;
 using Jarvis.Plugin.Runtime;
 using Jarvis.Plugin.Speech;
@@ -28,6 +29,7 @@ public static class PluginServices
 		builder.Services.AddSingleton<WhisperTranscriber>();
 		builder.Services.AddSingleton<VoiceRecorder>();
 		builder.Services.AddSingleton<ListeningPipeline>();
+		builder.Services.AddSingleton<GlobalHotkey>();
 		builder.Services.AddSingleton<SpeechPlayer>();
 		builder.Services.AddSingleton<VoiceService>();
 

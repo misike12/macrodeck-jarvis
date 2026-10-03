@@ -64,6 +64,8 @@ public sealed record JarvisSettings
 	/// <summary>Whether replies are spoken. When false the orb still reacts, nothing is audible.</summary>
 	public bool SpeakReplies { get; init; } = true;
 
+	public bool WakeWordEngineEnabled { get; init; }
+
 	public WakeWordEngine WakeWordEngine { get; init; } = WakeWordEngine.Porcupine;
 
 	public string WakeWord { get; init; } = "jarvis";
