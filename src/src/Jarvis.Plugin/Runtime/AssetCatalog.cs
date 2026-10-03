@@ -45,6 +45,18 @@ public sealed record PinnedAsset
 	/// <summary>Human-readable purpose, shown in an issue when the asset cannot be fetched.</summary>
 	public required string Purpose { get; init; }
 
+	/// <summary>
+	/// Arguments that make an unpacked executable print its usage and exit successfully, run as a liveness
+	/// probe after install. Hash verification proves the bytes are the ones that were pinned; it says
+	/// nothing about whether those bytes can *run* on this machine. A release build compiled for a newer
+	/// instruction set installs perfectly and then dies with STATUS_ILLEGAL_INSTRUCTION on first use, which
+	/// is the worst possible moment to discover it. The probe turns that into an issue at install time.
+	/// </summary>
+	public IReadOnlyList<string> ProbeArguments { get; init; } = [];
+
+	/// <summary>Path inside the unpacked archive of the executable to probe, if it holds one.</summary>
+	public string? ProbeExecutable { get; init; }
+
 	internal string Group => string.IsNullOrWhiteSpace(InstallGroup) ? Id : InstallGroup;
 }
 
@@ -75,6 +87,8 @@ public static class AssetCatalog
 			Sha256 = "f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc80811efcea",
 			Kind = AssetKind.Archive,
 			SizeBytes = 22477236,
+			ProbeExecutable = "piper/piper.exe",
+			ProbeArguments = ["--help"],
 			Purpose = "Local neural text to speech.",
 		},
 
@@ -102,15 +116,20 @@ public static class AssetCatalog
 			Purpose = "Piper needs the voice's configuration beside the voice.",
 		},
 
+		// whisper.cpp 1.7.6 through 1.8.x all crash with STATUS_ILLEGAL_INSTRUCTION on an older x64 CPU:
+		// their release builds are compiled for a newer instruction set than such a machine has. 1.9.2 was
+		// the first build verified to run here, and the probe below is what keeps a future bump honest.
 		new()
 		{
 			Id = "whisper-bin-x64",
 			Component = Whisper,
 			FileName = "whisper-bin-x64.zip",
-			Url = "https://github.com/ggml-org/whisper.cpp/releases/download/v1.7.6/whisper-bin-x64.zip",
-			Sha256 = "0d2eca299c248f965bd0341bcb219db4b433c7f0c0ce2200d4df85765e8156a9",
+			Url = "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-x64.zip",
+			Sha256 = "49dcc16de826f20bd53d44f947a1ae49dfa81f86cad67a64d80820cb192d674a",
 			Kind = AssetKind.Archive,
-			SizeBytes = 3675974,
+			SizeBytes = 8194445,
+			ProbeExecutable = "Release/whisper-cli.exe",
+			ProbeArguments = ["--help"],
 			Purpose = "Local speech to text.",
 		},
 

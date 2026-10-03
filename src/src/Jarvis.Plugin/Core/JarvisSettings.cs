@@ -48,6 +48,12 @@ public sealed record JarvisSettings
 
 	public string NimTextToSpeechModel { get; init; } = DefaultNimTextToSpeechModel;
 
+	/// <summary>
+	/// Language passed to the speech recogniser. Empty or "auto" means detect it, which is the default:
+	/// a user who speaks more than one language should not have to say which before every turn.
+	/// </summary>
+	public string SttLanguage { get; init; } = string.Empty;
+
 	public string PiperVoice { get; init; } = "en_GB-alan-medium";
 
 	/// <summary>Voice name as Windows reports it, used when the built-in synthesizer is selected.</summary>

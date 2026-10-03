@@ -438,6 +438,19 @@
     <value>Local speech to text (Whisper)</value>
   </data>
 
+  <data name="Errors.SttNotInstalled" xml:space="preserve">
+    <value>Local speech recognition is not installed. Install the Whisper component first.</value>
+  </data>
+  <data name="Errors.MicrophoneUnavailable" xml:space="preserve">
+    <value>No microphone is available.</value>
+  </data>
+  <data name="Errors.NothingHeard" xml:space="preserve">
+    <value>Nothing was heard.</value>
+  </data>
+  <data name="Errors.TranscriptionFailed" xml:space="preserve">
+    <value>The recording could not be transcribed.</value>
+  </data>
+
   <data name="Runtime.UnknownComponent" xml:space="preserve">
     <value>{component} is not a component JARVIS knows about.</value>
     <comment>[string] component: the name the user chose.</comment>
@@ -455,6 +468,13 @@
   </data>
   <data name="Variables.DownloadLabel.Description" xml:space="preserve">
     <value>What JARVIS is downloading right now.</value>
+  </data>
+
+  <data name="Runtime.Issue.Unusable.Title" xml:space="preserve">
+    <value>A JARVIS component cannot run on this computer</value>
+  </data>
+  <data name="Runtime.Issue.Unusable.Description" xml:space="preserve">
+    <value>It installed correctly, but this processor does not support the instructions it uses.</value>
   </data>
 
   <data name="Runtime.Issue.Unreachable.Title" xml:space="preserve">

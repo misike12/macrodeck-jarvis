@@ -2,6 +2,7 @@ using MacroDeck.Localization;
 using MacroDeck.Sdk;
 using MacroDeck.Sdk.Actions;
 using Jarvis.Plugin.Core;
+using Jarvis.Plugin.Speech;
 
 namespace Jarvis.Plugin.Actions;
 
@@ -67,7 +68,7 @@ public static class ActionParameters
 	}
 }
 
-public sealed class ActivateAction(AssistantSession session) : IActionDefinition, IStateProviderActionDefinition
+public sealed class ActivateAction(AssistantSession session, ListeningPipeline listening) : IActionDefinition, IStateProviderActionDefinition
 {
 	public string Id => "jarvis-activate";
 
@@ -103,7 +104,7 @@ public sealed class ActivateAction(AssistantSession session) : IActionDefinition
 
 	public MacroDeckPlatform Platforms => MacroDeckPlatform.Windows;
 
-	public IActionExecutor CreateExecutor() => new Executor(session);
+	public IActionExecutor CreateExecutor() => new Executor(session, listening);
 
 	public Task<ActionStateSnapshot?> GetActionStateAsync(
 		IReadOnlyDictionary<string, object?> parameters,
@@ -112,7 +113,7 @@ public sealed class ActivateAction(AssistantSession session) : IActionDefinition
 		return Task.FromResult<ActionStateSnapshot?>(AssistantStateReader.Read(session));
 	}
 
-	private sealed class Executor(AssistantSession session) : IActionExecutor
+	private sealed class Executor(AssistantSession session, ListeningPipeline listening) : IActionExecutor
 	{
 		public Task<ActionResult> ExecuteAsync(ActionExecutionContext context)
 		{
@@ -121,7 +122,15 @@ public sealed class ActivateAction(AssistantSession session) : IActionDefinition
 			var waitForWakeWord = ActionParameters.ReadFlag(context.Parameters, ActionParameters.WaitForWakeWord);
 			var timeout = ActionParameters.ReadSeconds(context.Parameters, ActionParameters.TimeoutSeconds, 20);
 
-			return Task.FromResult(session.Activate(mode, prompt, waitForWakeWord, timeout));
+			if (waitForWakeWord || mode == ActivateMode.WaitForWakeWord)
+			{
+				return Task.FromResult(session.Activate(mode, prompt, waitForWakeWord, timeout));
+			}
+
+			// A press is a request to *speak*, not merely to think, so it routes through the voice loop. A
+			// prompt supplied to the button skips the microphone, which is what keeps a text-mode press
+			// working on a machine with no microphone at all.
+			return listening.ListenAndAnswerAsync(prompt, context.CancellationToken);
 		}
 	}
 }

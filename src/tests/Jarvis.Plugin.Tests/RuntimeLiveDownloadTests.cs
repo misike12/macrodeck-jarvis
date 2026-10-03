@@ -54,6 +54,42 @@ public class RuntimeLiveDownloadTests
 		}
 	}
 
+	/// <summary>
+	/// Hashing correctly is not the same as running. Every executable component is probed at install time,
+	/// and this asserts the shipped pins survive that probe on this machine, which is where an
+	/// instruction-set mismatch between the build machine and the user shows up.
+	/// </summary>
+	[TestCase(AssetCatalog.Whisper)]
+	[TestCase(AssetCatalog.Piper)]
+	[CancelAfter(600_000)]
+	public async Task Every_pinned_executable_actually_runs_here(string component)
+	{
+		var root = Path.Combine(Path.GetTempPath(), $"jarvis-probe-{Guid.CreateVersion7():N}");
+
+		try
+		{
+			using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
+			var manager = new RuntimeManager(client, RuntimeTestLog.Logger, new RuntimePaths(root));
+			using var cancellation = new CancellationTokenSource(Budget);
+
+			var result = await manager.EnsureComponentAsync(
+				component, manager.Progress, cancellation.Token);
+
+			Assert.That(
+				result.Installed,
+				Is.True,
+				$"{component} installed but did not run here: {result.Detail}. The pin needs re-measuring "
+				+ "against a build that targets this processor.");
+
+			var issues = await manager.GetIssuesAsync(cancellation.Token);
+			Assert.That(issues, Is.Empty, $"{component} installed but raised {issues.Count} issue(s)");
+		}
+		finally
+		{
+			TryDelete(root);
+		}
+	}
+
 	private static void TryDelete(string path)
 	{
 		try

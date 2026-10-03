@@ -26,6 +26,12 @@ public enum AssetFailure
 	/// <summary>An archive that should have unpacked did not.</summary>
 	UnpackFailed,
 
+	/// <summary>
+	/// The bytes verified and installed, but the executable cannot run on this machine. Distinct from a
+	/// corrupt download on purpose: nothing is wrong with the file, so retrying it will change nothing.
+	/// </summary>
+	Unusable,
+
 	/// <summary>The write failed, most often a full disk.</summary>
 	WriteFailed,
 }

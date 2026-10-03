@@ -22,6 +22,7 @@ public sealed class RuntimeManager : IIntegrationIssueProvider
 
 	private readonly HttpClient _http;
 	private readonly AssetDownloader _downloader;
+	private readonly ExecutableProbe _probe;
 	private readonly RuntimePaths _paths;
 	private readonly ILogger _logger;
 
@@ -40,6 +41,7 @@ public sealed class RuntimeManager : IIntegrationIssueProvider
 		_logger = logger.ForContext<RuntimeManager>();
 		_paths = paths ?? RuntimePaths.Resolve();
 		_downloader = new AssetDownloader(http, _logger);
+		_probe = new ExecutableProbe(_logger);
 		_manifest = ReadManifest();
 	}
 
@@ -87,6 +89,16 @@ public sealed class RuntimeManager : IIntegrationIssueProvider
 
 		if (result.Installed && result.Path is { } path)
 		{
+			// A component that installs cleanly but cannot execute is worse than one that never installed,
+			// because it looks available until the first real request. The bytes are kept, not discarded:
+			// this is a property of the machine, and a different machine may run them perfectly.
+			if (await _probe.ProbeAsync(asset, InstalledPath(asset), cancellationToken).ConfigureAwait(false)
+				is { } probeFailure)
+			{
+				RecordFailure(asset, AssetFailure.Unusable, DescribeProbe(probeFailure));
+				return AssetInstallResult.Failed(AssetFailure.Unusable, DescribeProbe(probeFailure));
+			}
+
 			Remember(asset, path, alreadyPresent: false);
 		}
 		else
@@ -202,6 +214,19 @@ public sealed class RuntimeManager : IIntegrationIssueProvider
 	}
 
 	/// <summary>
+	/// Files matching a pattern inside a component directory. Used to discover what is actually installed,
+	/// such as which speech models a user has, rather than asking a caller to track paths itself.
+	/// </summary>
+	public IReadOnlyList<string> InstalledFiles(string component, string searchPattern)
+	{
+		var directory = _paths.ComponentDirectory(component);
+
+		return Directory.Exists(directory)
+			? [.. Directory.EnumerateFiles(directory, searchPattern, SearchOption.AllDirectories)]
+			: [];
+	}
+
+	/// <summary>
 	/// The voices actually on disk. A voice is a matched <c>.onnx</c> and <c>.onnx.json</c> pair: the
 	/// config carries the phoneme map and the sample rate, so an <c>.onnx</c> without one cannot be
 	/// spoken. Listing only real pairs is what lets the voice dropdown be populated from disk instead of
@@ -288,20 +313,36 @@ public sealed class RuntimeManager : IIntegrationIssueProvider
 	/// </summary>
 	private static IntegrationIssue Describe(FailedAsset failure)
 	{
-		var corrupt = failure.Failure is AssetFailure.DigestMismatch or AssetFailure.UnpackFailed;
+		var (title, description, severity) = failure.Failure switch
+		{
+			AssetFailure.DigestMismatch or AssetFailure.UnpackFailed =>
+				(Strings.Runtime.Issue.Digest.Title(), Strings.Runtime.Issue.Digest.Description(), IntegrationIssueSeverity.Error),
+			AssetFailure.Unusable =>
+				(Strings.Runtime.Issue.Unusable.Title(), Strings.Runtime.Issue.Unusable.Description(), IntegrationIssueSeverity.Error),
+			_ => (Strings.Runtime.Issue.Unreachable.Title(), Strings.Runtime.Issue.Unreachable.Description(), IntegrationIssueSeverity.Warning),
+		};
 
 		return new IntegrationIssue
 		{
 			Id = IssueIdFor(failure.Asset),
-			Title = corrupt ? Strings.Runtime.Issue.Digest.Title() : Strings.Runtime.Issue.Unreachable.Title(),
-			Description = Strings.Runtime.Issue.Detail(
-				corrupt ? Strings.Runtime.Issue.Digest.Description() : Strings.Runtime.Issue.Unreachable.Description(),
-				failure.Asset.Purpose,
-				failure.Detail ?? string.Empty),
+			Title = title,
+			Description = Strings.Runtime.Issue.Detail(description, failure.Asset.Purpose, failure.Detail ?? string.Empty),
 			ActionLabel = Strings.Runtime.Issue.Action(),
-			Severity = corrupt ? IntegrationIssueSeverity.Error : IntegrationIssueSeverity.Warning,
+			Severity = severity,
 		};
 	}
+
+	/// <summary>
+	/// Diagnostic detail for the issue, deliberately English: it names a native status and a file, which
+	/// is log output rather than something to translate. The user's-facing explanation is the issue's
+	/// title and description.
+	/// </summary>
+	private static string DescribeProbe(ProbeFailure failure) => failure switch
+	{
+		ProbeFailure.Missing => "the download unpacked without the program it should contain",
+		ProbeFailure.Hung => "the program did not start within twenty seconds",
+		_ => "the program stopped immediately with STATUS_ILLEGAL_INSTRUCTION (0xC0000015)",
+	};
 
 	/// <summary>
 	/// Where an asset's contents land. Two assets sharing an install group share this directory, which is

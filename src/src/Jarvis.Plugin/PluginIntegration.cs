@@ -4,6 +4,7 @@ using Jarvis.Plugin.Core;
 using Jarvis.Plugin.Llm;
 using Jarvis.Plugin.Orb;
 using Jarvis.Plugin.Runtime;
+using Jarvis.Plugin.Speech;
 using MacroDeck.Sdk;
 using MacroDeck.Sdk.Actions;
 using MacroDeck.Sdk.ConfigFlow;
@@ -37,7 +38,8 @@ public sealed class PluginIntegration : IPluginIntegration, IConfigFlowProvider,
 		AssistantStateHolder state,
 		AssistantSession session,
 		MicrophoneMonitor microphone,
-		RuntimeManager runtime)
+		RuntimeManager runtime,
+		ListeningPipeline listening)
 	{
 		_logger = logger.ForContext<PluginIntegration>();
 		_settings = settings;
@@ -50,7 +52,7 @@ public sealed class PluginIntegration : IPluginIntegration, IConfigFlowProvider,
 
 		Actions =
 		[
-			new ActivateAction(session),
+			new ActivateAction(session, listening),
 			new CancelAction(session),
 			new ToggleAction(session),
 			new SayAction(session),

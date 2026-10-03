@@ -143,9 +143,9 @@ var outcome = await harness.Actions.GetActionStateAsync(
 		Assert.That(ids, Is.Unique);
 	}
 
-	private static IEnumerable<IActionDefinition> Actions() =>
+private static IEnumerable<IActionDefinition> Actions() =>
 	[
-		new ActivateAction(null!),
+		new ActivateAction(null!, null!),
 		new CancelAction(null!),
 		new ToggleAction(null!),
 	];

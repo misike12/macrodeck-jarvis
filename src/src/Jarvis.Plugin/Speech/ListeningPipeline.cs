@@ -1,0 +1,222 @@
+using System.Runtime.Versioning;
+using Jarvis.Plugin.Core;
+using Jarvis.Plugin.Speech;
+using MacroDeck.Sdk.Actions;
+using Serilog;
+
+namespace Jarvis.Plugin.Speech;
+
+/// <summary>
+/// Turns "someone pressed the button" into a spoken answer: record one utterance, transcribe it, run the
+/// turn, speak the reply.
+/// <para>
+/// This is the only place that knows the whole voice loop, so the microphone, the transcriber and the
+/// speaker cannot drift apart. Two ordering decisions matter: the recording is deleted the moment its
+/// transcript exists, before the model is even called, and a failure anywhere returns a truthful action
+/// result rather than leaving the assistant stuck listening.
+/// </para>
+/// </summary>
+[SupportedOSPlatform("windows")]
+public sealed class ListeningPipeline : IDisposable
+{
+	private readonly VoiceRecorder _recorder;
+	private readonly WhisperTranscriber _transcriber;
+	private readonly AssistantSession _session;
+	private readonly JarvisSettingsStore _settings;
+	private readonly AssistantStateHolder _state;
+	private readonly ILogger _logger;
+	private readonly Lock _gate = new();
+
+	private CancellationTokenSource? _listenCts;
+
+	public ListeningPipeline(
+		VoiceRecorder recorder,
+		WhisperTranscriber transcriber,
+		AssistantSession session,
+		AssistantStateHolder state,
+		JarvisSettingsStore settings,
+		ILogger logger)
+	{
+		_recorder = recorder;
+		_transcriber = transcriber;
+		_session = session;
+		_state = state;
+		_settings = settings;
+		_logger = logger.ForContext<ListeningPipeline>();
+	}
+
+	/// <summary>
+	/// How long one turn may last. A watch timer rather than an endless wait, because a threshold that is
+	/// never crossed or never falls quiet would otherwise leave the microphone open indefinitely.
+	/// </summary>
+	private static TimeSpan MaxUtterance => TimeSpan.FromSeconds(20);
+
+	/// <summary>How often the recorder is asked whether the speaker has finished.</summary>
+	private static TimeSpan PollInterval => TimeSpan.FromMilliseconds(100);
+
+	/// <summary>True while the microphone is open for a turn.</summary>
+	public bool IsListening
+	{
+		get
+		{
+			lock (_gate)
+			{
+				return _listenCts is not null;
+			}
+		}
+	}
+
+	public string? LastError { get; private set; }
+
+	/// <summary>
+	/// Records until the speaker stops, transcribes, and answers. A typed prompt short-circuits the
+	/// microphone entirely, which is what keeps the say action and the hotkey useful on a machine with no
+	/// microphone at all.
+	/// </summary>
+	public async Task<ActionResult> ListenAndAnswerAsync(string? prompt, CancellationToken cancellationToken)
+	{
+		LastError = null;
+
+		if (!_transcriber.IsAvailable)
+		{
+			return ActionResult.Failed(ActionErrorCodes.NotConfigured, Strings.Errors.SttNotInstalled());
+		}
+
+		if (!string.IsNullOrWhiteSpace(prompt))
+		{
+			return await _session.SayAsync(prompt, cancellationToken).ConfigureAwait(false);
+		}
+
+		CancellationTokenSource cts;
+
+		lock (_gate)
+		{
+			if (_listenCts is not null)
+			{
+				return ActionResult.Accepted(Strings.Errors.AlreadyRunning());
+			}
+
+			cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+			_listenCts = cts;
+		}
+
+		try
+		{
+			var settings = _settings.Current;
+
+			if (!_recorder.Start(settings.MicrophoneId, settings.MicrophoneName))
+			{
+				LastError = _recorder.LastError;
+				return ActionResult.Failed(ActionErrorCodes.NotConnected, Strings.Errors.MicrophoneUnavailable());
+			}
+
+			_state.Transition(AssistantState.Listening, statusLine: "voice");
+
+			using var budget = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+			budget.CancelAfter(MaxUtterance);
+
+			await WaitForSpeechEndAsync(budget.Token).ConfigureAwait(false);
+
+			var wav = _recorder.Finish();
+			cts.Token.ThrowIfCancellationRequested();
+
+			if (wav is null)
+			{
+				return ActionResult.Failed(ActionErrorCodes.InvalidParameter, Strings.Errors.NothingHeard());
+			}
+
+			TranscriptionResult transcription;
+
+			try
+			{
+				transcription = await _transcriber
+					.TranscribeAsync(wav, settings.SttLanguage, cts.Token)
+					.ConfigureAwait(false);
+			}
+			finally
+			{
+				// The audio is deleted before the model is called. A transcript is text; the recording is the
+				// private part, and nothing downstream needs it.
+				TryDelete(wav);
+			}
+
+			if (!transcription.Ok)
+			{
+				return transcription.Failure == TranscriptionFailure.NoSpeech
+					? ActionResult.Failed(ActionErrorCodes.InvalidParameter, Strings.Errors.NothingHeard())
+					: ActionResult.Failed(ActionErrorCodes.ProviderError, Strings.Errors.TranscriptionFailed());
+			}
+
+			_logger.Information("Heard: {Text}", transcription.Text);
+
+			return await _session.SayAsync(transcription.Text, cts.Token).ConfigureAwait(false);
+		}
+		catch (OperationCanceledException)
+		{
+			return ActionResult.Success();
+		}
+		finally
+		{
+			_recorder.Stop();
+
+			lock (_gate)
+			{
+				if (ReferenceEquals(_listenCts, cts))
+				{
+					_listenCts = null;
+				}
+			}
+
+			cts.Dispose();
+		}
+	}
+
+	/// <summary>
+	/// Polls the recorder for its endpoint rather than waiting on an event it cannot raise: WASAPI delivers
+	/// audio on its own thread and the decision of when a person has finished talking belongs here.
+	/// </summary>
+	private async Task WaitForSpeechEndAsync(CancellationToken cancellationToken)
+	{
+		while (!cancellationToken.IsCancellationRequested)
+		{
+			if (!_recorder.IsRecording)
+			{
+				// Cancelled from elsewhere, or the device dropped. Either way there is nothing more to hear.
+				return;
+			}
+
+			if (_recorder.HasReachedEndpoint)
+			{
+				_logger.Debug("The speaker stopped; ending the utterance.");
+				return;
+			}
+
+			try
+			{
+				await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false);
+			}
+			catch (OperationCanceledException)
+			{
+				return;
+			}
+		}
+	}
+
+	public void Dispose()
+	{
+		_recorder.Dispose();
+		GC.SuppressFinalize(this);
+	}
+
+	private static void TryDelete(string path)
+	{
+		try
+		{
+			File.Delete(path);
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+		{
+			// Nothing more can be done here, and failing the turn over a leftover file would be worse.
+		}
+	}
+}
