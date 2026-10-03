@@ -516,6 +516,26 @@ new UiWidgetConfiguration {
 - A `UiState<JsonElement>` must hold a defined value: `default(JsonElement)` has no JSON form and building
   the view throws a `UiViewException` naming the node and property. Start from an empty array.
 
+### Artifact conformance and publication validation
+macrodeck-plugin test --artifact covers **MDC0104-0107**, which **skip for any subject but an artifact**:
+
+| Id | Checks |
+|---|---|
+| MDC0104 | the manifest declares a supported manifest version and protocol range this suite satisfies |
+| MDC0105 | the manifest's id equals what the subject reports at /_macrodeck/info |
+| MDC0106 | the manifest's name and version equal what the subject reports at /_macrodeck/info |
+| MDC0107 | when the manifest declares an icon, icons/describe reports the media type its extension implies |
+
+Measured on this project: **33 passed against --project, 38 against --artifact**, same 0 failures. CI must
+test the packed artifact, not only the project.
+
+alidate takes **no --project**. It takes --manifest, --artifact or --directory. A source directory
+fails with source-directory: the manifest points at untimes/<rid>/, which only
+macrodeck-plugin build assembles, so a dotnet build -c Release output is never validatable at
+publication level.
+
+--level values are Development | Package | Publication, and the default follows the selector:
+development for --manifest/--directory, package for --artifact.
 ### Resources
 ```csharp
 await ctx.UiResources.RegisterAsync(name, bytes, mediaType)   // ≤2 MiB

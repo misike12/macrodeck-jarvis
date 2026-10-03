@@ -275,6 +275,87 @@ working.
 **Verified:** the component installs through the manager, the binary lands where the synthesizer looks, a
 voice is discovered, and both the discovered voice and the configured default render.
 
+### ? M13 - Local speech recognition
+- Speech/WhisperTranscriber.cs - child process, transcript read from the file it writes
+- Speech/VoiceRecorder.cs - energy-endpointed capture, 16 kHz mono 16-bit WAV
+- Speech/ListeningPipeline.cs - the whole voice loop in one place
+- Speech/UtteranceAudio.cs - the one WAV format both callers agree on
+
+**The pin changed because of a hardware finding.** whisper.cpp 1.7.6 through 1.8.x all die with
+STATUS_ILLEGAL_INSTRUCTION on this machine's 2012 i5-3570, **including the BLAS build**, so it is their own
+compute path and not a bundled library. **1.9.2 is the first release verified to run here.** The old pin
+would have downloaded, hashed correctly, installed perfectly, and then failed on first use.
+
+That produced the milestone's real lesson, and the fix in Runtime/ExecutableProbe.cs: **hashing correctly
+is not the same as running.** Every executable component is now run once after install, and a failure becomes
+an issue with a plain explanation. The bytes are kept, because an instruction-set mismatch is a property of
+the machine, not of the file.
+
+**Audio is never kept.** The recording is deleted the moment its transcript exists, before the model is
+called. Utterances end on energy with a hard cap, never on a fixed duration.
+
+### ? M14 - Global hotkey and offline wake word
+- Input/GlobalHotkey.cs - RegisterHotKey bound to the plugin's own thread, pumped on a dedicated thread
+- Input/HotkeyChord.cs - chord text form, accepting Ctrl/cmd/super alongside the enum names
+- Input/WakeWordDetector.cs - level-gated keyphrase check over a bounded ring buffer
+
+Neither wake-word engine the plan named was usable: Porcupine needs a Picovoice account, NanoWakeWord needs
+an ONNX runtime. Both were avoidable, because **the recogniser already installed can answer the question the
+wake word is asking**: the level decides someone spoke, and that audio is transcribed and checked for the
+word. Offline, no account, nothing downloaded, exactly as good as the recogniser underneath.
+
+A ring buffer was needed because by the time a level meter decides someone spoke, the word is already gone
+from a pull model.
+
+### ? M15 - Vision
+- Vision/ScreenCaptureService.cs - GDI capture, JPEG, nothing touches disk
+- Vision/VisionClient.cs - inline data URI on the same endpoint resolution the text client uses
+- Llm/ScreenshotTool.cs - the tool, confirmation-required
+
+Verified against the real display: the model read the actual screen. Handles the virtual desktop origin,
+which is often negative on a multi-monitor arrangement and silently yields a black picture otherwise.
+
+**Dependency added deliberately:** System.Drawing.Common 10.0.0, Windows-only and Microsoft-maintained.
+Webcam capture is **deliberately not implemented** (needs Media Foundation or DirectShow, a large native
+dependency for a rarely wanted feature). Noted rather than stubbed.
+
+### ? M16 - Memory, persona, desktop control
+- Memory/MemoryStore.cs - append-only transcript plus a hand-editable notes file
+- Llm/SetPersonaTool.cs - bounded self-modification
+- Llm/DesktopTools.cs - processes, clipboard, volume
+- Llm/NativeClipboard.cs - the clipboard over Win32 rather than through WinForms
+
+The persona tool can only write the persona field; the safety rules live in a separate immutable prefix the
+prompt builder appends and never reads from settings. **There is no argument that reaches them.** That is
+the point: a bounded capability is one the model cannot argue past. The persona is stored in the notes file,
+not the integration config, so a config rewrite cannot erase it.
+
+**Three bugs found by tests, two of them safety-critical:**
+- the critical-process guard listed xplorer.exe while ProcessName never carries an extension, so it
+  matched nothing and protected nothing, on exactly the input it was meant to catch
+- GetProcessesByName needs a bare name, so xplorer.exe again sailed past that guard
+- Marshal.Copy counts bytes even when copying a char[], so the clipboard stored half the string
+
+### ? M17 - German
+All 191 keys. Checked through the resolver rather than by file presence: de-AT resolves through its
+neutral culture, an untranslated key falls back to English rather than rendering as [[plugin:...]], and
+placeholders are still substituted in the German sentence.
+
+### ? M18 - Packaging and the final gate
+`
+macrodeck-plugin build  -> com.misu.jarvis-1.0.0.macroDeckPlugin (27 entries, 2.1 MB)
+macrodeck-plugin inspect-> languages: de, en
+validate --level Publication -> 1 error: 'repository' is required
+test --artifact  -> 38 passed / 0 failed / 11 skipped, conformant
+`
+
+**Artifact conformance is stronger than project conformance:** 38 passed against 33, because MDC0104-0107
+only run for an artifact. A dotnet build -c Release output is **not** validatable at publication level;
+the manifest points at untimes/<rid>/, which only macrodeck-plugin build assembles.
+
+**One thing left, and it is deliberately not guessed:** the manifest needs a epository URL. It is an
+absolute URL the plugin ecosystem links to, so it cannot be invented.
+
 ---
 
 ## ? Git
@@ -349,26 +430,10 @@ ASR and TTS are **not** in the `/v1/models` text list — they are separate NIM 
 
 ## Next up, in order
 
-Done: widget config surface, native asset manager, Piper TTS. Order from here:
+Everything in plan.md is now implemented. Remaining before this is publishable:
 
-1. **STT (whisper.cpp)** - the binary and the tiny.en model are already pinned and verified, so this is
-   mostly wiring: capture from the microphone monitor, run whisper-cli, feed the transcript to
-   SayAsync. Activate currently only arms a turn.
-2. **Global hotkey** - register a system-wide key so the assistant can be summoned from any app.
-3. **Wake word (Porcupine, NanoWakeWord fallback)**
-4. **Vision (screen + webcam, on demand only)**
-5. **Memory, persona self-modification, remaining PC-control tools**
-6. **German translation**
-7. **Final: conformance + alidate --level publication**
-
-### Two things to watch in STT
-
-- The **transcript must be ephemeral by default**. A continuously-listening microphone that writes
-  everything to disk is a privacy decision, not an implementation detail. Check plan.md section 11
-  before choosing a default.
-- whisper.cpp prints its progress to **stderr** and the path to stdout. Drain both pipes concurrently or
-  the child will block on a full buffer, which is the same trap Piper had.
-
+1. **Add a epository URL to manifest.json.** The only thing alidate --level Publication still
+   complains about. It is an absolute URL, so it has to come from the user rather than be guessed.
 ---
 
 ## Known gaps / things to watch

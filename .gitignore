@@ -5,3 +5,6 @@ jarvis.settings.json
 **/bin/
 **/obj/
 artifacts/
+# Packed artifacts are build output, not source.
+src/artifacts/
+
