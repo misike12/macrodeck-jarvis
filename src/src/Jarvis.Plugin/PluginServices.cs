@@ -86,6 +86,9 @@ public static class PluginServices
 			registry.Register(new InputTools.KeyboardTypeTool());
 			registry.Register(new InputTools.KeyboardComboTool());
 			registry.Register(new InputTools.KeyboardSequenceTool());
+			registry.Register(new WebTools.WebFetchTool());
+			registry.Register(new WebTools.WebSearchTool());
+			registry.Register(new WebTools.WebSearchAndReadTool());
 			registry.Register(new ScreenshotTool(provider.GetRequiredService<VisionClient>(), logger));
 
 			// The persona tool rewrites only the persona field, through the same immutable-prefix resolver
