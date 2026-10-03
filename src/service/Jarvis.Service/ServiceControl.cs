@@ -86,15 +86,29 @@ internal static class ServiceControl
 
 		try
 		{
-			// The dispatch table is an array of name/procedure pairs, terminated by the absence of a further
-			// entry. Exactly two entries are written: the real one and nothing after it. Writing an explicit
-			// null terminator a third entry along runs past the allocation, and the resulting heap corruption
-			// kills the process with 0xc0000409 the moment the manager calls into it.
+			// The dispatch table is scanned by the service control manager until it finds an entry whose name
+			// pointer is null. That terminator is what stops the scan, and it has to be inside the buffer.
+			//
+			// Allocating only enough for two entries is what made this fail: the manager read a third entry
+			// out of uninitialised heap, treated its garbage as a function pointer, and jumped into it. The
+			// process died inside the dispatcher with no managed exception and nothing in the event log,
+			// which is why it looked like an unexplained exit rather than a crash.
+			//
+			// Three entries: one real one, then the terminator, then slack so a longer table would still be
+			// terminated rather than over-read.
 			var entrySize = IntPtr.Size * 2;
-			var table = Marshal.AllocHGlobal(entrySize * 2);
+			var entries = 3;
+			var table = Marshal.AllocHGlobal(entrySize * entries);
 
 			try
 			{
+				// Zeroed first, so anything the manager reads past the terminator is a null rather than
+				// whatever the heap happened to hold.
+				for (var offset = 0; offset < entrySize * entries; offset += IntPtr.Size)
+				{
+					Marshal.WriteIntPtr(table, offset, IntPtr.Zero);
+				}
+
 				Marshal.WriteIntPtr(table, name);
 				Marshal.WriteIntPtr(table, entrySize, Marshal.GetFunctionPointerForDelegate(Handler));
 
