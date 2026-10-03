@@ -1,0 +1,614 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!--
+    German translation. The suffix must stay a well-formed BCP-47 name: "de" is correct and "de_DE" is a
+    build error (MDLOC005). Placeholder names are fixed by the default language and must match exactly
+    (MDLOC002); only [plural] families are optional, and this file has none.
+  -->
+
+  <data name="Actions.Activate.Name" xml:space="preserve">
+    <value>JARVIS wecken</value>
+  </data>
+  <data name="Actions.Activate.Description" xml:space="preserve">
+    <value>Hört zu, beantwortet die Frage und spricht die Antwort vor.</value>
+  </data>
+  <data name="Actions.Activate.Mode.Label" xml:space="preserve">
+    <value>Modus</value>
+  </data>
+  <data name="Actions.Activate.Mode.Description" xml:space="preserve">
+    <value>Einmalig antwortet und beendet sich. Im Gespräch bleibt JARVIS hörbar.</value>
+  </data>
+  <data name="Actions.Activate.Prompt.Label" xml:space="preserve">
+    <value>Frage</value>
+  </data>
+  <data name="Actions.Activate.Prompt.Description" xml:space="preserve">
+    <value>Wenn ausgefüllt, wird nicht zugehört, sondern diese Frage direkt beantwortet.</value>
+  </data>
+  <data name="Actions.Activate.WaitForWakeWord.Label" xml:space="preserve">
+    <value>Auf Aktivierungswort warten</value>
+  </data>
+  <data name="Actions.Activate.WaitForWakeWord.Description" xml:space="preserve">
+    <value>Erst hören, wenn das Aktivierungswort erkannt wird.</value>
+  </data>
+  <data name="Actions.Activate.TimeoutSeconds.Label" xml:space="preserve">
+    <value>Zeitlimit (Sekunden)</value>
+  </data>
+  <data name="Actions.Activate.TimeoutSeconds.Description" xml:space="preserve">
+    <value>Wie lange auf Sprache gewartet wird, bevor aufgegeben wird.</value>
+  </data>
+
+  <data name="Actions.Cancel.Name" xml:space="preserve">
+    <value>Abbrechen</value>
+  </data>
+  <data name="Actions.Cancel.Description" xml:space="preserve">
+    <value>Hört auf zu antworten und beendet eine laufende Aktion.</value>
+  </data>
+  <data name="Actions.Cancel.KillRunningCommand.Label" xml:space="preserve">
+    <value>Laufenden Befehl beenden</value>
+  </data>
+  <data name="Actions.Cancel.KillRunningCommand.Description" xml:space="preserve">
+    <value>Auch den gerade ausgeführten Befehl beenden. Ohne diese Option läuft er weiter.</value>
+  </data>
+
+  <data name="Actions.Toggle.Name" xml:space="preserve">
+    <value>Gespräch umschalten</value>
+  </data>
+  <data name="Actions.Toggle.Description" xml:space="preserve">
+    <value>Beginnt ein Gespräch oder beendet es, je nachdem, was gerade läuft.</value>
+  </data>
+  <data name="Actions.Toggle.Mode.Label" xml:space="preserve">
+    <value>Modus</value>
+  </data>
+  <data name="Actions.Toggle.Mode.Description" xml:space="preserve">
+    <value>Gilt beim Beginnen eines Gesprächs.</value>
+  </data>
+
+  <data name="Actions.Say.Name" xml:space="preserve">
+    <value>Sagen</value>
+  </data>
+  <data name="Actions.Say.Description" xml:space="preserve">
+    <value>Stellt eine Frage und spricht die Antwort vor, ohne zuzuhören.</value>
+  </data>
+  <data name="Actions.Say.Prompt.Label" xml:space="preserve">
+    <value>Frage</value>
+  </data>
+  <data name="Actions.Say.Prompt.Description" xml:space="preserve">
+    <value>Was JARVIS beantworten soll.</value>
+  </data>
+
+  <data name="Actions.ViewOutput.Name" xml:space="preserve">
+    <value>Ausgabe anzeigen</value>
+  </data>
+  <data name="Actions.ViewOutput.Description" xml:space="preserve">
+    <value>Zeigt die vollständige Ausgabe des letzten Befehls.</value>
+  </data>
+
+  <data name="Actions.CheckModels.Name" xml:space="preserve">
+    <value>Modelle prüfen</value>
+  </data>
+  <data name="Actions.CheckModels.Description" xml:space="preserve">
+    <value>Prüft, ob die eingestellten Modelle erreichbar sind.</value>
+  </data>
+  <data name="Actions.CheckModels.Provider.Label" xml:space="preserve">
+    <value>Was prüfen</value>
+  </data>
+  <data name="Actions.CheckModels.Llm.Label" xml:space="preserve">
+    <value>Sprachmodell</value>
+  </data>
+  <data name="Actions.CheckModels.Vision.Label" xml:space="preserve">
+    <value>Bildmodell</value>
+  </data>
+  <data name="Actions.CheckModels.Both.Label" xml:space="preserve">
+    <value>Beide</value>
+  </data>
+  <data name="Actions.CheckModels.ReportTitle" xml:space="preserve">
+    <value>Modellbericht</value>
+  </data>
+
+  <data name="Actions.ManageComponents.Name" xml:space="preserve">
+    <value>Komponente installieren</value>
+  </data>
+  <data name="Actions.ManageComponents.Description" xml:space="preserve">
+    <value>Lädt eine Komponente herunter, mit der JARVIS offline arbeiten kann.</value>
+  </data>
+  <data name="Actions.ManageComponents.Component.Label" xml:space="preserve">
+    <value>Komponente</value>
+  </data>
+  <data name="Actions.ManageComponents.Component.Piper" xml:space="preserve">
+    <value>Lokale Stimme (Piper)</value>
+  </data>
+  <data name="Actions.ManageComponents.Component.Whisper" xml:space="preserve">
+    <value>Lokale Spracherkennung (Whisper)</value>
+  </data>
+
+  <data name="Actions.DownloadComponent.Name" xml:space="preserve">
+    <value>Komponente herunterladen</value>
+  </data>
+  <data name="Actions.DownloadComponent.Description" xml:space="preserve">
+    <value>Lädt eine benötigte Komponente herunter und prüft ihre Integrität.</value>
+  </data>
+  <data name="Actions.DownloadComponent.Component.Label" xml:space="preserve">
+    <value>Komponente</value>
+  </data>
+  <data name="Actions.DownloadComponent.Component.Description" xml:space="preserve">
+    <value>Welche Funktion nachgerüstet werden soll.</value>
+  </data>
+  <data name="Actions.DownloadComponent.Variant.Label" xml:space="preserve">
+    <value>Variante</value>
+  </data>
+  <data name="Actions.DownloadComponent.Variant.Description" xml:space="preserve">
+    <value>Welche Variante dieser Komponente.</value>
+  </data>
+
+  <data name="Parameter.Mode.OneShot.Label" xml:space="preserve">
+    <value>Einmalig</value>
+  </data>
+  <data name="Parameter.Mode.Conversation.Label" xml:space="preserve">
+    <value>Gespräch</value>
+  </data>
+  <data name="Parameter.Mode.WaitForWakeWord.Label" xml:space="preserve">
+    <value>Auf Aktivierungswort warten</value>
+  </data>
+
+  <data name="States.Idle" xml:space="preserve">
+    <value>Bereit</value>
+  </data>
+  <data name="States.Listening" xml:space="preserve">
+    <value>Hört zu</value>
+  </data>
+  <data name="States.Thinking" xml:space="preserve">
+    <value>Denkt nach</value>
+  </data>
+  <data name="States.Speaking" xml:space="preserve">
+    <value>Spricht</value>
+  </data>
+  <data name="States.Executing" xml:space="preserve">
+    <value>Führt aus</value>
+  </data>
+  <data name="States.Confirming" xml:space="preserve">
+    <value>Wartet auf Bestätigung</value>
+  </data>
+  <data name="States.Error" xml:space="preserve">
+    <value>Fehler</value>
+  </data>
+  <data name="States.Unavailable" xml:space="preserve">
+    <value>Nicht verfügbar</value>
+  </data>
+
+  <data name="ConfigFlow.CompleteTitle" xml:space="preserve">
+    <value>JARVIS</value>
+  </data>
+  <data name="ConfigFlow.UnknownStep" xml:space="preserve">
+    <value>Unbekannter Schritt in der Einrichtung.</value>
+  </data>
+  <data name="ConfigFlow.SelfHostedUrlRequired" xml:space="preserve">
+    <value>Für einen eigenen Server wird die Adresse benötigt.</value>
+  </data>
+
+  <data name="ConfigFlow.Option.NvidiaNim" xml:space="preserve">
+    <value>NVIDIA NIM (Cloud)</value>
+  </data>
+  <data name="ConfigFlow.Option.SelfHosted" xml:space="preserve">
+    <value>Eigener NIM-Server</value>
+  </data>
+  <data name="ConfigFlow.Option.LlamaCpp" xml:space="preserve">
+    <value>llama.cpp lokal</value>
+  </data>
+  <data name="ConfigFlow.Option.Sapi" xml:space="preserve">
+    <value>Windows-Systemstimme</value>
+  </data>
+
+  <data name="ConfigFlow.Provider.Title" xml:space="preserve">
+    <value>Anbieter</value>
+  </data>
+  <data name="ConfigFlow.Provider.Description" xml:space="preserve">
+    <value>Wo die Modelle laufen. Lokal bedeutet, dass nichts den Rechner verlässt.</value>
+  </data>
+  <data name="ConfigFlow.Provider.Llm.Label" xml:space="preserve">
+    <value>Sprachmodell-Anbieter</value>
+  </data>
+  <data name="ConfigFlow.Provider.SelfHostedUrl.Label" xml:space="preserve">
+    <value>Serveradresse</value>
+  </data>
+  <data name="ConfigFlow.Provider.NvidiaBaseUrl.Label" xml:space="preserve">
+    <value>NVIDIA-Adresse</value>
+  </data>
+
+  <data name="ConfigFlow.Keys.Title" xml:space="preserve">
+    <value>Zugangsdaten</value>
+  </data>
+  <data name="ConfigFlow.Keys.Description" xml:space="preserve">
+    <value>Die Schlüssel werden verschlüsselt gespeichert und nie im Klartext angezeigt.</value>
+  </data>
+  <data name="ConfigFlow.Keys.Nvidia.Label" xml:space="preserve">
+    <value>NVIDIA-Schlüssel</value>
+  </data>
+  <data name="ConfigFlow.Keys.Nvidia.Description" xml:space="preserve">
+    <value>Nur nötig, wenn NVIDIA NIM verwendet wird.</value>
+  </data>
+  <data name="ConfigFlow.Keys.SelfHostedToken.Label" xml:space="preserve">
+    <value>Zugangstoken</value>
+  </data>
+  <data name="ConfigFlow.Keys.SelfHostedToken.Description" xml:space="preserve">
+    <value>Nur nötig, wenn der eigene Server eine Anmeldung verlangt.</value>
+  </data>
+  <data name="ConfigFlow.Keys.Picovoice.Label" xml:space="preserve">
+    <value>Picovoice-Zugangsschlüssel</value>
+  </data>
+  <data name="ConfigFlow.Keys.Picovoice.Description" xml:space="preserve">
+    <value>Nur nötig für das Porcupine-Aktivierungswort.</value>
+  </data>
+
+  <data name="ConfigFlow.Models.Title" xml:space="preserve">
+    <value>Modelle</value>
+  </data>
+  <data name="ConfigFlow.Models.Description" xml:space="preserve">
+    <value>Die Standardmodelle funktionieren. Änderungen lohnen sich nur bei Bedarf.</value>
+  </data>
+  <data name="ConfigFlow.Models.Llm.Label" xml:space="preserve">
+    <value>Sprachmodell</value>
+  </data>
+  <data name="ConfigFlow.Models.VisionProvider.Label" xml:space="preserve">
+    <value>Bildmodell-Anbieter</value>
+  </data>
+  <data name="ConfigFlow.Models.VisionModel.Label" xml:space="preserve">
+    <value>Bildmodell</value>
+  </data>
+  <data name="ConfigFlow.Models.Stt.Label" xml:space="preserve">
+    <value>Spracherkennung</value>
+  </data>
+  <data name="ConfigFlow.Models.SttModel.Label" xml:space="preserve">
+    <value>Erkennungsmodell</value>
+  </data>
+  <data name="ConfigFlow.Models.Option.WhisperCpp" xml:space="preserve">
+    <value>whisper.cpp lokal</value>
+  </data>
+
+  <data name="ConfigFlow.Voice.Title" xml:space="preserve">
+    <value>Stimme</value>
+  </data>
+  <data name="ConfigFlow.Voice.Description" xml:space="preserve">
+    <value>Womit JARVIS antwortet und worauf er hört.</value>
+  </data>
+  <data name="ConfigFlow.Voice.Tts.Label" xml:space="preserve">
+    <value>Sprachausgabe</value>
+  </data>
+  <data name="ConfigFlow.Voice.PiperVoice.Label" xml:space="preserve">
+    <value>Piper-Stimme</value>
+  </data>
+  <data name="ConfigFlow.Voice.TtsModel.Label" xml:space="preserve">
+    <value>Stimmmodell</value>
+  </data>
+  <data name="ConfigFlow.Voice.Language.Label" xml:space="preserve">
+    <value>Sprache</value>
+  </data>
+  <data name="ConfigFlow.Voice.WakeEngine.Label" xml:space="preserve">
+    <value>Aktivierungswort</value>
+  </data>
+  <data name="ConfigFlow.Voice.WakeWord.Label" xml:space="preserve">
+    <value>Wort</value>
+  </data>
+  <data name="ConfigFlow.Voice.Hotkey.Label" xml:space="preserve">
+    <value>Tastenkürzel</value>
+  </data>
+  <data name="ConfigFlow.Voice.Option.Piper" xml:space="preserve">
+    <value>Piper (empfohlen)</value>
+  </data>
+  <data name="ConfigFlow.Voice.Option.Porcupine" xml:space="preserve">
+    <value>Porcupine</value>
+  </data>
+  <data name="ConfigFlow.Voice.Option.NanoWakeWord" xml:space="preserve">
+    <value>NanoWakeWord</value>
+  </data>
+  <data name="ConfigFlow.Voice.Option.Vosk" xml:space="preserve">
+    <value>Vosk</value>
+  </data>
+
+  <data name="ConfigFlow.Behaviour.Title" xml:space="preserve">
+    <value>Verhalten</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Description" xml:space="preserve">
+    <value>Wie vorsichtig JARVIS ist und woran er sich erinnert.</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Safety.Label" xml:space="preserve">
+    <value>Sicherheitsstufe</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Confirmation.Label" xml:space="preserve">
+    <value>Bestätigung</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.CancelDepth.Label" xml:space="preserve">
+    <value>Abbrechen beendet</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Memory.Label" xml:space="preserve">
+    <value>Gedächtnis</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Persona.Label" xml:space="preserve">
+    <value>Charakter</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Prompt.Label" xml:space="preserve">
+    <value>Eigene Anweisung</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Notes.Label" xml:space="preserve">
+    <value>Notizen</value>
+  </data>
+
+  <data name="ConfigFlow.Behaviour.Option.SafetyConfirmAll" xml:space="preserve">
+    <value>Alles bestätigen (empfohlen)</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.SafetyAllowlist" xml:space="preserve">
+    <value>Freigabeliste</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.SafetyToolPermissions" xml:space="preserve">
+    <value>Rechte je Werkzeug</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.SafetyAutonomous" xml:space="preserve">
+    <value>Eigenständig (ohne Nachfrage)</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.ConfirmYesNo" xml:space="preserve">
+    <value>Ja oder nein</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.ConfirmChallenge" xml:space="preserve">
+    <value>Zufallswort</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.ConfirmHybrid" xml:space="preserve">
+    <value>Gemischt (empfohlen)</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.CancelSpeech" xml:space="preserve">
+    <value>Nur Sprache und Antwort</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.CancelCommand" xml:space="preserve">
+    <value>Auch laufende Befehle</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.MemoryNone" xml:space="preserve">
+    <value>Keines</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.MemorySession" xml:space="preserve">
+    <value>Nur diese Sitzung</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.MemoryPersistent" xml:space="preserve">
+    <value>Bis zum Neustart</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.MemoryNotes" xml:space="preserve">
+    <value>Mit Notizen (empfohlen)</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.PersonaClassic" xml:space="preserve">
+    <value>Klassisch</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.PersonaTerse" xml:space="preserve">
+    <value>Knapp</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.PersonaSarcastic" xml:space="preserve">
+    <value>Trocken</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.PersonaFormal" xml:space="preserve">
+    <value>Förmlich</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Option.PersonaCustom" xml:space="preserve">
+    <value>Eigener</value>
+  </data>
+
+  <data name="Variables.State.Description" xml:space="preserve">
+    <value>Was JARVIS gerade tut.</value>
+  </data>
+  <data name="Variables.Transcript.Description" xml:space="preserve">
+    <value>Was gerade gesagt wurde.</value>
+  </data>
+  <data name="Variables.Reply.Description" xml:space="preserve">
+    <value>Die letzte Antwort von JARVIS.</value>
+  </data>
+  <data name="Variables.Amplitude.Description" xml:space="preserve">
+    <value>Der aktuelle Lautstärkepegel, von 0 bis 1.</value>
+  </data>
+  <data name="Variables.DownloadPercent.Description" xml:space="preserve">
+    <value>Wie weit der laufende Download gekommen ist, in Prozent.</value>
+  </data>
+  <data name="Variables.DownloadLabel.Description" xml:space="preserve">
+    <value>Was JARVIS gerade herunterlädt.</value>
+  </data>
+
+  <data name="Errors.NoModelConfigured" xml:space="preserve">
+    <value>Es ist kein Modell eingerichtet.</value>
+  </data>
+  <data name="Errors.MicUnavailable" xml:space="preserve">
+    <value>Kein Mikrofon verfügbar.</value>
+  </data>
+  <data name="Errors.ProviderRejected" xml:space="preserve">
+    <value>Der Anbieter hat die Anfrage abgelehnt.</value>
+  </data>
+  <data name="Errors.ProviderUnreachable" xml:space="preserve">
+    <value>Der Anbieter ist nicht erreichbar.</value>
+  </data>
+  <data name="Errors.RateLimited" xml:space="preserve">
+    <value>Zu viele Anfragen. Bitte einen Moment warten.</value>
+  </data>
+  <data name="Errors.ComponentMissing" xml:space="preserve">
+    <value>{component} wurde noch nicht heruntergeladen.</value>
+    <comment>[string] component: die fehlende Komponente.</comment>
+  </data>
+  <data name="Errors.AlreadyRunning" xml:space="preserve">
+    <value>Läuft bereits.</value>
+  </data>
+  <data name="Errors.NothingToCancel" xml:space="preserve">
+    <value>Es gibt nichts abzubrechen.</value>
+  </data>
+  <data name="Errors.SttNotInstalled" xml:space="preserve">
+    <value>Die lokale Spracherkennung ist nicht installiert. Bitte zuerst Whisper installieren.</value>
+  </data>
+  <data name="Errors.MicrophoneUnavailable" xml:space="preserve">
+    <value>Kein Mikrofon verfügbar.</value>
+  </data>
+  <data name="Errors.NothingHeard" xml:space="preserve">
+    <value>Es wurde nichts gehört.</value>
+  </data>
+  <data name="Errors.TranscriptionFailed" xml:space="preserve">
+    <value>Die Aufnahme konnte nicht ausgewertet werden.</value>
+  </data>
+
+  <data name="Runtime.UnknownComponent" xml:space="preserve">
+    <value>{component} ist keine Komponente, die JARVIS kennt.</value>
+    <comment>[string] component: der gewählte Komponentenname.</comment>
+  </data>
+  <data name="Runtime.Installed" xml:space="preserve">
+    <value>{component} ist installiert.</value>
+    <comment>[string] component: die gerade installierte Komponente.</comment>
+  </data>
+  <data name="Runtime.InstallFailed" xml:space="preserve">
+    <value>{component} konnte nicht installiert werden. JARVIS behält die eingebaute Ersatzlösung bei.</value>
+    <comment>[string] component: die Komponente, die nicht installiert werden konnte.</comment>
+  </data>
+  <data name="Runtime.IssueStillFailing" xml:space="preserve">
+    <value>Weiterhin nicht verfügbar. JARVIS behält die eingebaute Ersatzlösung bei.</value>
+  </data>
+  <data name="Runtime.Issue.Unreachable.Title" xml:space="preserve">
+    <value>Eine JARVIS-Komponente konnte nicht geladen werden</value>
+  </data>
+  <data name="Runtime.Issue.Unreachable.Description" xml:space="preserve">
+    <value>Keine Verbindung, oder der Download konnte nicht beginnen.</value>
+  </data>
+  <data name="Runtime.Issue.Digest.Title" xml:space="preserve">
+    <value>Eine JARVIS-Komponente hat die Prüfung nicht bestanden</value>
+  </data>
+  <data name="Runtime.Issue.Digest.Description" xml:space="preserve">
+    <value>Der Download passte nicht zur hinterlegten Prüfsumme und wurde deshalb verworfen.</value>
+  </data>
+  <data name="Runtime.Issue.Unusable.Title" xml:space="preserve">
+    <value>Eine JARVIS-Komponente läuft auf diesem Rechner nicht</value>
+  </data>
+  <data name="Runtime.Issue.Unusable.Description" xml:space="preserve">
+    <value>Sie wurde korrekt installiert, aber dieser Prozessor unterstützt ihre Befehle nicht.</value>
+  </data>
+  <data name="Runtime.Issue.Action" xml:space="preserve">
+    <value>Erneut versuchen</value>
+  </data>
+  <data name="Runtime.Issue.Detail" xml:space="preserve">
+    <value>{reason} {purpose} {detail}</value>
+    <comment>[reason][purpose][detail] Grund, Zweck und technische Einzelheit.</comment>
+  </data>
+
+  <data name="Orb.TypeName" xml:space="preserve">
+    <value>JARVIS-Kugel</value>
+  </data>
+  <data name="Orb.TypeDescription" xml:space="preserve">
+    <value>Eine hörende Kugel, die zeigt, was JARVIS tut und was er gesagt hat.</value>
+  </data>
+
+  <data name="Orb.Config.Preset" xml:space="preserve">
+    <value>Form</value>
+  </data>
+  <data name="Orb.Config.PresetHint" xml:space="preserve">
+    <value>Der Ausgangspunkt für Ringe und Kernanimation.</value>
+  </data>
+  <data name="Orb.Config.PresetOptions.ArcReactor" xml:space="preserve">
+    <value>Lichtbogen</value>
+  </data>
+  <data name="Orb.Config.PresetOptions.Halo" xml:space="preserve">
+    <value>Ring</value>
+  </data>
+  <data name="Orb.Config.PresetOptions.Pulse" xml:space="preserve">
+    <value>Puls</value>
+  </data>
+  <data name="Orb.Config.PresetOptions.Custom" xml:space="preserve">
+    <value>Eigene</value>
+  </data>
+
+  <data name="Orb.Config.Rings" xml:space="preserve">
+    <value>Ringe</value>
+  </data>
+  <data name="Orb.Config.RingCount" xml:space="preserve">
+    <value>Anzahl der Ringe</value>
+  </data>
+  <data name="Orb.Config.RingCountHint" xml:space="preserve">
+    <value>Wie viele Ringe den Kern umkreisen. Null zeigt einen nackten Kern.</value>
+  </data>
+  <data name="Orb.Config.RingSpeed" xml:space="preserve">
+    <value>Ringtempo</value>
+  </data>
+  <data name="Orb.Config.RingSpeedHint" xml:space="preserve">
+    <value>Wie schnell die Ringe laufen. Null hält sie an.</value>
+  </data>
+  <data name="Orb.Config.RingRotation" xml:space="preserve">
+    <value>Ringe drehen</value>
+  </data>
+
+  <data name="Orb.Config.Colours" xml:space="preserve">
+    <value>Farben</value>
+  </data>
+  <data name="Orb.Config.AccentColor" xml:space="preserve">
+    <value>Akzent</value>
+  </data>
+  <data name="Orb.Config.CoreColor" xml:space="preserve">
+    <value>Kern</value>
+  </data>
+  <data name="Orb.Config.TextColor" xml:space="preserve">
+    <value>Text</value>
+  </data>
+  <data name="Orb.Config.Glow" xml:space="preserve">
+    <value>Leuchten</value>
+  </data>
+  <data name="Orb.Config.GlowHint" xml:space="preserve">
+    <value>Weicher Schein hinter dem Kern.</value>
+  </data>
+  <data name="Orb.Config.BorderStyle" xml:space="preserve">
+    <value>Randstil</value>
+  </data>
+  <data name="Orb.Config.BorderStyleHint" xml:space="preserve">
+    <value>Wie jeder Ring gezeichnet wird. Komet zieht einen Schweif.</value>
+  </data>
+
+  <data name="Orb.Config.Text" xml:space="preserve">
+    <value>Text</value>
+  </data>
+  <data name="Orb.Config.ShowText" xml:space="preserve">
+    <value>Text anzeigen</value>
+  </data>
+  <data name="Orb.Config.TextMode" xml:space="preserve">
+    <value>Anzeigen</value>
+  </data>
+  <data name="Orb.Config.TextModeOptions.FullTranscript" xml:space="preserve">
+    <value>Das ganze Gespräch</value>
+  </data>
+  <data name="Orb.Config.TextModeOptions.LastReply" xml:space="preserve">
+    <value>Nur die letzte Antwort</value>
+  </data>
+  <data name="Orb.Config.TextModeOptions.InterimPlusReply" xml:space="preserve">
+    <value>Gesprochenes, dann die Antwort</value>
+  </data>
+  <data name="Orb.Config.TextSize" xml:space="preserve">
+    <value>Textgröße</value>
+  </data>
+  <data name="Orb.Config.TextSizeHint" xml:space="preserve">
+    <value>Wie groß der Text in der Kugel ist.</value>
+  </data>
+
+  <data name="Orb.Config.Reactivity" xml:space="preserve">
+    <value>Reaktion</value>
+  </data>
+  <data name="Orb.Config.AudioReactive" xml:space="preserve">
+    <value>Auf Ton reagieren</value>
+  </data>
+  <data name="Orb.Config.AudioReactiveHint" xml:space="preserve">
+    <value>Die Kugel bewegt sich mit dem, was Sie sagen und was JARVIS sagt.</value>
+  </data>
+  <data name="Orb.Config.Sensitivity" xml:space="preserve">
+    <value>Empfindlichkeit</value>
+  </data>
+  <data name="Orb.Config.SensitivityHint" xml:space="preserve">
+    <value>Wie laut es sein muss, damit sich die Kugel bewegt.</value>
+  </data>
+
+  <data name="Orb.Config.Behaviour" xml:space="preserve">
+    <value>Verhalten</value>
+  </data>
+  <data name="Orb.Config.Scope" xml:space="preserve">
+    <value>Zustand teilen mit</value>
+  </data>
+  <data name="Orb.Config.ScopeHint" xml:space="preserve">
+    <value>Global hält alle Kugeln im Gleichklang. Lokal betrifft es nur diese eine.</value>
+  </data>
+  <data name="Orb.Config.ScopeOptions.Global" xml:space="preserve">
+    <value>Allen Kugeln auf diesem Deck</value>
+  </data>
+  <data name="Orb.Config.ScopeOptions.Local" xml:space="preserve">
+    <value>Nur dieser Kugel</value>
+  </data>
+</root>
