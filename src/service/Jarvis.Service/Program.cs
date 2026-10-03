@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.ServiceProcess;
 using System.Windows.Forms;
 
 namespace Jarvis.Service;
@@ -16,9 +17,9 @@ namespace Jarvis.Service;
 public static class Program
 {
 	/// <summary>The name the service is registered under. The install commands refer to this.</summary>
-	public const string ServiceName = "JarvisService";
+	public const string ServiceName = ServiceNames.Name;
 
-	public const string ServiceDisplayName = "JARVIS Service";
+	public const string ServiceDisplayName = ServiceNames.DisplayName;
 
 	private const int AttachParentProcess = -1;
 
@@ -118,36 +119,54 @@ public static class Program
 	/// <summary>
 	/// The service control manager mode.
 	/// <para>
-	/// The handshake with the service control manager is what makes this a service rather than a process that
-	/// happens to stay alive. Skipping it installs cleanly and then refuses to start, reporting 1053, because
-	/// nothing ever told the manager the process was there.
+	/// The handshake is delegated to <see cref="ServiceBase"/>. It was written out by hand first, and the
+	/// dispatcher table turned out to be the wrong shape three separate times over, each failure being a
+	/// fast-fail crash inside the operating system with no managed exception to point at it. The framework
+	/// builds the table, binds the handler and reports status correctly, so there is nothing left here worth
+	/// hand-rolling.
 	/// </para>
 	/// </summary>
 	private static int RunAsService()
 	{
 		var log = new ServiceEventLogger();
 
-		log.Information($"{ServiceDisplayName} is starting as a background service.");
-
-		ServiceControl.Stopping += () => log.Information($"{ServiceDisplayName} was asked to stop.");
-
-		return ServiceControl.Run(ServiceName, () =>
+		try
 		{
-			var operations = new ElevatedOperations();
-			// Elevated, so the pipe is named after the signed-in user and carries a descriptor granting that
-			// user access. Without this the pipe would belong to LocalSystem and the plugin could not open it.
-			using var pipe = new PipeServer(log, elevated: true);
+			ServiceBase.Run(new JarvisServiceHost(log));
+			return 0;
+		}
+		catch (InvalidOperationException)
+		{
+			// No dispatcher connection, so the service control manager is not supervising this process. The
+			// pipe still runs, which is what makes --console useful for reading the output by hand.
+			log.Information(
+				"The service control manager is not supervising this process, so it is running as a console process.");
 
-			pipe.Start();
-			log.Information($"{ServiceDisplayName} is listening on {Protocol.PipeName}.");
+			return RunConsolePipe(log);
+		}
+	}
 
-			// Blocks until the service control manager asks the service to stop, at which point the pipe
-			// closes and the process ends.
-			while (pipe.IsListening)
-			{
-				Thread.Sleep(500);
-			}
-		});
+	/// <summary>Runs the pipe without the service control manager, until the process is asked to stop.</summary>
+	private static int RunConsolePipe(ServiceEventLogger log)
+	{
+		var stop = new ManualResetEventSlim(false);
+
+		Console.CancelKeyPress += (_, args) =>
+		{
+			args.Cancel = true;
+			stop.Set();
+		};
+
+		using var pipe = new PipeServer(log, elevated: true);
+
+		pipe.Start();
+		log.Information($"{ServiceDisplayName} is listening on {Protocol.PipeName}.");
+
+		Console.WriteLine("Running as a console process. Press Ctrl+C to stop.");
+		stop.Wait(Timeout.InfiniteTimeSpan);
+
+		pipe.Stop();
+		return 0;
 	}
 
 	/// <summary>
