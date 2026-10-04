@@ -80,21 +80,34 @@ internal static class OrbView
 			new UiGradientStop { Offset = 1, Color = data.CoreColor },
 		]);
 
-	/// <summary>
+/// <summary>
 	/// The animated core. All the smooth motion lives inside the asset, so the browser decodes it at its
 	/// own frame rate and the whole orb costs exactly one patch when the state changes.
+	/// <para>
+	/// The state is read through <c>Value</c>, never <c>Peek</c>. A computed property records a dependency on
+	/// each state it reads while the tree is being built, and only a recorded dependency is re-evaluated when
+	/// that state is written. <c>Peek</c> reads without subscribing, so binding the image through it produced a
+	/// tree that was correct once and then never again: the asset arrived, the state was written, and nothing
+	/// was listening, so the widget stayed empty with no error anywhere. Every binding in this file was written
+	/// that way, so nothing in it had ever been reactive.
+	/// </para>
 	/// </summary>
 	private static UiImage CoreLayer(UiState<UiResource?> core) => new()
 	{
 		Key = "core-art",
-		Source = UiValue.From(() => core.Peek()!),
+		Source = UiValue.From(() => core.Value!),
 		Size = UiSize.FromBasis(0.86),
 	};
 
-	/// <summary>
+/// <summary>
 	/// Each ring is a <c>ui.transform</c> whose only animated property is <c>rotation</c>, which is the
-	/// framework's own documented idiom for a sweeping element. Rings counter-rotate so the
-	/// composition never looks like one rigid disc.
+	/// framework's own documented idiom for a sweeping element. Rings counter-rotate so the composition never
+	/// looks like one rigid disc.
+	/// <para>
+	/// The ring is drawn by a bordered modifier inside the transform. A transform with no children of its own
+	/// draws nothing at all, so these used to be an empty element rotating forever, described in the comment
+	/// above as though they were visible.
+	/// </para>
 	/// </summary>
 	private static IEnumerable<UiElement> RingLayers(OrbWidgetData data, UiState<double> sweep)
 	{
@@ -102,14 +115,27 @@ internal static class OrbView
 		{
 			var direction = index % 2 == 0 ? 1 : -1;
 			var offset = index * 120;
+			var extent = 0.92 - (index * 0.06);
 
 			yield return new UiTransform
 			{
 				Key = $"ring{index}",
-				Rotation = UiValue.From(() => ((sweep.Peek() * direction) + offset) % 360.0),
+				Rotation = UiValue.From(() => ((sweep.Value * direction) + offset) % 360.0),
 				OriginX = 0.5,
 				OriginY = 0.5,
-				Children = [],
+				Children =
+				[
+					new UiModifier
+					{
+						Key = $"ring{index}-art",
+						MainSize = UiSize.FromBasis(extent),
+						Fill = UiValue.Of(true),
+						Clip = UiValue.Of(UiComponentClips.Circle),
+						BorderWidth = UiSize.FromBasis(0.012),
+						BorderColor = UiValue.Of(data.AccentColor),
+						Child = new UiStack { Key = $"ring{index}-fill", Children = [] },
+					},
+				],
 			};
 		}
 	}
@@ -123,7 +149,7 @@ internal static class OrbView
 		return new UiTextRun
 		{
 			Key = "say",
-			Text = UiText.From(() => Compose(data, orbState.Peek(), reply.Peek(), transcript.Peek())),
+			Text = UiText.From(() => Compose(data, orbState.Value, reply.Value, transcript.Value)),
 			Size = UiSize.FromBasis(data.TextSize),
 			Color = UiValue.Of(data.TextColor),
 			Align = UiComponentAlignments.Center,

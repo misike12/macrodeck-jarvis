@@ -30,7 +30,7 @@ Everything runs as the signed-in user except the optional service. See
 | Check | Command | Result |
 | --- | --- | --- |
 | Build | `dotnet build -c Release` | 0 warnings, 0 errors |
-| Tests | `dotnet test` | **562 passed**, 0 failed |
+| Tests | `dotnet test` | **566 passed**, 0 failed |
 | Manifest validation | `macrodeck-plugin validate --artifact ... --level Publication` | 0 errors, 0 warnings |
 | Conformance, project | `src/conformance.md` | conformant |
 | Conformance, artifact | `src/artifact-conformance.md` | conformant, and it carries MDC0104 through MDC0107 |
@@ -141,6 +141,20 @@ file is claimed as fixed unless it is.
 
 Both of these were found by running the built plugin on this machine, not by reading it. They are recorded
 because `planfix.md` does not contain them, and a reader of that file would otherwise take it as complete.
+
+- **The orb never drew anything, in any state, for any user.** `UiValue.From` and `UiText.From` take a
+  computed function, and the framework subscribes a computed property to each state it reads *while the tree
+  is being built* by reading `Value`. Reading `Peek()` is documented as the reading that does not subscribe.
+  Every binding in `OrbView` read `Peek`, so the tree was correct once and then frozen: the core asset
+  arrived, `_core` was written, nothing was listening, and the widget stayed empty. No error existed to find,
+  because each line did exactly what it said. The rings had the same problem in a second form: a `UiTransform`
+  with no children draws nothing, so they were empty elements rotating forever while the comment described
+  them as visible. Bindings now read `Value`, and each ring is a bordered modifier inside its transform.
+
+  Two earlier fixes in this area were real but could not have been enough on their own. The glow modifier
+  really did set `Fill` on its child and really did throw, and `Unavailable` really was missing from the asset
+  cache. Both were necessary and neither was sufficient, because the layer that mattered was never bound to
+  anything.
 
 - **The orb was blank for a user who had not finished configuring the plugin.** `OrbAssetCache` listed the
   seven states that mean the assistant is working and left out `Unavailable`, which is the state the plugin
