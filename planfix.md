@@ -39,9 +39,10 @@ code. Both are recorded in *Known limitations* in `current workstate.md`.
 - **PKG-03 · release provenance.** Closed as far as the repository can close it: a tag now triggers a
   workflow that packs, validates and registers a build through OIDC, with no long-lived credential. The
   release itself completes in the Creator Portal, which needs the account.
-- **PKG-13 · `publisher.name`.** Left as `misu`. Whether it must match the GitHub owner `misike12` depends
-  on the Creator Portal publisher name, which only the account owner can see. Changing it on a guess
-  could break a listing that already works.
+- **PKG-13 · `publisher.name`.** Resolved by decision: set to `misike12`, matching the repository owner, on
+  the account owner's call. The plugin id moved with it, from `com.misu.jarvis` to `com.misike12.jarvis`,
+  which the Store treats as a new listing rather than an upgrade. Recorded in *Known limitations* so the
+  consequence is not discovered after the fact.
 
 ### Verified, not asserted
 
@@ -1008,7 +1009,7 @@ Recorded so it is not re-audited.
 - Zero duplicate keys in either file.
 - Zero positional `{0}` placeholders — all 7 keys with placeholders use named ones.
 - Placeholder sets identical between default and translation for every shared key. Zero MDLOC003.
-- Catalog scope verified from the built assembly as exactly `plugin:com.misu.jarvis`.
+- Catalog scope verified from the built assembly as exactly `plugin:com.misike12.jarvis`.
 - **198 `Strings.` references, 181 distinct, 0 missing.** The one apparent miss was a regex false positive on `MacroDeckStrings.Validation.Required(…)`, which is the correct reuse of the host catalogue.
 - All LLM-facing tool descriptions and tool-name identifiers are correctly English literals — they go to the model, not the UI. Full list retained in the audit; `ToolOutcome.*` text in `Llm/*Tools.cs`, `ToolDefinition.Description`, and every `public string Name => "snake_case"`.
 - All exception messages correctly English per §12.

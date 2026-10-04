@@ -137,7 +137,7 @@ dotnet test
 
 ```powershell
 macrodeck-plugin build --source src/Jarvis.Plugin --output ./artifacts
-macrodeck-plugin inspect --artifact ./artifacts/com.misu.jarvis-1.1.1.macroDeckPlugin
+macrodeck-plugin inspect --artifact ./artifacts/com.misike12.jarvis-1.1.1.macroDeckPlugin
 ```
 
 A `dotnet build -c Release` output is **not** packable. The manifest points at `runtimes/win-x64/`, which

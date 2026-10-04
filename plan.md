@@ -3,7 +3,7 @@
 Status: **IMPLEMENTED.** Every tool in this plan is built, registered and tested. The final section records
 what was left out on purpose and why. Verified numbers are in `current workstate.md`.
 Target: `win-x64` only, framework-dependent on .NET 10, no Node/Python runtimes.
-Identity: `com.misu.jarvis` / display name `JARVIS`.
+Identity: `com.misike12.jarvis` / display name `JARVIS`.
 Repo consulted: `https://github.com/Macro-Deck-App/Macro-Deck` (cloned to `%TEMP%\opencode\macrodeck3`).
 
 ---
@@ -449,7 +449,7 @@ Everything is configurable on the widget itself, backed by the global integratio
 {
   "$schema": "https://schemas.macro-deck.app/plugin-manifest-v1.schema.json",
   "manifestVersion": 1,
-  "id": "com.misu.jarvis",
+  "id": "com.misike12.jarvis",
   "name": "JARVIS",
   "version": "0.1.0",
   "description": "A voice-driven assistant for your deck.",
@@ -460,7 +460,7 @@ Everything is configurable on the widget itself, backed by the global integratio
       "runtime": { "kind": "FrameworkDependent", "dotnetVersion": "10.0" }
     }
   },
-  "publisher": { "name": "misu", "id": "com.misu", "url": "" },
+  "publisher": { "name": "misike12", "id": "com.misike12", "url": "" },
   "license": "MIT",
   "compatibility": { "macroDeck": ">=3.0.0-0" },
   "permissions": ["host:variables", "host:config", "host:widgets", "host:notifications", "host:scripts", "host:deck", "events:publish", "assets:upload", "fs:user-files", "process:spawn"]
@@ -476,12 +476,12 @@ Everything is configurable on the widget itself, backed by the global integratio
 ```powershell
 dotnet tool install --global MacroDeck.Plugin.Cli --prerelease   # already have beta.14
 
-macrodeck-plugin new --name "JARVIS" --id com.misu.jarvis --publisher "misu" --project-name Jarvis.Plugin --platform win-x64 --yes
+macrodeck-plugin new --name "JARVIS" --id com.misike12.jarvis --publisher "misike12" --project-name Jarvis.Plugin --platform win-x64 --yes
 
 macrodeck-plugin run  --project src/Jarvis.Plugin --stub-host     # expect: "Session established (negotiated plugin protocol v3)."
 macrodeck-plugin build   --output artifacts
-macrodeck-plugin validate --artifact artifacts/com.misu.jarvis-0.1.0.macroDeckPlugin
-macrodeck-plugin test     --artifact artifacts/com.misu.jarvis-0.1.0.macroDeckPlugin
+macrodeck-plugin validate --artifact artifacts/com.misike12.jarvis-0.1.0.macroDeckPlugin
+macrodeck-plugin test     --artifact artifacts/com.misike12.jarvis-0.1.0.macroDeckPlugin
 ```
 
 Target: all **49** conformance checks pass with zero `Required` failures.
@@ -518,7 +518,7 @@ From the project's `CLAUDE.md` — these are binding:
 Everything native that is not P/Invoke goes through one manager:
 
 ```
-%LOCALAPPDATA%\MacroDeck\plugins\com.misu.jarvis\runtime\
+%LOCALAPPDATA%\MacroDeck\plugins\com.misike12.jarvis\runtime\
 ├── whisper\whisper-cli.exe        pinned version + SHA-256
 ├── whisper\models\*.gguf          selectable
 ├── llama\llama-server.exe         pinned version + SHA-256

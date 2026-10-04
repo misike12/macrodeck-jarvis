@@ -14,7 +14,7 @@ operations that genuinely need administrator rights.
 
 | | |
 | --- | --- |
-| Plugin id | `com.misu.jarvis` |
+| Plugin id | `com.misike12.jarvis` |
 | Version | `1.1.1` |
 | Platform | `win-x64` only |
 | Actions | 7 (`jarvis-activate`, `jarvis-cancel`, `jarvis-toggle`, `jarvis-say`, `jarvis-check-models`, `jarvis-manage-components`, `jarvis-confirm`) |
@@ -147,9 +147,13 @@ These are deliberate and recorded rather than fixed.
 - **The Defender and firewall registry keys are no longer reachable.** The allowlist is
   `HKLM\SOFTWARE\Jarvis`, and the plugin has no feature that wrote anything else. This was a decision, and
   it is recorded in `planfix.md`.
-- **`publisher.name` is `misu` while the repository owner is `misike12`.** Whether that is correct depends
-  on the Creator Portal publisher name, which only the account owner can confirm. Left as it was, because
-  changing it to match the GitHub org could break a listing that already works.
+- **`publisher.name` and the plugin id were changed to `misike12` for 1.1.1**, from `misu` and
+  `com.misu.jarvis`. The Creator Portal publisher name is the account owner's to see and confirm; this was
+  decided on that basis rather than derived. **The id change is the part with a consequence:** the Store
+  treats a different id as a different plugin, so 1.1.1 starts a new listing. `v1.0.0` and `v1.1.0` stay
+  published under `com.misu.jarvis`, and anyone who installed them will not see 1.1.1 as an update. If an
+  in-place upgrade for existing users matters more than the id matching the publisher, revert the id to
+  `com.misu.jarvis` and keep only the publisher change.
 - **The SDK is pinned to `3.0.0-beta.14`.** The floating template default resolves to a *preview* build
   that predates it in SemVer ordering and lacks three APIs this plugin uses. Re-verify when 3.0 ships
   stable.

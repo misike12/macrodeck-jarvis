@@ -520,14 +520,17 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 		// integration left a widget type a user could still put on a deck, pointing at a plugin that was gone.
 		if (_widgetTypeContext is { } widgetTypes)
 		{
-			// Bounded here because the interface hands us no token. A host that has already gone away would
-			// otherwise leave this awaiting a round trip that never completes, which is the shutdown hanging.
-					using var unregister = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+			// Short, and logged, because this is the only thing shutdown does that leaves the process. It is
+			// a round trip to the host, on the path where the host is already tearing the session down, so it
+			// is bounded tightly and its outcome is recorded rather than hoped for.
+			using var unregister = new CancellationTokenSource(TimeSpan.FromSeconds(2));
 
 			try
 			{
 				await widgetTypes.UnregisterWidgetTypeAsync(
 					OrbWidgetTypeProvider.OrbTypeId, unregister.Token).ConfigureAwait(false);
+
+				_logger.Information("The orb widget type was withdrawn.");
 			}
 			catch (Exception exception) when (exception is not OutOfMemoryException)
 			{
