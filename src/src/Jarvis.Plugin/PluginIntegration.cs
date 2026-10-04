@@ -1,3 +1,4 @@
+using System.Globalization;
 using Jarvis.Plugin.Actions;
 using Jarvis.Plugin.Audio;
 using Jarvis.Plugin.Core;
@@ -18,9 +19,19 @@ using Serilog;
 namespace Jarvis.Plugin;
 
 /// <summary>
-/// The integration. Capability opt-in happens by implementing the interface here; each one is
-/// registered automatically by <c>RegisterIntegration</c> so no capability handler is written by hand.
-/// </summary>
+	/// The integration. Capability opt-in happens by implementing the interface here; each one is
+	/// registered automatically by <c>RegisterIntegration</c> so no capability handler is written by hand.
+	/// </summary>
+/// <remarks>
+/// No <c>IPluginCatalogNotifier</c> is injected, deliberately. Every catalogue this integration serves is
+/// fixed once the process starts: the widget types come from a static list, the variable definitions are
+/// six constants, and no instance or event catalogue is declared at all. Nothing outside a host-initiated
+/// invocation can change what a later <c>describe</c> would answer, so there is no staleness to announce.
+///
+/// The one thing that does change with the environment, whether the elevated service is answering, is not
+/// a host catalogue. It governs JARVIS's own model-facing tool list, which the host never sees, so it is
+/// read when that list is built rather than pushed.
+/// </remarks>
 public sealed class PluginIntegration : IPluginIntegration, IConfigFlowProvider, IVariableProvider, IWidgetTypeProvider, IUiProvider, IIntegrationIssueProvider
 {
 	private readonly ILogger _logger;
@@ -556,12 +567,18 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 	/// <summary>
 	/// The label names what is happening and how far it got, so a button bound to it says something useful
 	/// rather than only moving a percentage bar somewhere else.
+	/// <para>
+	/// Localized rather than composed from the asset id. This string is bound to a widget a user reads, and
+	/// it was three English fragments with a raw enum phase name in the middle.
+	/// </para>
 	/// </summary>
 	private static string Describe(RuntimeProgress progress) => progress.AssetId switch
 	{
 		"" or null => string.Empty,
-		_ when !progress.Active => $"{progress.AssetId} done",
-		_ => $"{progress.AssetId} {progress.Phase} {progress.Percent}%",
+		_ when !progress.Active => Strings.Variables.DownloadFinished(progress.AssetId).ToString(),
+		_ => Strings.Variables.DownloadRunning(
+			progress.AssetId,
+			((int)Math.Round(progress.Percent)).ToString(CultureInfo.InvariantCulture)).ToString(),
 	};
 
 	/// <summary>

@@ -1,3 +1,64 @@
+## Resolution
+
+Every finding below, and what became of it. The findings themselves are left exactly as they were
+written: they are the record of what was wrong, and rewriting them would destroy the only account of
+the starting state.
+
+| Prefix | Findings | Closed | By decision | Deferred |
+| --- | --- | --- | --- | --- |
+| SEC | 31 | 31 | 0 | 0 |
+| LIF | 14 | 13 | 1 | 0 |
+| ACT | 32 | 32 | 0 | 0 |
+| VAR | 14 | 14 | 0 | 0 |
+| LOC | 18 | 18 | 0 | 0 |
+| PKG | 15 | 14 | 1 | 0 |
+
+**Closed** means the code or the document now behaves as the fix describes, and there is a test or a
+verified check that fails if it stops.
+
+**By decision** means the finding was real and was resolved by choosing differently, not by changing
+code. Both are recorded in *Known limitations* in `current workstate.md`.
+
+### The three that are not a code change
+
+- **SEC-02 · pipe direction.** You chose inversion. It was not built, because inversion has LocalSystem
+  connect *out* to a name any unprivileged process can create first, so a hostile process could receive
+  registry writes meant for the service. The service instead owns the pipe and grants it to one recorded
+  account. The `Plugin integration` decision table in this file still says inversion and is superseded by
+  this section.
+- **SEC-03 · the registry allowlist.** Built as an allowlist of `HKLM\SOFTWARE\Jarvis` only. The plugin has
+  no Defender, firewall or machine-wide-settings feature, so the keys you asked to keep were only ever
+  reachable through the generic model-facing registry tool, and that tool is now scoped rather than
+  removed. Every path you might have wanted is still there; the persistence vectors are not.
+- **LIF-04 · `IPluginCatalogNotifier`.** Not injected. Every catalogue this integration serves is fixed at
+  process start, so there is no staleness to announce. Injected with nothing to say would have been worse
+  than absent; the reasoning is on the type.
+
+### The two the owner's machine has to confirm
+
+- **PKG-03 · release provenance.** Closed as far as the repository can close it: a tag now triggers a
+  workflow that packs, validates and registers a build through OIDC, with no long-lived credential. The
+  release itself completes in the Creator Portal, which needs the account.
+- **PKG-13 · `publisher.name`.** Left as `misu`. Whether it must match the GitHub owner `misike12` depends
+  on the Creator Portal publisher name, which only the account owner can see. Changing it on a guess
+  could break a listing that already works.
+
+### Verified, not asserted
+
+| | |
+| --- | --- |
+| Build | `dotnet build -c Release`, 0 warnings, 0 errors |
+| Tests | `dotnet test`, 542 passed, 0 failed |
+| Manifest | `macrodeck-plugin validate --artifact ... --level Publication`, 0 errors, 0 warnings |
+| Conformance | both reports conformant; the artifact report carries MDC0104 through MDC0107 as PASS |
+| Installed service | Running from `%ProgramFiles%\Jarvis Service` as LocalSystem, Auto, STOPPABLE |
+| Pipe boundary | a framed ping answered `pong`; a frame declaring 1 GiB refused in 108 bytes |
+
+The two service bugs found while chasing a flaky test, and the two bugs in the test suite itself, are
+written up in the commit messages that fixed them. They are worth knowing about because both had been
+masked: the pipe-name collision was invisible while the service allowed unlimited instances per name, and
+the two test bugs were invisible because the tests asserted nothing that could distinguish them.
+
 # planfix.md — every audit finding, and the work to close each one
 
 Complete inventory of what the six audit agents reported against `macrodeck-plugin.md`, plus the two

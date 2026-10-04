@@ -702,6 +702,14 @@
     <value>There is no JARVIS component called '{name}'.</value>
     <comment>[string] name: the component identifier that was refused.</comment>
   </data>
+  <data name="Variables.DownloadRunning" xml:space="preserve">
+    <value>Downloading {name}, {percent}%</value>
+    <comment>[string][name][percent] the asset being fetched and how far it has got.</comment>
+  </data>
+  <data name="Variables.DownloadFinished" xml:space="preserve">
+    <value>{name} finished</value>
+    <comment>[string] name: the asset that finished.</comment>
+  </data>
   <data name="Errors.ConfirmationRequired" xml:space="preserve">
     <value>JARVIS wants to do something first, so it is waiting for you to confirm.</value>
   </data></root>

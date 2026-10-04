@@ -692,4 +692,11 @@
   </data>
   <data name="Errors.ConfirmationRequired" xml:space="preserve">
     <value>JARVIS möchte zuerst etwas tun und wartet deshalb auf deine Bestätigung.</value>
+  </data>  <data name="Variables.DownloadRunning" xml:space="preserve">
+    <value>{name} wird heruntergeladen, {percent}%</value>
+    <comment>[string][name][percent] die Datei, die geladen wird, und ihr Fortschritt.</comment>
+  </data>
+  <data name="Variables.DownloadFinished" xml:space="preserve">
+    <value>{name} fertig</value>
+    <comment>[string] name: die fertige Datei.</comment>
   </data></root>
