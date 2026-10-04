@@ -72,6 +72,62 @@ To check whether a shell is elevated:
 $userSid = ([Security.Principal.WindowsIdentity]::GetCurrent()).User.Value
 Write-Host "The elevated pipe will be reachable only by $userSid"
 
+# Stopped before anything is published or copied, not after. A running service holds its own executable and
+# every assembly beside it open, so copying over the top of a live install fails with a sharing violation on
+# the first DLL and leaves the old binary in place. Doing this after the copy, which is where it was, meant
+# an install over a running service could not succeed at all.
+$watchedPaths = @($installedBinary, $builtBinary) | Where-Object { $_ }
+
+function Get-JarvisProcessesHolding {
+    foreach ($process in @(Get-Process -Name 'Jarvis.Service' -ErrorAction SilentlyContinue)) {
+        try {
+            # Matched on the path rather than the name, so another user's tray instance on a shared machine
+            # is not killed. Reading Path is itself denied for another user's process, which is the same
+            # answer: not ours to stop.
+            if ($watchedPaths -contains $process.Path) {
+                $process
+            }
+        }
+        catch {
+            # Access denied on Path.
+        }
+    }
+}
+
+$service = Get-Service -Name JarvisService -ErrorAction SilentlyContinue
+
+if ($service -and $service.Status -ne 'Stopped') {
+    Write-Host 'Stopping the JarvisService registration so its files can be replaced...'
+    Stop-Service -Name JarvisService -Force -ErrorAction SilentlyContinue
+}
+
+$running = @(Get-JarvisProcessesHolding)
+
+if ($running) {
+    Write-Host "Stopping $($running.Count) Jarvis Service process(es) holding the files open."
+    $running | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
+# Waited for rather than assumed. Stop-Process returns once the kill is issued, and the handles are released
+# a moment later, so a copy issued immediately would still race the exit.
+$deadline = (Get-Date).AddSeconds(20)
+
+while ((@(Get-JarvisProcessesHolding).Count -gt 0) -and (Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 250
+}
+
+$stillRunning = @(Get-JarvisProcessesHolding)
+
+if ($stillRunning.Count -gt 0) {
+    $stillRunning | ForEach-Object { Write-Error "Process $($_.Id) is still running and holds $installedBinary open." }
+
+    Write-Error @'
+Close it and run again. A process that is holding the installed files open cannot be replaced, and
+installing over it would leave the old binary in place under a new registration.
+'@
+    exit 1
+}
+
 if (-not $SkipBuild) {
     Write-Host 'Building the service...'
 
@@ -94,7 +150,13 @@ if (-not $SkipBuild) {
 
         Write-Host "Installing into $installDirectory"
 
-        if (-not (Test-Path $installDirectory)) {
+        # Emptied rather than copied over. An assembly that a previous version shipped and this one no
+        # longer produces would otherwise stay in the directory forever, and a stale assembly next to the
+        # new binary is exactly what an in-process service loads by accident.
+        if (Test-Path $installDirectory) {
+            Get-ChildItem -LiteralPath $installDirectory -Force | Remove-Item -Recurse -Force
+        }
+        else {
             New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
         }
 
@@ -265,18 +327,6 @@ This usually means the service is still open in the service console. Close it an
             Start-Sleep -Milliseconds 500
         }
     }
-}
-
-# A tray-mode instance holds its own executable open, so a rebuild over it fails with MSB3026 and the
-# install then runs a stale binary. Only this exact binary is stopped: on a shared machine the name alone
-# would match another user's instance.
-$running = Get-Process -Name 'Jarvis.Service' -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -eq $installedBinary -or $_.Path -eq $builtBinary }
-
-if ($running) {
-    Write-Host "Stopping $($running.Count) running Jarvis Service instance(s) so the binary can be replaced."
-    $running | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 500
 }
 
 Write-Host "Registering JarvisService from $installedBinary"
