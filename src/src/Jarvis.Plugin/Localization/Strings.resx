@@ -336,8 +336,29 @@
   <data name="ConfigFlow.Voice.WakeWord.Label" xml:space="preserve">
     <value>Wake word</value>
   </data>
-  <data name="ConfigFlow.Voice.Hotkey.Label" xml:space="preserve">
-    <value>Push to talk shortcut</value>
+<data name="ConfigFlow.Voice.Hotkey.Label" xml:space="preserve">
+    <value>Push to talk key</value>
+  </data>
+  <data name="ConfigFlow.Voice.WakeWordEnabled.Label" xml:space="preserve">
+    <value>Listen for the wake word</value>
+  </data>
+  <data name="ConfigFlow.Voice.WakeSensitivity.Label" xml:space="preserve">
+    <value>Wake word sensitivity</value>
+  </data>
+  <data name="ConfigFlow.Voice.MicrophoneAlwaysOn.Label" xml:space="preserve">
+    <value>Keep the microphone open</value>
+  </data>
+  <data name="ConfigFlow.Voice.MicrophoneId.Label" xml:space="preserve">
+    <value>Microphone identifier</value>
+  </data>
+  <data name="ConfigFlow.Voice.MicrophoneName.Label" xml:space="preserve">
+    <value>Microphone name</value>
+  </data>
+  <data name="ConfigFlow.Option.Yes" xml:space="preserve">
+    <value>Yes</value>
+  </data>
+  <data name="ConfigFlow.Option.No" xml:space="preserve">
+    <value>No</value>
   </data>
   <data name="ConfigFlow.Voice.Option.Piper" xml:space="preserve">
     <value>Piper (offline)</value>
@@ -378,6 +399,30 @@
   </data>
   <data name="ConfigFlow.Behaviour.Notes.Label" xml:space="preserve">
     <value>Notes JARVIS should always know</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.BargeIn.Label" xml:space="preserve">
+    <value>Let the user interrupt JARVIS while it is speaking</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.BargeInThreshold.Label" xml:space="preserve">
+    <value>Interruption sensitivity</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.MaxIterations.Label" xml:space="preserve">
+    <value>Maximum steps in one turn</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Timeout.Label" xml:space="preserve">
+    <value>Conversation timeout, in seconds</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Lifetime.Label" xml:space="preserve">
+    <value>Remember this conversation for, in minutes</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.ServiceEnabled.Label" xml:space="preserve">
+    <value>Use the JARVIS elevated service</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.ServiceScheduling.Label" xml:space="preserve">
+    <value>Allow the elevated service to schedule tasks</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.ServiceAdmin.Label" xml:space="preserve">
+    <value>Allow machine-wide registry changes</value>
   </data>
   <data name="ConfigFlow.Behaviour.Option.SafetyConfirmAll" xml:space="preserve">
     <value>Ask before everything</value>

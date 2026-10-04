@@ -83,190 +83,113 @@ internal sealed class JarvisConfigFlow : IConfigFlow
 		return ConfigFlowResult.Complete("JARVIS");
 	}
 
-	private static ConfigFlowStep ProviderStep() => new()
+	private static ConfigFlowStep ProviderStep() => Step(
+		JarvisFields.ProviderStep,
+		Strings.ConfigFlow.Provider.Title(),
+		Strings.ConfigFlow.Provider.Description());
+
+	private static ConfigFlowStep KeysStep() => Step(
+		JarvisFields.KeysStep,
+		Strings.ConfigFlow.Keys.Title(),
+		Strings.ConfigFlow.Keys.Description());
+
+	private static ConfigFlowStep ModelsStep() => Step(
+		JarvisFields.ModelsStep,
+		Strings.ConfigFlow.Models.Title(),
+		Strings.ConfigFlow.Models.Description());
+
+	private static ConfigFlowStep VoiceStep() => Step(
+		JarvisFields.VoiceStep,
+		Strings.ConfigFlow.Voice.Title(),
+		Strings.ConfigFlow.Voice.Description());
+
+	private static ConfigFlowStep BehaviourStep() => Step(
+		JarvisFields.BehaviourStep,
+		Strings.ConfigFlow.Behaviour.Title(),
+		Strings.ConfigFlow.Behaviour.Description());
+
+	/// <summary>
+	/// Builds a step from the declared table rather than from a hand-written list of fields.
+	/// <para>
+	/// This is the whole of the fix. The steps used to be written out field by field, the store kept its own
+	/// list to read back, and a test asserted nothing connected them, so thirteen settings ended up readable
+	/// but invisible: the code that consumed them was reading a default, permanently, and nothing said so.
+	/// </para>
+	/// </summary>
+	private static ConfigFlowStep Step(string stepId, LocalizedText title, LocalizedText description)
 	{
-		StepId = ProviderStepId,
-		Title = Strings.ConfigFlow.Provider.Title(),
-		Description = Strings.ConfigFlow.Provider.Description(),
-		Fields =
-		[
-			Choice(JarvisSettingsStoreFields.LlmProviderField, ProviderOptions(), Strings.ConfigFlow.Provider.Llm.Label(), defaultValue: "nvidia-nim"),
-			Text(JarvisSettingsStoreFields.SelfHostedUrlField, Strings.ConfigFlow.Provider.SelfHostedUrl.Label(), placeholder: "http://localhost:8000/v1")
-				.OnlyWhen(JarvisSettingsStoreFields.LlmProviderField, "self-hosted-nim"),
-			Text(JarvisSettingsStoreFields.NvidiaBaseUrlField, Strings.ConfigFlow.Provider.NvidiaBaseUrl.Label(), defaultValue: JarvisSettings.DefaultNvidiaBaseUrl),
-		],
-	};
+		var (fields, advanced) = JarvisFields.ForStep(stepId);
 
-	private static ConfigFlowStep KeysStep() => new()
+		return new ConfigFlowStep
+		{
+			StepId = stepId,
+			Title = title,
+			Description = description,
+			Fields = [.. fields.Select(ToParameter)],
+			AdvancedFields = [.. advanced.Select(ToParameter)],
+		};
+	}
+
+	private static ActionParameter ToParameter(JarvisField field)
 	{
-		StepId = KeysStepId,
-		Title = Strings.ConfigFlow.Keys.Title(),
-		Description = Strings.ConfigFlow.Keys.Description(),
-		Fields =
-		[
-			ActionParameter.Secret(
-				JarvisSettingsStoreFields.NvidiaKeyEntryField,
-				Strings.ConfigFlow.Keys.Nvidia.Label(),
-				Strings.ConfigFlow.Keys.Nvidia.Description()),
-			ActionParameter.Secret(
-				JarvisSettingsStoreFields.SelfHostedTokenField,
-				Strings.ConfigFlow.Keys.SelfHostedToken.Label(),
-				Strings.ConfigFlow.Keys.SelfHostedToken.Description())
-				.OnlyWhen(JarvisSettingsStoreFields.LlmProviderField, "self-hosted-nim"),
-			ActionParameter.Secret(
-				JarvisSettingsStoreFields.PicovoiceKeyField,
-				Strings.ConfigFlow.Keys.Picovoice.Label(),
-				Strings.ConfigFlow.Keys.Picovoice.Description()),
-		],
-		AdvancedFields =
-		[
-			Text(JarvisSettingsStoreFields.NvidiaBaseUrlField, Strings.ConfigFlow.Provider.NvidiaBaseUrl.Label()),
-		],
-	};
+		var parameter = field.Kind switch
+		{
+			JarvisFieldKind.Secret => ActionParameter.Secret(
+				field.Name,
+				field.Label(),
+				field.Description?.Invoke() ?? field.Label()),
 
-	private static ConfigFlowStep ModelsStep() => new()
-	{
-		StepId = ModelsStepId,
-		Title = Strings.ConfigFlow.Models.Title(),
-		Description = Strings.ConfigFlow.Models.Description(),
-		Fields =
-		[
-			Text(JarvisSettingsStoreFields.LlmModelField, Strings.ConfigFlow.Models.Llm.Label(), defaultValue: JarvisSettings.DefaultLlmModel, required: true),
-			Choice(JarvisSettingsStoreFields.VisionProviderField, VisionOptions(), Strings.ConfigFlow.Models.VisionProvider.Label(), defaultValue: "nvidia-nim"),
-			Text(JarvisSettingsStoreFields.VisionModelField, Strings.ConfigFlow.Models.VisionModel.Label(), defaultValue: JarvisSettings.DefaultVisionModel),
-			Choice(JarvisSettingsStoreFields.SttProviderField, SttOptions(), Strings.ConfigFlow.Models.Stt.Label(), defaultValue: "whisper-cpp"),
-			Text(JarvisSettingsStoreFields.SttModelField, Strings.ConfigFlow.Models.SttModel.Label(), defaultValue: JarvisSettings.DefaultNimSpeechToTextModel)
-				.OnlyWhen(JarvisSettingsStoreFields.SttProviderField, "nvidia-nim"),
-		],
-		AdvancedFields =
-		[
-			Text(JarvisSettingsStoreFields.VisionModelField, Strings.ConfigFlow.Models.VisionModel.Label()),
-			Text(JarvisSettingsStoreFields.SttModelField, Strings.ConfigFlow.Models.SttModel.Label()),
-		],
-	};
+			JarvisFieldKind.Multiline => ActionParameter.MultilineText(field.Name, field.Label()),
 
-	private static ConfigFlowStep VoiceStep() => new()
-	{
-		StepId = VoiceStepId,
-		Title = Strings.ConfigFlow.Voice.Title(),
-		Description = Strings.ConfigFlow.Voice.Description(),
-		Fields =
-		[
-			Choice(JarvisSettingsStoreFields.TtsProviderField, TtsOptions(), Strings.ConfigFlow.Voice.Tts.Label(), defaultValue: "piper"),
-			Text(JarvisSettingsStoreFields.PiperVoiceField, Strings.ConfigFlow.Voice.PiperVoice.Label(), defaultValue: "en_GB-alan-medium")
-				.OnlyWhen(JarvisSettingsStoreFields.TtsProviderField, "piper"),
-			Text(JarvisSettingsStoreFields.TtsModelField, Strings.ConfigFlow.Voice.TtsModel.Label(), defaultValue: JarvisSettings.DefaultNimTextToSpeechModel)
-				.OnlyWhen(JarvisSettingsStoreFields.TtsProviderField, "nvidia-nim"),
-			Text(JarvisSettingsStoreFields.LanguageField, Strings.ConfigFlow.Voice.Language.Label(), defaultValue: "en", required: true),
-			Choice(JarvisSettingsStoreFields.WakeEngineField, WakeOptions(), Strings.ConfigFlow.Voice.WakeEngine.Label(), defaultValue: "porcupine"),
-			Text(JarvisSettingsStoreFields.WakeWordField, Strings.ConfigFlow.Voice.WakeWord.Label(), defaultValue: "jarvis"),
-			Text(JarvisSettingsStoreFields.HotkeyField, Strings.ConfigFlow.Voice.Hotkey.Label(), defaultValue: "Ctrl+Alt+J"),
-		],
-	};
+			JarvisFieldKind.Choice => ActionParameter.Choice(
+				field.Name,
+				field.Options ?? [],
+				field.Label(),
+				defaultValue: field.Default,
+				required: field.Required),
 
-	private static ConfigFlowStep BehaviourStep() => new()
-	{
-		StepId = BehaviourStepId,
-		Title = Strings.ConfigFlow.Behaviour.Title(),
-		Description = Strings.ConfigFlow.Behaviour.Description(),
-		Fields =
-		[
-			Choice(JarvisSettingsStoreFields.SafetyField, SafetyOptions(), Strings.ConfigFlow.Behaviour.Safety.Label(), defaultValue: "confirm-all"),
-			Choice(JarvisSettingsStoreFields.ConfirmationField, ConfirmationOptions(), Strings.ConfigFlow.Behaviour.Confirmation.Label(), defaultValue: "hybrid"),
-			Choice(JarvisSettingsStoreFields.CancelDepthField, CancelOptions(), Strings.ConfigFlow.Behaviour.CancelDepth.Label(), defaultValue: "speech-and-stream"),
-			Choice(JarvisSettingsStoreFields.MemoryField, MemoryOptions(), Strings.ConfigFlow.Behaviour.Memory.Label(), defaultValue: "persistent-notes"),
-			Choice(JarvisSettingsStoreFields.PersonaField, PersonaOptions(), Strings.ConfigFlow.Behaviour.Persona.Label(), defaultValue: "classic-jarvis"),
-		],
-		AdvancedFields =
-		[
-			Multiline(JarvisSettingsStoreFields.PromptField, Strings.ConfigFlow.Behaviour.Prompt.Label()),
-			Multiline(JarvisSettingsStoreFields.NotesField, Strings.ConfigFlow.Behaviour.Notes.Label()),
-		],
-	};
+			// No bounds here: the parameter type carries no minimum or maximum, and the store already
+			// clamps a number into range when it reads it back. Declaring a bound that nothing enforced
+			// would be the same kind of decoration the rest of this table is replacing.
+			JarvisFieldKind.Number => ActionParameter.Number(
+				field.Name,
+				field.Label(),
+				field.Description?.Invoke() ?? field.Label(),
+				required: field.Required),
 
-	private static IReadOnlyList<ActionParameterOption> ProviderOptions() =>
+			// A flag is stored as "true" or "false" and read back through the same parser as every other
+			// string field, so it is declared as a choice rather than inventing a second representation.
+			JarvisFieldKind.Flag => ActionParameter.Choice(
+				field.Name,
+				YesNo(),
+				field.Label(),
+				defaultValue: field.Default ?? "true",
+				required: field.Required),
+
+			_ => ActionParameter.Text(
+				field.Name,
+				field.Label(),
+				placeholder: field.Default,
+				defaultValue: field.Default,
+				required: field.Required),
+		};
+
+		if (field.OnlyWhenField is { } condition && field.OnlyWhenValue is { } value)
+		{
+			parameter = parameter.OnlyWhen(condition, value);
+		}
+
+		return parameter;
+	}
+
+	private static IReadOnlyList<ActionParameterOption> YesNo() =>
 	[
-		Option("nvidia-nim", Strings.ConfigFlow.Option.NvidiaNim()),
-		Option("self-hosted-nim", Strings.ConfigFlow.Option.SelfHosted()),
-		Option("llama-cpp", Strings.ConfigFlow.Option.LlamaCpp()),
-	];
-
-	private static IReadOnlyList<ActionParameterOption> VisionOptions() =>
-	[
-		Option("nvidia-nim", Strings.ConfigFlow.Option.NvidiaNim()),
-		Option("llama-cpp", Strings.ConfigFlow.Option.LlamaCpp()),
-	];
-
-	private static IReadOnlyList<ActionParameterOption> SttOptions() =>
-	[
-		Option("whisper-cpp", Strings.ConfigFlow.Models.Option.WhisperCpp()),
-		Option("nvidia-nim", Strings.ConfigFlow.Option.NvidiaNim()),
-		Option("sapi", Strings.ConfigFlow.Option.Sapi()),
-	];
-
-	private static IReadOnlyList<ActionParameterOption> TtsOptions() =>
-	[
-		Option("piper", Strings.ConfigFlow.Voice.Option.Piper()),
-		Option("nvidia-nim", Strings.ConfigFlow.Option.NvidiaNim()),
-		Option("sapi", Strings.ConfigFlow.Option.Sapi()),
-	];
-
-	private static IReadOnlyList<ActionParameterOption> WakeOptions() =>
-	[
-		Option("porcupine", Strings.ConfigFlow.Voice.Option.Porcupine()),
-		Option("nanowakeword", Strings.ConfigFlow.Voice.Option.NanoWakeWord()),
-		Option("vosk", Strings.ConfigFlow.Voice.Option.Vosk()),
-	];
-
-	private static IReadOnlyList<ActionParameterOption> SafetyOptions() =>
-	[
-		Option("confirm-all", Strings.ConfigFlow.Behaviour.Option.SafetyConfirmAll()),
-		Option("allowlist", Strings.ConfigFlow.Behaviour.Option.SafetyAllowlist()),
-		Option("tool-permissions", Strings.ConfigFlow.Behaviour.Option.SafetyToolPermissions()),
-		Option("autonomous", Strings.ConfigFlow.Behaviour.Option.SafetyAutonomous()),
-	];
-
-	private static IReadOnlyList<ActionParameterOption> ConfirmationOptions() =>
-	[
-		Option("yes-no", Strings.ConfigFlow.Behaviour.Option.ConfirmYesNo()),
-		Option("challenge", Strings.ConfigFlow.Behaviour.Option.ConfirmChallenge()),
-		Option("hybrid", Strings.ConfigFlow.Behaviour.Option.ConfirmHybrid()),
-	];
-
-	private static IReadOnlyList<ActionParameterOption> CancelOptions() =>
-	[
-		Option("speech-and-stream", Strings.ConfigFlow.Behaviour.Option.CancelSpeech()),
-		Option("stop-running-command", Strings.ConfigFlow.Behaviour.Option.CancelCommand()),
-	];
-
-	private static IReadOnlyList<ActionParameterOption> MemoryOptions() =>
-	[
-		Option("none", Strings.ConfigFlow.Behaviour.Option.MemoryNone()),
-		Option("session", Strings.ConfigFlow.Behaviour.Option.MemorySession()),
-		Option("persistent", Strings.ConfigFlow.Behaviour.Option.MemoryPersistent()),
-		Option("persistent-notes", Strings.ConfigFlow.Behaviour.Option.MemoryNotes()),
-	];
-
-	private static IReadOnlyList<ActionParameterOption> PersonaOptions() =>
-	[
-		Option("classic-jarvis", Strings.ConfigFlow.Behaviour.Option.PersonaClassic()),
-		Option("terse", Strings.ConfigFlow.Behaviour.Option.PersonaTerse()),
-		Option("sarcastic", Strings.ConfigFlow.Behaviour.Option.PersonaSarcastic()),
-		Option("formal", Strings.ConfigFlow.Behaviour.Option.PersonaFormal()),
-		Option("custom", Strings.ConfigFlow.Behaviour.Option.PersonaCustom()),
+		Option("true", Strings.ConfigFlow.Option.Yes()),
+		Option("false", Strings.ConfigFlow.Option.No()),
 	];
 
 	private static ActionParameterOption Option(string value, LocalizedText label) =>
 		new() { Value = value, Label = label };
-
-	private static ActionParameter Choice(string name, IReadOnlyList<ActionParameterOption> options, LocalizedText label, string defaultValue) =>
-		ActionParameter.Choice(name, options, label, defaultValue: defaultValue, required: true);
-
-	private static ActionParameter Text(string name, LocalizedText label, string? placeholder = null, string? defaultValue = null, bool required = false) =>
-		ActionParameter.Text(name, label, placeholder: placeholder, defaultValue: defaultValue, required: required);
-
-	private static ActionParameter Multiline(string name, LocalizedText label) =>
-		ActionParameter.MultilineText(name, label);
 
 	private static string Read(IReadOnlyDictionary<string, object?> input, string name) =>
 		input.GetValueOrDefault(name)?.ToString() ?? string.Empty;

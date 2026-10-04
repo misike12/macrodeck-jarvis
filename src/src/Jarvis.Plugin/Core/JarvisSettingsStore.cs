@@ -108,40 +108,11 @@ public sealed class JarvisSettingsStore
 	/// The non-secret fields the setup flow writes, read back in one pass. Keeping them in one list means a
 	/// setting added to the flow is read by editing the same place, rather than two that can drift.
 	/// </summary>
-	private static readonly string[] StringFields =
-	[
-		JarvisSettingsStoreFields.NvidiaBaseUrlField,
-		JarvisSettingsStoreFields.SelfHostedUrlField,
-		JarvisSettingsStoreFields.LlmProviderField,
-		JarvisSettingsStoreFields.LlmModelField,
-		JarvisSettingsStoreFields.VisionProviderField,
-		JarvisSettingsStoreFields.VisionModelField,
-		JarvisSettingsStoreFields.SttProviderField,
-		JarvisSettingsStoreFields.SttModelField,
-		JarvisSettingsStoreFields.TtsProviderField,
-		JarvisSettingsStoreFields.TtsModelField,
-		JarvisSettingsStoreFields.PiperVoiceField,
-		JarvisSettingsStoreFields.LanguageField,
-		JarvisSettingsStoreFields.WakeEngineField,
-		JarvisSettingsStoreFields.WakeWordField,
-		JarvisSettingsStoreFields.WakeWordEnabledField,
-		JarvisSettingsStoreFields.WakeSensitivityField,
-		JarvisSettingsStoreFields.HotkeyField,
-		JarvisSettingsStoreFields.MicrophoneIdField,
-		JarvisSettingsStoreFields.MicrophoneNameField,
-		JarvisSettingsStoreFields.MicrophoneAlwaysOnField,
-		JarvisSettingsStoreFields.SafetyField,
-		JarvisSettingsStoreFields.ConfirmationField,
-		JarvisSettingsStoreFields.CancelDepthField,
-		JarvisSettingsStoreFields.BargeInField,
-		JarvisSettingsStoreFields.BargeInThresholdField,
-		JarvisSettingsStoreFields.MemoryField,
-		JarvisSettingsStoreFields.PersonaField,
-		JarvisSettingsStoreFields.PromptField,
-		JarvisSettingsStoreFields.NotesField,
-		JarvisSettingsStoreFields.MaxIterationsField,
-		JarvisSettingsStoreFields.TimeoutField,
-	];
+/// Everything the setup flow writes, taken from the one declared table rather than restated here.
+	/// A list written out separately is a list that drifts, and when it drifts the store reads back a setting
+	/// the flow cannot write, so the code that consumes it reads a default forever and nothing says so.
+	/// </summary>
+	private static readonly string[] StringFields = JarvisFields.ReadBackAsText;
 
 /// <summary>
 	/// Parses a stored enum, keeping the current value for one this build does not recognise. A stored
@@ -305,6 +276,17 @@ public sealed class JarvisSettingsStore
 			MaxIterations = ReadCount(JarvisSettingsStoreFields.MaxIterationsField, current.MaxIterations, 1, 12),
 			ConversationTimeoutSeconds = ReadCount(
 				JarvisSettingsStoreFields.TimeoutField, current.ConversationTimeoutSeconds, 5, 600),
+			Lifetime = ReadEnum(JarvisSettingsStoreFields.LifetimeField, current.Lifetime),
+
+			// The three elevated-service switches were read into the dictionary and then never copied into
+			// the snapshot, so the code that consulted them saw false forever. That is why a user who turned
+			// the service off in the settings still had a model calling it: the setting had nowhere to land.
+			ElevatedServiceEnabled = ReadFlag(
+				JarvisSettingsStoreFields.ServiceEnabledField, current.ElevatedServiceEnabled),
+			ElevatedServiceScheduling = ReadFlag(
+				JarvisSettingsStoreFields.ServiceSchedulingField, current.ElevatedServiceScheduling),
+			ElevatedServiceAdminOperations = ReadFlag(
+				JarvisSettingsStoreFields.ServiceAdminField, current.ElevatedServiceAdminOperations),
 		};
 
 		lock (_gate)

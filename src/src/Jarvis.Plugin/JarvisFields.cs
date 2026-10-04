@@ -1,0 +1,252 @@
+using Jarvis.Plugin.Core;
+using MacroDeck.Localization;
+using MacroDeck.Sdk.Actions;
+
+namespace Jarvis.Plugin;
+
+/// <summary>How a setting is presented, which is also how it is read back.</summary>
+internal enum JarvisFieldKind
+{
+	Text,
+	Multiline,
+	Choice,
+	Flag,
+	Number,
+	Secret,
+}
+
+/// <summary>
+/// One declared setting.
+/// <para>
+/// Everything that knows a setting exists derives from this list: the steps the setup flow shows, and the
+/// fields the store reads back. There used to be three hand-maintained copies of that list, and they had
+/// already drifted: thirteen settings were read back but appeared in no step, so a user could not set them
+/// at all and the code that consumed them was reading a default forever.
+/// </para>
+/// </summary>
+internal sealed record JarvisField(
+	string Name,
+	JarvisFieldKind Kind,
+	string Step,
+	Func<LocalizedText> Label,
+	string? Default = null,
+	bool Required = false,
+	bool Advanced = false,
+	IReadOnlyList<ActionParameterOption>? Options = null,
+	string? OnlyWhenField = null,
+	string? OnlyWhenValue = null,
+	Func<LocalizedText>? Description = null,
+	double? Minimum = null,
+	double? Maximum = null);
+
+/// <summary>
+/// Every setting JARVIS has, declared once.
+/// <para>
+/// A field that is not here cannot be configured and is not read. That is the point: adding a setting means
+/// adding one row, and a test asserts that every field the store reads is reachable from a step and that
+/// every field a step shows is read.
+/// </para>
+/// </summary>
+internal static class JarvisFields
+{
+	public const string ProviderStep = "provider";
+
+	public const string KeysStep = "keys";
+
+	public const string ModelsStep = "models";
+
+	public const string VoiceStep = "voice";
+
+	public const string BehaviourStep = "behaviour";
+
+	private static ActionParameterOption Option(string value, LocalizedText label) =>
+		new() { Value = value, Label = label };
+
+	public static readonly IReadOnlyList<JarvisField> All =
+	[
+		// Provider.
+		new(JarvisSettingsStoreFields.LlmProviderField, JarvisFieldKind.Choice, ProviderStep,
+			() => Strings.ConfigFlow.Provider.Llm.Label(), Default: "nvidia-nim", Required: true,
+			Options:
+			[
+				Option("nvidia-nim", Strings.ConfigFlow.Option.NvidiaNim()),
+				Option("self-hosted-nim", Strings.ConfigFlow.Option.SelfHosted()),
+				Option("llama-cpp", Strings.ConfigFlow.Option.LlamaCpp()),
+			]),
+		new(JarvisSettingsStoreFields.SelfHostedUrlField, JarvisFieldKind.Text, ProviderStep,
+			() => Strings.ConfigFlow.Provider.SelfHostedUrl.Label(), Default: "http://localhost:8000/v1",
+			OnlyWhenField: JarvisSettingsStoreFields.LlmProviderField, OnlyWhenValue: "self-hosted-nim"),
+		new(JarvisSettingsStoreFields.NvidiaBaseUrlField, JarvisFieldKind.Text, ProviderStep,
+			() => Strings.ConfigFlow.Provider.NvidiaBaseUrl.Label(), Default: JarvisSettings.DefaultNvidiaBaseUrl,
+			Advanced: true),
+
+		// Keys.
+		new(JarvisSettingsStoreFields.NvidiaKeyEntryField, JarvisFieldKind.Secret, KeysStep,
+			() => Strings.ConfigFlow.Keys.Nvidia.Label(),
+			Description: () => Strings.ConfigFlow.Keys.Nvidia.Description()),
+		new(JarvisSettingsStoreFields.SelfHostedTokenField, JarvisFieldKind.Secret, KeysStep,
+			() => Strings.ConfigFlow.Keys.SelfHostedToken.Label(),
+			Description: () => Strings.ConfigFlow.Keys.SelfHostedToken.Description(),
+			OnlyWhenField: JarvisSettingsStoreFields.LlmProviderField, OnlyWhenValue: "self-hosted-nim"),
+		new(JarvisSettingsStoreFields.PicovoiceKeyField, JarvisFieldKind.Secret, KeysStep,
+			() => Strings.ConfigFlow.Keys.Picovoice.Label(),
+			Description: () => Strings.ConfigFlow.Keys.Picovoice.Description()),
+
+		// Models.
+		new(JarvisSettingsStoreFields.LlmModelField, JarvisFieldKind.Text, ModelsStep,
+			() => Strings.ConfigFlow.Models.Llm.Label(), Default: JarvisSettings.DefaultLlmModel, Required: true),
+		new(JarvisSettingsStoreFields.VisionProviderField, JarvisFieldKind.Choice, ModelsStep,
+			() => Strings.ConfigFlow.Models.VisionProvider.Label(), Default: "nvidia-nim", Required: true,
+			Options:
+			[
+				Option("nvidia-nim", Strings.ConfigFlow.Option.NvidiaNim()),
+				Option("llama-cpp", Strings.ConfigFlow.Option.LlamaCpp()),
+			]),
+		new(JarvisSettingsStoreFields.VisionModelField, JarvisFieldKind.Text, ModelsStep,
+			() => Strings.ConfigFlow.Models.VisionModel.Label(), Default: JarvisSettings.DefaultVisionModel),
+		new(JarvisSettingsStoreFields.SttProviderField, JarvisFieldKind.Choice, ModelsStep,
+			() => Strings.ConfigFlow.Models.Stt.Label(), Default: "whisper-cpp", Required: true,
+			Options:
+			[
+				Option("whisper-cpp", Strings.ConfigFlow.Models.Option.WhisperCpp()),
+				Option("nvidia-nim", Strings.ConfigFlow.Option.NvidiaNim()),
+				Option("sapi", Strings.ConfigFlow.Option.Sapi()),
+			]),
+		new(JarvisSettingsStoreFields.SttModelField, JarvisFieldKind.Text, ModelsStep,
+			() => Strings.ConfigFlow.Models.SttModel.Label(), Default: JarvisSettings.DefaultNimSpeechToTextModel,
+			OnlyWhenField: JarvisSettingsStoreFields.SttProviderField, OnlyWhenValue: "nvidia-nim"),
+
+		// Voice and input.
+		new(JarvisSettingsStoreFields.TtsProviderField, JarvisFieldKind.Choice, VoiceStep,
+			() => Strings.ConfigFlow.Voice.Tts.Label(), Default: "piper", Required: true,
+			Options:
+			[
+				Option("piper", Strings.ConfigFlow.Voice.Option.Piper()),
+				Option("nvidia-nim", Strings.ConfigFlow.Option.NvidiaNim()),
+				Option("sapi", Strings.ConfigFlow.Option.Sapi()),
+			]),
+		new(JarvisSettingsStoreFields.PiperVoiceField, JarvisFieldKind.Text, VoiceStep,
+			() => Strings.ConfigFlow.Voice.PiperVoice.Label(), Default: "en_GB-alan-medium",
+			OnlyWhenField: JarvisSettingsStoreFields.TtsProviderField, OnlyWhenValue: "piper"),
+		new(JarvisSettingsStoreFields.TtsModelField, JarvisFieldKind.Text, VoiceStep,
+			() => Strings.ConfigFlow.Voice.TtsModel.Label(), Default: JarvisSettings.DefaultNimTextToSpeechModel,
+			OnlyWhenField: JarvisSettingsStoreFields.TtsProviderField, OnlyWhenValue: "nvidia-nim"),
+		new(JarvisSettingsStoreFields.LanguageField, JarvisFieldKind.Text, VoiceStep,
+			() => Strings.ConfigFlow.Voice.Language.Label(), Default: "en", Required: true),
+		new(JarvisSettingsStoreFields.WakeEngineField, JarvisFieldKind.Choice, VoiceStep,
+			() => Strings.ConfigFlow.Voice.WakeEngine.Label(), Default: "porcupine", Required: true,
+			Options:
+			[
+				Option("porcupine", Strings.ConfigFlow.Voice.Option.Porcupine()),
+				Option("nanowakeword", Strings.ConfigFlow.Voice.Option.NanoWakeWord()),
+				Option("vosk", Strings.ConfigFlow.Voice.Option.Vosk()),
+			]),
+
+		// The wake word had no way to be switched off. It was read back from a field no step declared, so
+		// the detector's enabled flag was whatever the default was and the user had no control over it.
+		new(JarvisSettingsStoreFields.WakeWordEnabledField, JarvisFieldKind.Flag, VoiceStep,
+			() => Strings.ConfigFlow.Voice.WakeWordEnabled.Label(), Default: "true"),
+		new(JarvisSettingsStoreFields.WakeWordField, JarvisFieldKind.Text, VoiceStep,
+			() => Strings.ConfigFlow.Voice.WakeWord.Label(), Default: "jarvis"),
+		new(JarvisSettingsStoreFields.WakeSensitivityField, JarvisFieldKind.Number, VoiceStep,
+			() => Strings.ConfigFlow.Voice.WakeSensitivity.Label(), Default: "0.06",
+			Minimum: 0.0, Maximum: 1.0, Advanced: true),
+		new(JarvisSettingsStoreFields.MicrophoneAlwaysOnField, JarvisFieldKind.Flag, VoiceStep,
+			() => Strings.ConfigFlow.Voice.MicrophoneAlwaysOn.Label(), Default: "true"),
+		new(JarvisSettingsStoreFields.MicrophoneIdField, JarvisFieldKind.Text, VoiceStep,
+			() => Strings.ConfigFlow.Voice.MicrophoneId.Label(), Advanced: true),
+		new(JarvisSettingsStoreFields.MicrophoneNameField, JarvisFieldKind.Text, VoiceStep,
+			() => Strings.ConfigFlow.Voice.MicrophoneName.Label(), Advanced: true),
+		new(JarvisSettingsStoreFields.HotkeyField, JarvisFieldKind.Text, VoiceStep,
+			() => Strings.ConfigFlow.Voice.Hotkey.Label(), Default: "Ctrl+Alt+J"),
+
+		// Behaviour.
+		new(JarvisSettingsStoreFields.SafetyField, JarvisFieldKind.Choice, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.Safety.Label(), Default: "confirm-all", Required: true,
+			Options:
+			[
+				Option("confirm-all", Strings.ConfigFlow.Behaviour.Option.SafetyConfirmAll()),
+				Option("allowlist", Strings.ConfigFlow.Behaviour.Option.SafetyAllowlist()),
+				Option("tool-permissions", Strings.ConfigFlow.Behaviour.Option.SafetyToolPermissions()),
+				Option("autonomous", Strings.ConfigFlow.Behaviour.Option.SafetyAutonomous()),
+			]),
+		new(JarvisSettingsStoreFields.ConfirmationField, JarvisFieldKind.Choice, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.Confirmation.Label(), Default: "hybrid", Required: true,
+			Options:
+			[
+				Option("yes-no", Strings.ConfigFlow.Behaviour.Option.ConfirmYesNo()),
+				Option("challenge", Strings.ConfigFlow.Behaviour.Option.ConfirmChallenge()),
+				Option("hybrid", Strings.ConfigFlow.Behaviour.Option.ConfirmHybrid()),
+			]),
+		new(JarvisSettingsStoreFields.CancelDepthField, JarvisFieldKind.Choice, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.CancelDepth.Label(), Default: "speech-and-stream", Required: true,
+			Options:
+			[
+				Option("speech-and-stream", Strings.ConfigFlow.Behaviour.Option.CancelSpeech()),
+				Option("stop-running-command", Strings.ConfigFlow.Behaviour.Option.CancelCommand()),
+			]),
+		new(JarvisSettingsStoreFields.BargeInField, JarvisFieldKind.Flag, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.BargeIn.Label(), Default: "false"),
+		new(JarvisSettingsStoreFields.BargeInThresholdField, JarvisFieldKind.Number, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.BargeInThreshold.Label(), Default: "0.6",
+			Minimum: 0.0, Maximum: 1.0, Advanced: true),
+		new(JarvisSettingsStoreFields.MaxIterationsField, JarvisFieldKind.Number, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.MaxIterations.Label(), Default: "8",
+			Minimum: 1.0, Maximum: 32.0, Advanced: true),
+		new(JarvisSettingsStoreFields.TimeoutField, JarvisFieldKind.Number, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.Timeout.Label(), Default: "120",
+			Minimum: 10.0, Maximum: 600.0, Advanced: true),
+		new(JarvisSettingsStoreFields.LifetimeField, JarvisFieldKind.Number, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.Lifetime.Label(), Default: "30",
+			Minimum: 1.0, Maximum: 600.0, Advanced: true),
+		new(JarvisSettingsStoreFields.MemoryField, JarvisFieldKind.Choice, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.Memory.Label(), Default: "persistent-notes", Required: true,
+			Options:
+			[
+				Option("none", Strings.ConfigFlow.Behaviour.Option.MemoryNone()),
+				Option("session", Strings.ConfigFlow.Behaviour.Option.MemorySession()),
+				Option("persistent", Strings.ConfigFlow.Behaviour.Option.MemoryPersistent()),
+				Option("persistent-notes", Strings.ConfigFlow.Behaviour.Option.MemoryNotes()),
+			]),
+		new(JarvisSettingsStoreFields.PersonaField, JarvisFieldKind.Choice, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.Persona.Label(), Default: "classic-jarvis", Required: true,
+			Options:
+			[
+				Option("classic-jarvis", Strings.ConfigFlow.Behaviour.Option.PersonaClassic()),
+				Option("terse", Strings.ConfigFlow.Behaviour.Option.PersonaTerse()),
+				Option("sarcastic", Strings.ConfigFlow.Behaviour.Option.PersonaSarcastic()),
+				Option("formal", Strings.ConfigFlow.Behaviour.Option.PersonaFormal()),
+				Option("custom", Strings.ConfigFlow.Behaviour.Option.PersonaCustom()),
+			]),
+		new(JarvisSettingsStoreFields.PromptField, JarvisFieldKind.Multiline, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.Prompt.Label(), Advanced: true),
+		new(JarvisSettingsStoreFields.NotesField, JarvisFieldKind.Multiline, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.Notes.Label(), Advanced: true),
+
+		// The three elevated-service switches. All three were declared, read back and shown nowhere, so a
+		// user who turned the service off still had a model calling it.
+		new(JarvisSettingsStoreFields.ServiceEnabledField, JarvisFieldKind.Flag, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.ServiceEnabled.Label(), Default: "false"),
+		new(JarvisSettingsStoreFields.ServiceSchedulingField, JarvisFieldKind.Flag, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.ServiceScheduling.Label(), Default: "false",
+			OnlyWhenField: JarvisSettingsStoreFields.ServiceEnabledField, OnlyWhenValue: "true"),
+		new(JarvisSettingsStoreFields.ServiceAdminField, JarvisFieldKind.Flag, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.ServiceAdmin.Label(), Default: "true",
+			OnlyWhenField: JarvisSettingsStoreFields.ServiceEnabledField, OnlyWhenValue: "true"),
+	];
+
+	/// <summary>
+	/// The fields the store reads back as plain strings. Secrets are excluded because they are read through
+	/// the host's secret store instead, and a secret read as a string would land in a log.
+	/// </summary>
+	public static readonly string[] ReadBackAsText =
+		[.. All.Where(field => field.Kind is not JarvisFieldKind.Secret).Select(field => field.Name)];
+
+	/// <summary>The fields for one step, split into the ones shown and the ones behind Advanced.</summary>
+	public static (IReadOnlyList<JarvisField> Fields, IReadOnlyList<JarvisField> Advanced) ForStep(string step)
+	{
+		var inStep = All.Where(field => field.Step == step).ToArray();
+
+		return (inStep.Where(field => !field.Advanced).ToArray(), inStep.Where(field => field.Advanced).ToArray());
+	}
+}
