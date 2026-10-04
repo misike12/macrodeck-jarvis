@@ -6,8 +6,11 @@ using MacroDeck.Sdk.ConfigFlow;
 namespace Jarvis.Plugin;
 
 /// <summary>
-/// The setup flow. Keys are written as <see cref="ConfigFlowValue.Secret"/> so the host stores them in
+/// The setup flow.
+/// <para>
+/// Credentials are declared as secret fields, so the form layer encrypts them and the host stores them in
 /// its encrypted secret store rather than beside an ordinary setting.
+/// </para>
 /// </summary>
 internal sealed class JarvisConfigFlow : IConfigFlow
 {
@@ -34,7 +37,7 @@ internal sealed class JarvisConfigFlow : IConfigFlow
 			KeysStepId => KeysSubmitted(input),
 			ModelsStepId => ConfigFlowResult.Step(VoiceStep()),
 			VoiceStepId => ConfigFlowResult.Step(BehaviourStep()),
-			BehaviourStepId => Complete(input),
+			BehaviourStepId => Complete(),
 			_ => ConfigFlowResult.Error(ProviderStep(), Strings.ConfigFlow.UnknownStep()),
 		};
 
@@ -65,37 +68,19 @@ internal sealed class JarvisConfigFlow : IConfigFlow
 		return ConfigFlowResult.Step(ModelsStep());
 	}
 
-	private static ConfigFlowResult Complete(IReadOnlyDictionary<string, object?> input)
+	/// <summary>
+	/// Ends the flow.
+	/// <para>
+	/// No values dictionary is returned, and that is deliberate. The host persists every form field the
+	/// user filled in as the flow runs, across all steps, so handing back a dictionary built from the last
+	/// step's <c>input</c> would write that step's fields over everything the earlier steps collected.
+	/// The credentials are the sharp edge: they are collected two steps earlier, so a dictionary here wrote
+	/// an empty secret over a stored key every time setup was completed.
+	/// </para>
+	/// </summary>
+	private static ConfigFlowResult Complete()
 	{
-		var values = new Dictionary<string, ConfigFlowValue>
-		{
-			[JarvisSettingsStoreFields.NvidiaKeyEntryField] = ConfigFlowValue.Secret(Read(input, JarvisSettingsStoreFields.NvidiaKeyEntryField)),
-			[JarvisSettingsStoreFields.PicovoiceKeyField] = ConfigFlowValue.Secret(Read(input, JarvisSettingsStoreFields.PicovoiceKeyField)),
-			[JarvisSettingsStoreFields.SelfHostedTokenField] = ConfigFlowValue.Secret(Read(input, JarvisSettingsStoreFields.SelfHostedTokenField)),
-			[JarvisSettingsStoreFields.LlmProviderField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.LlmProviderField)),
-			[JarvisSettingsStoreFields.SelfHostedUrlField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.SelfHostedUrlField)),
-			[JarvisSettingsStoreFields.NvidiaBaseUrlField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.NvidiaBaseUrlField)),
-			[JarvisSettingsStoreFields.LlmModelField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.LlmModelField)),
-			[JarvisSettingsStoreFields.VisionProviderField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.VisionProviderField)),
-			[JarvisSettingsStoreFields.VisionModelField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.VisionModelField)),
-			[JarvisSettingsStoreFields.SttProviderField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.SttProviderField)),
-			[JarvisSettingsStoreFields.SttModelField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.SttModelField)),
-			[JarvisSettingsStoreFields.TtsProviderField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.TtsProviderField)),
-			[JarvisSettingsStoreFields.PiperVoiceField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.PiperVoiceField)),
-			[JarvisSettingsStoreFields.LanguageField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.LanguageField)),
-			[JarvisSettingsStoreFields.WakeEngineField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.WakeEngineField)),
-			[JarvisSettingsStoreFields.WakeWordField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.WakeWordField)),
-			[JarvisSettingsStoreFields.HotkeyField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.HotkeyField)),
-			[JarvisSettingsStoreFields.SafetyField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.SafetyField)),
-			[JarvisSettingsStoreFields.ConfirmationField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.ConfirmationField)),
-			[JarvisSettingsStoreFields.CancelDepthField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.CancelDepthField)),
-			[JarvisSettingsStoreFields.MemoryField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.MemoryField)),
-			[JarvisSettingsStoreFields.PersonaField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.PersonaField)),
-			[JarvisSettingsStoreFields.PromptField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.PromptField)),
-			[JarvisSettingsStoreFields.NotesField] = ConfigFlowValue.Plain(Read(input, JarvisSettingsStoreFields.NotesField)),
-		};
-
-		return ConfigFlowResult.Complete("JARVIS", values);
+		return ConfigFlowResult.Complete("JARVIS");
 	}
 
 	private static ConfigFlowStep ProviderStep() => new()

@@ -52,6 +52,35 @@ public class SettingsRoundTripTests
 	}
 
 	/// <summary>
+	/// Completing the flow must not hand back a values dictionary.
+	/// <para>
+	/// The host persists every form field as the flow runs, across all steps. The flow used to rebuild all
+	/// of them from the <em>last</em> step's input and pass them to <c>Complete</c>, so the three API keys
+	/// collected two steps earlier were absent from that input and were written back as an empty secret.
+	/// Every configured API key was therefore destroyed each time setup was completed, which is why the
+	/// dictionary is gone rather than merely corrected.
+	/// </para>
+	/// </summary>
+	[Test]
+	public void Completing_the_flow_writes_no_values()
+	{
+		var source = System.IO.File.ReadAllText(FlowPath());
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(
+				source,
+				Does.Not.Contain("ConfigFlowValue."),
+				"the flow builds a values dictionary, so the last step's input overwrites every earlier step");
+
+			Assert.That(
+				source,
+				Does.Not.Match(@"ConfigFlowResult\.Complete\([^)]*,"),
+				"Complete is passed a second argument, which replaces what the host already persisted");
+		});
+	}
+
+	/// <summary>
 	/// A value this build does not recognise must not stop the plugin starting, and must not blank the
 	/// setting either: a downgrade should leave the stored value for the build that understands it.
 	/// </summary>
