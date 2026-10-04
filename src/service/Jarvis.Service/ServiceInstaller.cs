@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -122,24 +124,57 @@ public static class ServiceInstaller
 		string account,
 		string description)
 	{
-		var start = startType.Equals("Automatic", StringComparison.OrdinalIgnoreCase)
+var start = startType.Equals("Automatic", StringComparison.OrdinalIgnoreCase)
 			? "auto"
 			: startType.Equals("Manual", StringComparison.OrdinalIgnoreCase) ? "demand" : "auto";
+
+		// An existing registration is updated rather than treated as a reason to refuse. The common case is a
+		// reinstall after a build, and the binary path changes whenever the service moves out of the build
+		// output, so refusing to update left the manager pointing at a path that no longer existed: a stale
+		// registration that reported success and then failed to start with nothing to explain it.
+		var existing = Run("sc.exe", ["query", name]);
+
+		if (existing.ExitCode == 0)
+		{
+			var configured = Run(
+				"sc.exe",
+				[
+					"config",
+					name,
+					"binPath=", binaryPath,
+					"start=", start,
+					"obj=", account,
+					"DisplayName=", displayName,
+				]);
+
+			if (configured.ExitCode != 0)
+			{
+				Console.Error.WriteLine(
+					$"The service is already registered and could not be updated (exit code {configured.ExitCode}). "
+						+ "Close Services.msc or any handle holding the service open, then run this again.");
+
+				Console.Error.WriteLine(configured.Output.TrimEnd());
+
+				return configured.ExitCode;
+			}
+
+			Console.WriteLine($"Updated the existing {Program.ServiceDisplayName} registration.");
+		}
 
 		// Each option name is its own argument, with the value as the argument after it. sc.exe says so
 		// itself: "the option name includes the equal sign, a space is required between the equal sign and
 		// the value". Passing "type= own" as one argument is what produced "Invalid type= field".
-	var create = Run(
-		"sc.exe",
-		[
-			"create",
-			name,
-			"binPath=", binaryPath,
-			"type=", "own",
-			"start=", start,
-			"obj=", account,
-			"DisplayName=", displayName,
-		]);
+		var create = Run(
+			"sc.exe",
+			[
+				"create",
+				name,
+				"binPath=", binaryPath,
+				"type=", "own",
+				"start=", start,
+				"obj=", account,
+				"DisplayName=", displayName,
+			]);
 
 		if (create.ExitCode != 0)
 		{
@@ -185,12 +220,28 @@ public static class ServiceInstaller
 			return (Failed, $"{fileName} could not be started.");
 		}
 
-		var output = process.StandardOutput.ReadToEnd();
-		var error = process.StandardError.ReadToEnd();
+		// Both streams drained at once. Reading one to completion before starting the other is the classic
+		// two-pipe deadlock: a child that fills the stderr buffer while the parent is blocked reading stdout
+		// waits for a reader that never arrives. sc.exe is quiet today, which is exactly why this has never
+		// mattered and would not survive a future change.
+		var stdout = process.StandardOutput.ReadToEndAsync();
+		var stderr = process.StandardError.ReadToEndAsync();
 
-		process.WaitForExit(30_000);
+		if (!process.WaitForExit(30_000))
+		{
+			try
+			{
+				process.Kill(entireProcessTree: true);
+			}
+			catch (InvalidOperationException)
+			{
+				// Already gone between the timeout and the kill.
+			}
 
-		return (process.ExitCode, string.Concat(output, error));
+			return (Failed, $"{fileName} did not finish within thirty seconds.");
+		}
+
+		return (process.ExitCode, string.Concat(stdout.GetAwaiter().GetResult(), stderr.GetAwaiter().GetResult()));
 	}
 
 	public static bool IsAdministrator()
@@ -234,16 +285,99 @@ public static class ServiceInstaller
 	/// can be wrong in a way that only shows up at start time.
 	/// </para>
 	/// </summary>
-	public static int Install(ILogger log)
+/// <summary>
+	/// Where the installing user's identifier is recorded.
+	/// <para>
+	/// The pipe is granted to this one account rather than to the interactive group, so the file is what
+	/// decides who can reach a LocalSystem service. It is written with a descriptor that only LocalSystem
+	/// and administrators can read, because anyone who could change it could grant themselves the pipe.
+	/// </para>
+	/// </summary>
+	public static string UserSidPath => Path.Combine(
+		Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+		@"Jarvis\ServiceUser.sid");
+
+	/// <summary>
+	/// Records the account the pipe is granted to.
+	/// <para>
+	/// Written before the service is registered, so a start that cannot read it fails loudly rather than
+	/// silently falling back to a wider group.
+	/// </para>
+	/// </summary>
+	private static string? RecordUserSid(string? sid, ILogger log)
+	{
+		if (string.IsNullOrWhiteSpace(sid))
+		{
+			Console.Error.WriteLine(
+				"No user identifier was supplied, so there is no account to grant the pipe to. "
+					+ "Run the install script, which captures it from the elevated shell.");
+
+			return "The installing user's identifier was not supplied.";
+		}
+
+		// Parsed rather than pattern-matched, because the constructor is what rejects a malformed identifier and
+		// the alternative is writing a validator.
+		try
+		{
+			_ = new SecurityIdentifier(sid);
+		}
+		catch (ArgumentException)
+		{
+			Console.Error.WriteLine($"'{sid}' is not a security identifier.");
+
+			return $"'{sid}' is not a security identifier.";
+		}
+
+		try
+		{
+			var directory = Path.GetDirectoryName(UserSidPath)!;
+
+			Directory.CreateDirectory(directory);
+
+			// Written owner-only rather than inheriting ProgramData's default, which lets any local user read
+			// it. The file is small enough to write whole, so no temporary file dance is needed.
+			File.WriteAllText(UserSidPath, sid.Trim());
+
+			var security = new FileSecurity();
+
+			security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+
+			foreach (var wellKnown in new[]
+			{
+				WellKnownSidType.LocalSystemSid,
+				WellKnownSidType.BuiltinAdministratorsSid,
+			})
+			{
+				security.AddAccessRule(new FileSystemAccessRule(
+					new SecurityIdentifier(wellKnown, null),
+					FileSystemRights.FullControl,
+					AccessControlType.Allow));
+			}
+
+			new FileInfo(UserSidPath).SetAccessControl(security);
+
+			log.Information($"The pipe will be granted to {sid.Trim()}.");
+			Console.WriteLine($"The elevated pipe will be reachable only by {sid.Trim()}.");
+
+			return null;
+		}
+		catch (Exception exception) when (
+			exception is UnauthorizedAccessException or IOException or System.Security.SecurityException)
+		{
+			return $"The installing user's identifier could not be recorded: {exception.Message}";
+		}
+	}
+
+	public static int Install(ILogger log, string? userSid = null)
 	{
 		// The refusal is a non-empty string and success is an empty one, so the test is on the length.
 		// An `is { }` pattern matches an empty string too, which made an elevated shell fail with a
 		// refusal that had no reason in it.
 		if (RefusalFor(IsAdministrator(), "Installing the service") is { Length: > 0 } denial)
-			{
-				log.Fatal(denial);
-				return ErrorAccessDenied;
-			}
+		{
+			log.Fatal(denial);
+			return ErrorAccessDenied;
+		}
 
 		var executable = Environment.ProcessPath;
 
@@ -253,14 +387,10 @@ public static class ServiceInstaller
 			return Failed;
 		}
 
-		// Already registered is treated as success rather than a failure. The common case is a reinstall after a
-		// build, and refusing because the previous registration is still there would make that a chore.
-		// Note the `Length: > 0` test: an `is { }` pattern matches an empty string too, which once made an
-		// elevated shell refuse with no reason at all.
-		if (AlreadyInstalled(log) is { Length: > 0 } failure)
+		if (RecordUserSid(userSid, log) is { Length: > 0 } refused)
 		{
-			Console.Error.WriteLine(failure);
-			return failure.Contains("already installed", StringComparison.Ordinal) ? Success : Failed;
+			Console.Error.WriteLine(refused);
+			return Failed;
 		}
 
 		// The service mode is selected by the --console argument. Without it the binary would show a tray

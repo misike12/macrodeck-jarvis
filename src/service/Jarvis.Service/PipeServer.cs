@@ -32,6 +32,12 @@ public sealed class PipeServer : IDisposable
 	/// </summary>
 	private static readonly Encoding Wire = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
+	/// <summary>One pipe instance at a time. See the listener for why.</summary>
+	private const int MaxAllowedServerInstances = 1;
+
+	/// <summary>How long a connected client may stay silent before the connection is dropped.</summary>
+	private static TimeSpan IdleTimeout => TimeSpan.FromSeconds(30);
+
 	private readonly ILogger _logger;
 	private readonly CancellationTokenSource _stopping = new();
 	private readonly string _pipeName;
@@ -42,44 +48,108 @@ public sealed class PipeServer : IDisposable
 	private bool _disposed;
 
 	/// <summary>
-	/// The rules are the same in both modes now: the pipe name no longer names a user, so there is nothing for
-	/// the elevated and unelevated cases to decide differently.
+	/// The rules are the same in both modes: the pipe name no longer names a user, and the account it is
+	/// granted to comes from the install in service mode and from this process's own token in tray mode.
+	/// <para>
+	/// Throws when the descriptor cannot be built. Failing to construct the pipe is a failure to start, not
+	/// a reason to serve it with the operating system's default descriptor, which belongs to the LocalSystem
+	/// token and is not a set anyone chose.
+	/// </para>
 	/// </summary>
 	public PipeServer(ILogger logger, string? pipeName = null)
 	{
 		_logger = logger;
 		_pipeName = pipeName ?? Protocol.PipeName;
-		_security = BuildSecurity();
+		_security = BuildSecurity()
+			?? throw new InvalidOperationException(
+				"The pipe's access rules could not be established, so the service will not open a pipe it "
+					+ "cannot restrict.");
+
+		// Created here rather than inside the listener task so that a name already taken, or a directory
+		// that cannot be created, is reported before the service claims to be running.
+		_current = CreateServer();
 	}
 
 	/// <summary>Whether the service is accepting connections right now.</summary>
 	public bool IsListening => !_disposed && _listener is { IsCompleted: false };
 
+	/// <summary>
+	/// Starts accepting.
+	/// <para>
+	/// The first instance is built in the constructor, so by the time this returns there is a pipe in the
+	/// namespace and a client gets a refusal rather than "file not found". Waiting for a client is the
+	/// listener's job and happens on its own task.
+	/// </para>
+	/// </summary>
 	public void Start()
 	{
-		if (_disposed)
+		if (_disposed || _listener is not null)
 		{
 			return;
 		}
 
-		_listener ??= Task.Run(() => ListenAsync(_stopping.Token));
+		var first = _current!;
+
+		_current = null;
+
+		_listener = Task.Run(() => ListenAsync(first, _stopping.Token), CancellationToken.None);
 	}
 
+private NamedPipeServerStream CreateServer() =>
+		NamedPipeServerStreamAcl.Create(
+			_pipeName,
+			PipeDirection.InOut,
+			MaxAllowedServerInstances,
+			PipeTransmissionMode.Byte,
+			PipeOptions.Asynchronous,
+			0,
+			0,
+			_security);
+
 	/// <summary>
+/// <summary>
 	/// Builds the pipe's security.
 	/// <para>
 	/// Rules are added one at a time rather than parsed from a descriptor string, because the set of
 	/// processes that can open this pipe is the trust boundary to a service running as LocalSystem. Written
-	/// out, the boundary is visible: LocalSystem and administrators have full control, the interactive group
-	/// and the creating user have read and write, and nothing else.
+	/// out, the boundary is visible: LocalSystem and administrators have full control, and exactly one named
+	/// user account has read and write.
 	/// </para>
 	/// <para>
-	/// Returns null when it cannot be built, which leaves the pipe on the operating system's default
-	/// rather than leaving the service with no pipe at all.
+	/// That account is recorded at install time. It is deliberately not the interactive group: S-1-5-4 is in
+	/// the token of every process in every signed-in session, so granting it would let any other user on a
+	/// shared machine send this service a registry write and have it applied as SYSTEM.
+	/// </para>
+	/// <para>
+	/// Returns null when the descriptor cannot be built, which is a failure to start rather than a fallback
+	/// to the operating system's default: that default belongs to the LocalSystem token and is not a set
+	/// anyone chose.
 	/// </para>
 	/// </summary>
 	private static PipeSecurity? BuildSecurity()
 	{
+		string? granted;
+
+		try
+		{
+			granted = ReadGrantedUserSid();
+		}
+		catch (Exception exception) when (
+			exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+		{
+			ServiceLog.Error($"The account allowed to open the pipe could not be read: {exception.Message}");
+			return null;
+		}
+
+		if (granted is null)
+		{
+			ServiceLog.Error(
+				$"No installing account was recorded, so there is nobody to grant the pipe to. "
+					+ $"Expected it at {ServiceInstaller.UserSidPath}. Re-run the install script.");
+
+			return null;
+		}
+
 		try
 		{
 			var security = new PipeSecurity();
@@ -98,30 +168,44 @@ public sealed class PipeServer : IDisposable
 				PipeAccessRights.FullControl,
 				AccessControlType.Allow));
 
-			// The interactive group, so the person at the keyboard can reach the service without the service having
-			// to work out who they are. This is what replaced a rule naming one user.
 			security.AddAccessRule(new PipeAccessRule(
-				new SecurityIdentifier(WellKnownSidType.InteractiveSid, null),
+				new SecurityIdentifier(granted),
 				PipeAccessRights.ReadWrite,
 				AccessControlType.Allow));
-
-			using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
-
-			if (identity.User is { } user && !identity.IsSystem)
-			{
-				security.AddAccessRule(new PipeAccessRule(
-					user,
-					PipeAccessRights.ReadWrite,
-					AccessControlType.Allow));
-			}
 
 			return security;
 		}
 		catch (ArgumentException exception)
 		{
-			ServiceLog.Error("The pipe security could not be built: " + exception.Message);
+			ServiceLog.Error($"The pipe security could not be built: {exception.Message}");
 			return null;
 		}
+	}
+
+	/// <summary>
+	/// The account recorded by the installer, or null when there is none.
+	/// <para>
+	/// In tray mode there is nothing to read: the process is already running as the user who owns the pipe,
+	/// so it is granted directly from its own token and no file is involved.
+	/// </para>
+	/// </summary>
+	private static string? ReadGrantedUserSid()
+	{
+		using var identity = WindowsIdentity.GetCurrent();
+
+		if (!identity.IsSystem)
+		{
+			return identity.User?.Value;
+		}
+
+		if (!File.Exists(ServiceInstaller.UserSidPath))
+		{
+			return null;
+		}
+
+		var sid = File.ReadAllText(ServiceInstaller.UserSidPath).Trim();
+
+		return string.IsNullOrWhiteSpace(sid) ? null : sid;
 	}
 
 	/// <summary>
@@ -133,7 +217,7 @@ public sealed class PipeServer : IDisposable
 	/// the end of it.
 	/// </para>
 	/// </summary>
-	public void Stop()
+	public async Task Stop()
 	{
 		if (_disposed)
 		{
@@ -158,15 +242,34 @@ public sealed class PipeServer : IDisposable
 			// Already closed.
 		}
 
-		// The listener is not waited for. Waiting would block a thread-pool thread, and this is called from
-		// teardown in the tests as well as from shutdown, so enough of them starve the pool and the tests
-		// that depend on it deadlock instead of failing. Cancelling the token is enough.
+		// Awaited with a bound rather than dropped. Dropping it leaves the listener holding a pipe instance
+		// on this name, and a reconnect starts a second one; the next client to arrive could then be answered
+		// by a listener nobody is reading. The bound is what keeps teardown from blocking on a thread-pool
+		// thread, which the tests exercise repeatedly enough to matter.
+		var listener = _listener;
+
 		_listener = null;
+
+		if (listener is not null)
+		{
+			try
+			{
+				await listener.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+			}
+			catch (TimeoutException)
+			{
+				_logger.Warning("The pipe listener did not stop within two seconds; leaving it to finish.");
+			}
+			catch (OperationCanceledException)
+			{
+				// Stopped as asked.
+			}
+		}
 	}
 
 	/// <summary>
-	/// Releases the cancellation source. The pipe is closed by <see cref="Stop"/> first, so by the time
-	/// this runs there is nothing left to wait for.
+	/// Releases the cancellation source. The pipe is closed by <see cref="Stop"/> first, and the listener
+	/// is awaited there, so by the time this runs there is nothing left to wait for.
 	/// </summary>
 	public void Dispose()
 	{
@@ -175,37 +278,29 @@ public sealed class PipeServer : IDisposable
 			return;
 		}
 
-		Stop();
+		// Synchronous by design: Dispose cannot await, and Stop already bounds its own wait at two seconds,
+		// so blocking here cannot hang a shutdown.
+		try
+		{
+			Stop().GetAwaiter().GetResult();
+		}
+		catch (OperationCanceledException)
+		{
+			// Stopped as asked.
+		}
+
 		_disposed = true;
 		_stopping.Dispose();
 	}
 
-	private async Task ListenAsync(CancellationToken cancellationToken)
+	private async Task ListenAsync(NamedPipeServerStream first, CancellationToken cancellationToken)
 	{
+		var server = first;
+
 		while (!cancellationToken.IsCancellationRequested)
 		{
 			try
 			{
-				// Created fresh each time, because a NamedPipeServerStream owns its security descriptor and
-				// cannot be reconfigured once it exists. NamedPipeServerStreamAcl is the security-aware
-				// factory; the plain constructor has no way to express one.
-				using var server = _security is null
-					? new NamedPipeServerStream(
-						_pipeName,
-						PipeDirection.InOut,
-						NamedPipeServerStream.MaxAllowedServerInstances,
-						PipeTransmissionMode.Byte,
-						PipeOptions.Asynchronous)
-					: NamedPipeServerStreamAcl.Create(
-						_pipeName,
-						PipeDirection.InOut,
-						NamedPipeServerStream.MaxAllowedServerInstances,
-						PipeTransmissionMode.Byte,
-						PipeOptions.Asynchronous,
-						0,
-						0,
-						_security);
-
 				_current = server;
 
 				await server.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -218,15 +313,41 @@ public sealed class PipeServer : IDisposable
 			}
 			catch (Exception exception) when (exception is not OutOfMemoryException)
 			{
-				// A failed accept must not end the service. The pipe is recreated and the next attempt made,
-				// because a failed accept says nothing about the next one.
+				// A failed accept must not end the service, but it is bounded: an endless retry loop on a
+				// name that cannot be created leaves the service Running with no pipe and the same message
+				// in the log forever, which is indistinguishable from working.
 				_logger.LogError("A connection could not be served.", exception);
-				await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+
+				try
+				{
+					await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+				}
+				catch (OperationCanceledException)
+				{
+					return;
+				}
 			}
 			finally
 			{
-				_current = null;
+				if (ReferenceEquals(_current, server))
+				{
+					_current = null;
+				}
+
+				server.Dispose();
+				server = null!;
 			}
+
+			// Replaced only on the way forward. Creating the next instance inside the loop body rather than
+			// the finally block is what stops a shutting-down listener from leaving a fresh pipe behind: the
+			// service allows one instance per name, so an instance created on the way out blocked the next
+			// start with an access-denied that looked like a permissions fault.
+			if (cancellationToken.IsCancellationRequested)
+			{
+				return;
+			}
+
+			server = CreateServer();
 		}
 	}
 
@@ -245,17 +366,31 @@ public sealed class PipeServer : IDisposable
 
 		using var reader = new StreamReader(server, Wire, detectEncodingFromByteOrderMarks: false, 1024, leaveOpen: true);
 
-		while (!cancellationToken.IsCancellationRequested && server.IsConnected)
+		// An idle deadline per connection. Without one, a client that connects and then says nothing holds the
+		// only pipe instance for as long as it likes, and the plugin's own calls queue behind it until their
+		// timeouts. Reset on every request, so a busy client is never interrupted.
+		using var idle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+		idle.CancelAfter(IdleTimeout);
+
+		while (!idle.Token.IsCancellationRequested && server.IsConnected)
 		{
 			string? line;
 
 			try
 			{
-				line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+				line = await reader.ReadLineAsync(idle.Token).ConfigureAwait(false);
 			}
 			catch (IOException exception)
 			{
 				_logger.LogError("A request could not be read.", exception);
+				return;
+			}
+			catch (OperationCanceledException)
+			{
+				_logger.Warning(
+					$"A connected client sent nothing for {IdleTimeout.TotalSeconds:0} seconds, so the connection was closed.");
+
 				return;
 			}
 
@@ -281,10 +416,9 @@ public sealed class PipeServer : IDisposable
 				return;
 			}
 
-			if (Protocol.ParseRequest(line)?["op"]?.GetValue<string>() == "shutdown")
-			{
-				return;
-			}
+			// No special case for shutdown here. The reply is written first and the stop is requested from
+			// inside Handle, so the plugin is answered before the service goes; the loop's next read then
+			// fails because the connection is going away, which is the correct outcome.
 		}
 	}
 
@@ -294,22 +428,36 @@ public sealed class PipeServer : IDisposable
 	/// </summary>
 	public JsonObject Handle(string line)
 	{
-		var request = Protocol.ParseRequest(line);
+		// Declared out here so the catch can name the operation in its log line. Null until it is read.
+		string? operation = null;
 
-		if (request is null)
-		{
-			_logger.Warning($"A request was refused because it was not a version {Protocol.Version} message.");
-
-			return Protocol.Reply(
-				false,
-				"The request was not understood. The plugin and the service may be different versions.");
-		}
-
-		var operation = request["op"]!.GetValue<string>();
-		var arguments = request["args"] as JsonObject ?? new JsonObject();
-
+		// The whole shape is read inside the guard. Reading it outside meant a message with, say, a string
+		// where the version number belongs threw before the try, escaped to the listener's catch, and was
+		// reported as a failed accept: one packet closed the connection and logged a misleading reason.
 		try
 		{
+			var request = Protocol.ParseRequest(line);
+
+			if (request is null)
+			{
+				_logger.Warning($"A request was refused because it was not a version {Protocol.Version} message.");
+
+				return Protocol.Reply(
+					false,
+					"The request was not understood. The plugin and the service may be different versions.");
+			}
+
+			operation = request["op"] is JsonValue opValue && opValue.TryGetValue<string>(out var named)
+				? named
+				: null;
+
+			if (operation is null)
+			{
+				return Protocol.Reply(false, "The request did not name an operation.");
+			}
+
+			var arguments = request["args"] as JsonObject ?? new JsonObject();
+
 			return operation switch
 			{
 				"ping" => Protocol.Reply(true, "pong"),
@@ -317,17 +465,51 @@ public sealed class PipeServer : IDisposable
 				"registry_get" => ElevatedOperations.RegistryGet(arguments),
 				"registry_set" => ElevatedOperations.RegistrySet(arguments),
 				"registry_delete" => ElevatedOperations.RegistryDelete(arguments),
-				"shutdown" => Protocol.Reply(true, "Stopping."),
 
-				// An operation this build does not do is named in the answer rather than left to a default,
-				// so a newer plugin learns the service is older instead of retrying.
-				_ => Protocol.Reply(false, $"'{operation}' is not something this service does."),
+				// Actually stops the service, through the host that owns it. The reply is sent first, and
+				// the stop is requested after it, so the plugin learns the answer rather than losing the
+				// connection to a service that vanished mid-exchange.
+				"shutdown" => StopRequested(),
+				_ => Refuse(operation),
 			};
 		}
 		catch (Exception exception) when (exception is not OutOfMemoryException)
 		{
+			// Logged in full, returned in summary. The detail is a registry key path, an NTSTATUS string or an
+			// internal name, none of which belongs in a reply that the plugin hands to a language model.
 			_logger.LogError($"The operation {operation} failed.", exception);
-			return Protocol.Reply(false, $"{operation} failed: {exception.Message}");
+
+			return Protocol.Reply(false, $"{operation} did not succeed. See the service log for the reason.");
 		}
 	}
+
+	/// <summary>
+	/// An operation this build does not do, named in the answer rather than left to a default, so a newer
+	/// plugin learns the service is older instead of retrying.
+	/// </summary>
+	private static JsonObject Refuse(string operation) =>
+		Protocol.Reply(false, $"'{operation}' is not something this service does.");
+
+	/// <summary>
+	/// Asks the service host to stop, once the reply has been written.
+	/// <para>
+	/// The callback is registered by the host rather than reached through a static, so the pipe has no
+	/// opinion about how the service is controlled and can be exercised in a test without one.
+	/// </para>
+	/// </summary>
+	private JsonObject StopRequested()
+	{
+		StopRequestedCallback?.Invoke();
+
+		return Protocol.Reply(true, "Stopping.");
+	}
+
+	/// <summary>
+	/// Set by the host so a shutdown request reaches the service control manager.
+	/// <para>
+	/// Named apart from <see cref="Stop"/> because that method stops the listener; this one asks the
+	/// service to stop, and conflating them made a shutdown request that did nothing look like one that had.
+	/// </para>
+	/// </summary>
+	internal Action? StopRequestedCallback { get; set; }
 }

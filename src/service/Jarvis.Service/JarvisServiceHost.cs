@@ -21,6 +21,13 @@ internal sealed class JarvisServiceHost : ServiceBase
 	{
 		_log = log;
 		ServiceName = ServiceNames.Name;
+
+		// Stated rather than left to defaults, because the service relies on both. Without CanShutdown the
+		// manager never delivers SERVICE_CONTROL_SHUTDOWN and OnShutdown below is unreachable, which is
+		// what made it look like the shutdown path was broken when it had simply never been enabled.
+		CanStop = true;
+		CanShutdown = true;
+		CanPauseAndContinue = false;
 	}
 
 	protected override void OnStart(string[] args)
@@ -32,7 +39,13 @@ internal sealed class JarvisServiceHost : ServiceBase
 			// Elevated, so the pipe is named after the signed-in user and carries a descriptor granting that
 			// user access. Without this the pipe would belong to LocalSystem and the plugin could not open it.
 			_pipe = new PipeServer(_log);
+
+			// The pipe exists in the namespace before this returns, because the first instance is built in
+			// the constructor. Reporting Running before then left a window where a client got "file not
+			// found" from a service the manager already called started.
 			_pipe.Start();
+
+			_pipe.StopRequestedCallback = Stop;
 
 			_log.Information($"{ServiceNames.DisplayName} is listening on {Protocol.PipeName}.");
 		}

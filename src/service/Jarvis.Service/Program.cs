@@ -53,7 +53,7 @@ public static class Program
 	}
 
 	[STAThread]
-	public static int Main(string[] args)
+	public static async Task<int> Main(string[] args)
 	{
 		AttachToParentConsole();
 
@@ -74,7 +74,7 @@ public static class Program
 
 		if (args.Any(argument => argument.Equals("--install", StringComparison.OrdinalIgnoreCase)))
 		{
-			return ServiceInstaller.Install(console);
+			return ServiceInstaller.Install(console, UserSidArgument(args));
 		}
 
 		if (args.Any(argument => argument.Equals("--uninstall", StringComparison.OrdinalIgnoreCase)))
@@ -84,7 +84,7 @@ public static class Program
 
 		if (args.Any(argument => argument.Equals("--console", StringComparison.OrdinalIgnoreCase)))
 		{
-			return RunAsService();
+			return await RunAsService().ConfigureAwait(false);
 		}
 
 		// An argument that is not one of the modes above is a mistake, and starting an always-on tray
@@ -99,6 +99,27 @@ public static class Program
 		return RunWithTray(console);
 	}
 
+	/// <summary>
+	/// The account the elevated pipe is granted to, from <c>--user-sid &lt;sid&gt;</c>.
+	/// <para>
+	/// Taken from the command line rather than from the current process, because the installer runs
+	/// elevated and an elevated shell is the user, not the service account. Reading it here rather than in
+	/// the installer keeps the installer a single decision that either has a target or refuses outright.
+	/// </para>
+	/// </summary>
+	private static string? UserSidArgument(string[] args)
+	{
+		for (var index = 0; index < args.Length - 1; index++)
+		{
+			if (args[index].Equals("--user-sid", StringComparison.OrdinalIgnoreCase))
+			{
+				return args[index + 1];
+			}
+		}
+
+		return null;
+	}
+
 	private static void PrintUsage(ConsoleLogger log)
 	{
 		Console.WriteLine("JARVIS Service");
@@ -108,6 +129,8 @@ public static class Program
 		Console.WriteLine("  --diagnose       Print who this is, whether it is elevated, and whether the");
 		Console.WriteLine("                    service is installed. Exits.");
 		Console.WriteLine("  --install        Register the service. Needs an elevated shell.");
+		Console.WriteLine("                    The install script passes --user-sid so the pipe is granted to one");
+		Console.WriteLine("                    account rather than to everyone at the keyboard.");
 		Console.WriteLine("  --uninstall      Remove the service. Needs an elevated shell.");
 		Console.WriteLine();
 		Console.WriteLine("Registering a service needs an administrator PowerShell. To check a shell:");
@@ -126,7 +149,7 @@ public static class Program
 	/// hand-rolling.
 	/// </para>
 	/// </summary>
-	private static int RunAsService()
+	private static async Task<int> RunAsService()
 	{
 		var log = new ServiceEventLogger();
 
@@ -142,12 +165,12 @@ public static class Program
 			log.Information(
 				"The service control manager is not supervising this process, so it is running as a console process.");
 
-			return RunConsolePipe(log);
+			return await RunConsolePipe(log).ConfigureAwait(false);
 		}
 	}
 
 	/// <summary>Runs the pipe without the service control manager, until the process is asked to stop.</summary>
-	private static int RunConsolePipe(ServiceEventLogger log)
+	private static async Task<int> RunConsolePipe(ServiceEventLogger log)
 	{
 		var stop = new ManualResetEventSlim(false);
 
@@ -165,7 +188,7 @@ public static class Program
 		Console.WriteLine("Running as a console process. Press Ctrl+C to stop.");
 		stop.Wait(Timeout.InfiniteTimeSpan);
 
-		pipe.Stop();
+		await pipe.Stop().ConfigureAwait(false);
 		return 0;
 	}
 
@@ -198,21 +221,23 @@ public static class Program
 
 		tray.ExitRequested += () =>
 		{
-			pipe.Stop();
+			_ = pipe.Stop();
 			context.ExitThread();
 		};
 
-		tray.ReconnectRequested += () =>
+		tray.ReconnectRequested += async () =>
 		{
-			// Rebuilding the listener is the whole of a reconnect. Nothing is cached in the service, so a
+			// Awaited: a reconnect that starts a second listener before the first has released the pipe
+			// name leaves two instances answering for the same client.
+			await pipe.Stop().ConfigureAwait(false);
 			// fresh listener is equivalent to a restarted one.
-			pipe.Stop();
+			pipe.Start();
 			pipe.Start();
 			tray.Update(pipe.IsListening);
 			tray.Notify("JARVIS Service", "The listener was rebuilt.");
 		};
 
-		Application.ApplicationExit += (_, _) => pipe.Stop();
+		Application.ApplicationExit += (_, _) => _ = pipe.Stop();
 
 		Application.Run(context);
 

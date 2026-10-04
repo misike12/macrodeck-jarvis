@@ -31,7 +31,7 @@ public class PipeRoundTripTests
 		// A pipe name of its own per test. The service allows unlimited instances on one name, so a
 		// listener left behind by an earlier test would otherwise accept this test's connection and answer
 		// from a pipe nobody is reading.
-		_pipeName = Protocol.PipeNameForSuffix(Guid.CreateVersion7().ToString("N")[..8]);
+		_pipeName = Protocol.PipeNameForSuffix(UniqueSuffix());
 
 		// Short, so a broken pipe fails the test rather than stalling the suite.
 		_client = new ElevatedServiceClient(TimeSpan.FromSeconds(10), _pipeName);
@@ -104,7 +104,7 @@ public class PipeRoundTripTests
 	{
 		_server.Dispose();
 
-		var orphan = new ElevatedServiceClient(TimeSpan.FromSeconds(2), Protocol.PipeNameForSuffix(Guid.CreateVersion7().ToString("N")[..8]));
+		var orphan = new ElevatedServiceClient(TimeSpan.FromSeconds(2), Protocol.PipeNameForSuffix(UniqueSuffix()));
 
 		Assert.That(await orphan.IsAvailableAsync(CancellationToken.None), Is.False);
 	}
@@ -207,4 +207,15 @@ public class PipeRoundTripTests
 			Assert.That(content, Does.Contain("JarvisPipeTests"), "the path did not arrive intact");
 		});
 	}
+
+	/// <summary>
+	/// A pipe-name suffix that is actually unique.
+	/// <para>
+	/// The first eight hex characters of a version 7 GUID are the high bits of its timestamp, so two
+	/// identifiers minted in the same millisecond share them. They looked unique and were not, which only
+	/// stayed hidden because the service allowed unlimited instances per pipe name: every test in a fixture
+	/// was quietly talking to the first server the fixture started.
+	/// </para>
+	/// </summary>
+	private static string UniqueSuffix() => Guid.CreateVersion7().ToString("N")[^8..];
 }
