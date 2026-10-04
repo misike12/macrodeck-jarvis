@@ -16,7 +16,7 @@ public sealed class OrbAssetCache(IUiResourceRegistry resources, ILogger logger)
 private const int IdleFrames = 18;
 	private const int BusyFrames = 24;
 
-	private static readonly AssistantState[] AnimatedStates =
+private static readonly AssistantState[] AnimatedStates =
 	[
 		AssistantState.Idle,
 		AssistantState.Listening,
@@ -25,6 +25,12 @@ private const int IdleFrames = 18;
 		AssistantState.Executing,
 		AssistantState.Confirming,
 		AssistantState.Error,
+
+		// Every state, deliberately. Unavailable is the state a freshly installed plugin is in, because the
+		// configuration flow has not been completed, so leaving it out made the widget blank for exactly the
+		// user who had just installed it and had least context for why. The renderer already draws it as a
+		// dimmed, slow core; the guard below only ever had the seven states above in it.
+		AssistantState.Unavailable,
 	];
 
 private readonly IUiResourceRegistry _resources = resources;
