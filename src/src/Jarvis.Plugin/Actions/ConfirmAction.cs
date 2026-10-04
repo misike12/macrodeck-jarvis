@@ -65,16 +65,16 @@ if (!ActionParameters.TryReadFlag(context.Parameters, ApproveParameter, out var 
 					Strings.Errors.UnknownFlag(ApproveParameter, rejected)));
 			}
 
-			session.ResolveConfirmation(approve);
+session.ResolveConfirmation(approve);
 
-			// Success, with no argument. The string overload is not a message parameter: it is the state id
-			// the result expects to be in next, so passing the sentence told the host to expect a state
-			// called "Approved run_shell.", which does not exist. The outcome is already visible through the
-			// button state, so the sentence is logged rather than forced into a slot meant for an id.
-			_logger.Information(
-				"{Decision} {Tool}.",
-				approve ? "Approved" : "Refused",
-				pending.ToolName);
+			// The sentence belongs in the message the user sees, not in the state-id slot. The outcome is
+			// already observable through the button state, so the result stays a bare Success and the
+			// localized sentence carries the tool name.
+			var sentence = approve
+				? Strings.Actions.Confirm.Approved(pending.ToolName)
+				: Strings.Actions.Confirm.Refused(pending.ToolName);
+
+			_logger.Information("{Decision}", sentence);
 
 			return Task.FromResult(ActionResult.Success());
 		}

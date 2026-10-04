@@ -111,6 +111,9 @@ public ActionResult Cancel(bool killRunningCommand)
 
 		_state.Reset();
 
+		// Success even when there was nothing to cancel. The state the caller asked for, "nothing is
+		// running", is the state that holds afterwards, so this is a no-op rather than a failure to find
+		// something. Reporting otherwise would make a cancel button red on a press that did the right thing.
 		return ActionResult.Success();
 	}
 
@@ -167,9 +170,11 @@ BeginTurn(cancellationToken);
 				return ActionResult.Failed(ActionErrorCodes.NotConnected, Strings.Errors.ProviderUnreachable());
 			}
 
-			if (!result.Ok && result.Detail == "confirmation-required")
+if (!result.Ok && result.Detail == "confirmation-required")
 			{
-				return ActionResult.Accepted(Strings.States.Confirming());
+				// Its own key rather than the button-state label. States.Confirming is what the deck shows on
+				// the button; reusing it here made a key named for one thing carry another.
+				return ActionResult.Accepted(Strings.Errors.ConfirmationRequired());
 			}
 
 			lock (_turnGate)

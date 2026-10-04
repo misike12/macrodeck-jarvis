@@ -40,12 +40,18 @@ public sealed class ManageComponentsAction(RuntimeManager runtime) : IActionDefi
 
 	public IActionExecutor CreateExecutor() => new Executor(runtime);
 
-	/// <summary>A component is named by what it does, not by the folder it lands in.</summary>
+	/// <summary>
+	/// A component is named by what it does, not by the folder it lands in.
+	/// <para>
+	/// Exhaustive over the catalogue rather than falling through to the raw id. A fallback would put an
+	/// internal identifier in front of a user as though it were a name.
+	/// </para>
+	/// </summary>
 	private static LocalizedText Describe(string component) => component switch
 	{
 		AssetCatalog.Piper => Strings.Actions.ManageComponents.Component.Piper(),
 		AssetCatalog.Whisper => Strings.Actions.ManageComponents.Component.Whisper(),
-		_ => component,
+		_ => Strings.Errors.UnknownComponent(component),
 	};
 
 	private sealed class Executor(RuntimeManager runtime) : IActionExecutor

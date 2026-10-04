@@ -115,13 +115,6 @@
     <value>Was JARVIS beantworten soll.</value>
   </data>
 
-  <data name="Actions.ViewOutput.Name" xml:space="preserve">
-    <value>Ausgabe anzeigen</value>
-  </data>
-  <data name="Actions.ViewOutput.Description" xml:space="preserve">
-    <value>Zeigt die vollständige Ausgabe des letzten Befehls.</value>
-  </data>
-
   <data name="Actions.CheckModels.Name" xml:space="preserve">
     <value>Modelle prüfen</value>
   </data>
@@ -140,9 +133,6 @@
   <data name="Actions.CheckModels.Both.Label" xml:space="preserve">
     <value>Beide</value>
   </data>
-  <data name="Actions.CheckModels.ReportTitle" xml:space="preserve">
-    <value>Modellbericht</value>
-  </data>
 
   <data name="Actions.ManageComponents.Name" xml:space="preserve">
     <value>Komponente installieren</value>
@@ -158,25 +148,6 @@
   </data>
   <data name="Actions.ManageComponents.Component.Whisper" xml:space="preserve">
     <value>Lokale Spracherkennung (Whisper)</value>
-  </data>
-
-  <data name="Actions.DownloadComponent.Name" xml:space="preserve">
-    <value>Komponente herunterladen</value>
-  </data>
-  <data name="Actions.DownloadComponent.Description" xml:space="preserve">
-    <value>Lädt eine benötigte Komponente herunter und prüft ihre Integrität.</value>
-  </data>
-  <data name="Actions.DownloadComponent.Component.Label" xml:space="preserve">
-    <value>Komponente</value>
-  </data>
-  <data name="Actions.DownloadComponent.Component.Description" xml:space="preserve">
-    <value>Welche Funktion nachgerüstet werden soll.</value>
-  </data>
-  <data name="Actions.DownloadComponent.Variant.Label" xml:space="preserve">
-    <value>Variante</value>
-  </data>
-  <data name="Actions.DownloadComponent.Variant.Description" xml:space="preserve">
-    <value>Welche Variante dieser Komponente.</value>
   </data>
 
   <data name="Parameter.Mode.OneShot.Label" xml:space="preserve">
@@ -209,10 +180,6 @@
   </data>
   <data name="States.Unavailable" xml:space="preserve">
     <value>Nicht verfügbar</value>
-  </data>
-
-  <data name="ConfigFlow.CompleteTitle" xml:space="preserve">
-    <value>JARVIS</value>
   </data>
   <data name="ConfigFlow.UnknownStep" xml:space="preserve">
     <value>Unbekannter Schritt in der Einrichtung.</value>
@@ -445,9 +412,6 @@
   <data name="Errors.NoModelConfigured" xml:space="preserve">
     <value>Es ist kein Modell eingerichtet.</value>
   </data>
-  <data name="Errors.MicUnavailable" xml:space="preserve">
-    <value>Kein Mikrofon verfügbar.</value>
-  </data>
   <data name="Errors.ProviderRejected" xml:space="preserve">
     <value>Der Anbieter hat die Anfrage abgelehnt.</value>
   </data>
@@ -468,12 +432,6 @@
     <comment>Wird gezeigt, wenn eine Antwort abgebrochen wurde, bevor JARVIS etwas gesagt hat.</comment>
     <value>Das wurde abgebrochen, bevor JARVIS geantwortet hat.</value>
   </data>
-  <data name="Errors.NothingToCancel" xml:space="preserve">
-    <value>Es gibt nichts abzubrechen.</value>
-  </data>
-  <data name="Errors.SttNotInstalled" xml:space="preserve">
-    <value>Die lokale Spracherkennung ist nicht installiert. Bitte zuerst Whisper installieren.</value>
-  </data>
   <data name="Errors.MicrophoneUnavailable" xml:space="preserve">
     <value>Kein Mikrofon verfügbar.</value>
   </data>
@@ -487,10 +445,6 @@
   <data name="Runtime.UnknownComponent" xml:space="preserve">
     <value>{component} ist keine Komponente, die JARVIS kennt.</value>
     <comment>[string] component: der gewählte Komponentenname.</comment>
-  </data>
-  <data name="Runtime.Installed" xml:space="preserve">
-    <value>{component} ist installiert.</value>
-    <comment>[string] component: die gerade installierte Komponente.</comment>
   </data>
   <data name="Runtime.InstallFailed" xml:space="preserve">
     <value>{component} konnte nicht installiert werden. JARVIS behält die eingebaute Ersatzlösung bei.</value>
@@ -520,10 +474,6 @@
   <data name="Runtime.Issue.Action" xml:space="preserve">
     <value>Erneut versuchen</value>
   </data>
-  <data name="Runtime.Issue.Detail" xml:space="preserve">
-    <value>{reason} {purpose} {detail}</value>
-    <comment>[reason][purpose][detail] Grund, Zweck und technische Einzelheit.</comment>
-  </data>
 
   <data name="Orb.TypeName" xml:space="preserve">
     <value>JARVIS-Kugel</value>
@@ -550,10 +500,6 @@
   <data name="Orb.Config.PresetOptions.Custom" xml:space="preserve">
     <value>Eigene</value>
   </data>
-
-  <data name="Orb.Config.Rings" xml:space="preserve">
-    <value>Ringe</value>
-  </data>
   <data name="Orb.Config.RingCount" xml:space="preserve">
     <value>Anzahl der Ringe</value>
   </data>
@@ -568,10 +514,6 @@
   </data>
   <data name="Orb.Config.RingRotation" xml:space="preserve">
     <value>Ringe drehen</value>
-  </data>
-
-  <data name="Orb.Config.Colours" xml:space="preserve">
-    <value>Farben</value>
   </data>
   <data name="Orb.Config.AccentColor" xml:space="preserve">
     <value>Akzent</value>
@@ -594,10 +536,6 @@
   <data name="Orb.Config.BorderStyleHint" xml:space="preserve">
     <value>Wie jeder Ring gezeichnet wird. Komet zieht einen Schweif.</value>
   </data>
-
-  <data name="Orb.Config.Text" xml:space="preserve">
-    <value>Text</value>
-  </data>
   <data name="Orb.Config.ShowText" xml:space="preserve">
     <value>Text anzeigen</value>
   </data>
@@ -619,10 +557,6 @@
   <data name="Orb.Config.TextSizeHint" xml:space="preserve">
     <value>Wie groß der Text in der Kugel ist.</value>
   </data>
-
-  <data name="Orb.Config.Reactivity" xml:space="preserve">
-    <value>Reaktion</value>
-  </data>
   <data name="Orb.Config.AudioReactive" xml:space="preserve">
     <value>Auf Ton reagieren</value>
   </data>
@@ -634,10 +568,6 @@
   </data>
   <data name="Orb.Config.SensitivityHint" xml:space="preserve">
     <value>Wie laut es sein muss, damit sich die Kugel bewegt.</value>
-  </data>
-
-  <data name="Orb.Config.Behaviour" xml:space="preserve">
-    <value>Verhalten</value>
   </data>
   <data name="Orb.Config.Scope" xml:space="preserve">
     <value>Zustand teilen mit</value>
@@ -651,4 +581,115 @@
   <data name="Orb.Config.ScopeOptions.Local" xml:space="preserve">
     <value>Nur dieser Kugel</value>
   </data>
-</root>
+  <data name="Actions.Confirm.Name" xml:space="preserve">
+    <value>Bestätigen</value>
+  </data>
+  <data name="Actions.Confirm.Description" xml:space="preserve">
+    <value>Bestätigt oder lehnt ab, was JARVIS gerade tun möchte. Diese Taste ist die Sicherheitsgrenze: Ohne sie führt JARVIS nichts aus, wozu es vorher eine Bestätigung verlangt hat.</value>
+  </data>
+  <data name="Actions.Confirm.Approve.Label" xml:space="preserve">
+    <value>Genehmigen</value>
+  </data>
+  <data name="Actions.Confirm.Approve.Description" xml:space="preserve">
+    <value>Ja, lass es zu.</value>
+  </data>
+  <data name="Actions.Confirm.Approved" xml:space="preserve">
+    <value>{tool} genehmigt.</value>
+    <comment>[string] tool: das vom Nutzer genehmigte Werkzeug.</comment>
+  </data>
+  <data name="Actions.Confirm.Refused" xml:space="preserve">
+    <value>{tool} abgelehnt.</value>
+    <comment>[string] tool: das vom Nutzer abgelehnte Werkzeug.</comment>
+  </data>
+  <data name="ConfigFlow.Voice.WakeWordEnabled.Label" xml:space="preserve">
+    <value>Auf das Aktivierungswort hören</value>
+  </data>
+  <data name="ConfigFlow.Voice.WakeSensitivity.Label" xml:space="preserve">
+    <value>Empfindlichkeit des Aktivierungsworts</value>
+  </data>
+  <data name="ConfigFlow.Voice.MicrophoneAlwaysOn.Label" xml:space="preserve">
+    <value>Mikrofon offen halten</value>
+  </data>
+  <data name="ConfigFlow.Voice.MicrophoneId.Label" xml:space="preserve">
+    <value>Mikrofon-Kennung</value>
+  </data>
+  <data name="ConfigFlow.Voice.MicrophoneName.Label" xml:space="preserve">
+    <value>Mikrofonname</value>
+  </data>
+  <data name="ConfigFlow.Option.Yes" xml:space="preserve">
+    <value>Ja</value>
+  </data>
+  <data name="ConfigFlow.Option.No" xml:space="preserve">
+    <value>Nein</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.BargeIn.Label" xml:space="preserve">
+    <value>Der Nutzer darf JARVIS unterbrechen, während es spricht</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.BargeInThreshold.Label" xml:space="preserve">
+    <value>Empfindlichkeit der Unterbrechung</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.MaxIterations.Label" xml:space="preserve">
+    <value>Maximale Schritte in einem Zug</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Timeout.Label" xml:space="preserve">
+    <value>Zeitlimit für das Gespräch, in Sekunden</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.Lifetime.Label" xml:space="preserve">
+    <value>Dieses Gespräch so lange speichern, in Minuten</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.ServiceEnabled.Label" xml:space="preserve">
+    <value>Den JARVIS-Dienst mit erhöhten Rechten verwenden</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.ServiceScheduling.Label" xml:space="preserve">
+    <value>Dem JARVIS-Dienst erlauben, Aufgaben zu planen</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.ServiceAdmin.Label" xml:space="preserve">
+    <value>Rechnerweite Änderungen an der Registrierung erlauben</value>
+  </data>
+  <data name="Runtime.Issue.Microphone.Title" xml:space="preserve">
+    <value>JARVIS hört nichts</value>
+  </data>
+  <data name="Runtime.Issue.Microphone.Description" xml:space="preserve">
+    <value>Das Mikrofon ließ sich nicht öffnen, daher reagiert die Kugel nicht auf Sprache und das Aktivierungswort funktioniert nicht. {reason}</value>
+    <comment>[reason] technischer Grund des Audiogeräts.</comment>
+  </data>
+  <data name="Runtime.Issue.Hotkey.Title" xml:space="preserve">
+    <value>Die Freisprech-Taste ist nicht registriert</value>
+  </data>
+  <data name="Runtime.Issue.Hotkey.Description" xml:space="preserve">
+    <value>Ein anderes Programm belegt diese Tastenkombination, daher startet sie keinen Zug. {reason}</value>
+    <comment>[reason] technischer Grund, warum die Registrierung abgelehnt wurde.</comment>
+  </data>
+  <data name="Runtime.Issue.UnknownIssue" xml:space="preserve">
+    <value>Dieses Problem wird nicht mehr angezeigt, daher gibt es nichts zu wiederholen.</value>
+  </data>
+  <data name="Errors.UnknownFlag" xml:space="preserve">
+    <value>{name} muss wahr oder falsch sein. '{value}' ist beides nicht.</value>
+    <comment>[name][value] der Parametername und der abgelehnte Wert.</comment>
+  </data>  <data name="Runtime.Issue.Detail" xml:space="preserve">
+    <value>{reason}</value>
+    <comment>[reason] der Satz, den der Nutzer liest.</comment>
+  </data>
+  <data name="Runtime.Issue.Purpose" xml:space="preserve">
+    <value>Sie wird für {purpose} gebraucht.</value>
+    <comment>[string] purpose: wofür die Komponente da ist.</comment>
+  </data>
+  <data name="Runtime.Issue.TechnicalDetail" xml:space="preserve">
+    <value>Technische Einzelheit: {detail}</value>
+    <comment>[string] detail: Text des Anbieters oder eine Statusmeldung, bewusst nicht übersetzt.</comment>
+  </data>
+  <data name="Runtime.Issue.Retried.One" xml:space="preserve">
+    <value>Einmal versucht.</value>
+    <comment>[plural] Versuche, die Komponente zu holen.</comment>
+  </data>
+  <data name="Runtime.Issue.Retried.Other" xml:space="preserve">
+    <value>{count}-mal versucht.</value>
+    <comment>[plural][int][count] Versuche, die Komponente zu holen.</comment>
+  </data>
+  <data name="Errors.UnknownComponent" xml:space="preserve">
+    <value>Es gibt keine JARVIS-Komponente namens '{name}'.</value>
+    <comment>[string] name: die abgelehnte Komponentenkennung.</comment>
+  </data>
+  <data name="Errors.ConfirmationRequired" xml:space="preserve">
+    <value>JARVIS möchte zuerst etwas tun und wartet deshalb auf deine Bestätigung.</value>
+  </data></root>

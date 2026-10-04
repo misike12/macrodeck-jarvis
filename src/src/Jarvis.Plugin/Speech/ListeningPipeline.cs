@@ -164,9 +164,14 @@ public sealed class ListeningPipeline : IDisposable
 	{
 		LastError = null;
 
-		if (!_transcriber.IsAvailable)
+if (!_transcriber.IsAvailable)
 		{
-			return ActionResult.Failed(ActionErrorCodes.NotConfigured, Strings.Errors.SttNotInstalled());
+			// Names the component rather than saying "speech recognition" in the abstract. A user who has not
+			// downloaded the transcriber needs to know which of the two components to fetch, and the
+			// component is what the manage-components action takes.
+			return ActionResult.Failed(
+				ActionErrorCodes.NotConfigured,
+				Strings.Errors.ComponentMissing(Runtime.AssetCatalog.Whisper));
 		}
 
 		if (!string.IsNullOrWhiteSpace(prompt))

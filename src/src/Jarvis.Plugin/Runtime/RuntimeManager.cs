@@ -267,7 +267,12 @@ public sealed class RuntimeManager : IIntegrationIssueProvider
 	/// exactly what failed, rather than looking the asset up again and being unable to find an id that was
 	/// never in the catalogue.
 	/// </summary>
-	private sealed record FailedAsset(PinnedAsset Asset, AssetFailure Failure, string? Detail);
+	/// <summary>
+	/// A failure remembers the asset it belongs to and how many times it has been seen, not just a message.
+	/// The count is what lets the issue say "tried twice" rather than leaving the user to guess whether a
+	/// retry was ever worth anything, and a retry therefore reinstalls exactly what failed.
+	/// </summary>
+	private sealed record FailedAsset(PinnedAsset Asset, AssetFailure Failure, string? Detail, int Attempts);
 
 	public Task<IReadOnlyList<IntegrationIssue>> GetIssuesAsync(CancellationToken cancellationToken = default)
 	{
@@ -332,10 +337,42 @@ public sealed class RuntimeManager : IIntegrationIssueProvider
 		{
 			Id = IssueIdFor(failure.Asset),
 			Title = title,
-			Description = Strings.Runtime.Issue.Detail(description, failure.Asset.Purpose, failure.Detail ?? string.Empty),
+			// Composed rather than welded into one template. The three fragments used to be a single key with
+			// three placeholders and spaces between them, which fixes the word order: a language that puts
+			// the reason last, or needs a different connective, could not be expressed at all.
+			Description = ComposeIssueDescription(description, failure),
 			ActionLabel = Strings.Runtime.Issue.Action(),
 			Severity = severity,
 		};
+	}
+
+	/// <summary>
+	/// The issue body: what happened, what it was for, and what the provider said.
+	/// <para>
+	/// Each part is its own sentence with its own key, so a translation can order them as its language
+	/// requires and drop any part that does not apply, rather than being handed three fragments to glue
+	/// together in whatever order the English happened to use.
+	/// </para>
+	/// </summary>
+	private static string ComposeIssueDescription(LocalizedText reason, FailedAsset failure)
+	{
+		var text = Strings.Runtime.Issue.Detail(reason).ToString();
+
+		if (!string.IsNullOrWhiteSpace(failure.Asset.Purpose))
+		{
+			text += " " + Strings.Runtime.Issue.Purpose(failure.Asset.Purpose);
+		}
+
+		if (!string.IsNullOrWhiteSpace(failure.Detail))
+		{
+			text += " " + Strings.Runtime.Issue.TechnicalDetail(failure.Detail);
+		}
+
+		// Counted rather than asserted. "Tried once" for something that has failed four times is the kind of
+		// sentence that makes a user stop believing the rest of the message.
+		text += " " + Strings.Runtime.Issue.Retried(failure.Attempts);
+
+		return text;
 	}
 
 	/// <summary>
@@ -442,7 +479,9 @@ public sealed class RuntimeManager : IIntegrationIssueProvider
 	{
 		lock (_gate)
 		{
-			_failures[IssueIdFor(asset)] = new FailedAsset(asset, failure, detail);
+			_failures[IssueIdFor(asset)] = _failures.TryGetValue(IssueIdFor(asset), out var seen)
+				? seen with { Attempts = seen.Attempts + 1 }
+				: new FailedAsset(asset, failure, detail, 1);
 		}
 
 		_logger.Warning("{Asset} is unavailable. {Failure}: {Detail}", asset.Id, failure, detail);

@@ -51,7 +51,6 @@ public static class OrbConfigView
 							Option(Kebab(OrbPreset.Custom), Strings.Orb.Config.PresetOptions.Custom()),
 						]),
 					},
-
 					new UiNumberInput
 					{
 						Key = OrbWidgetData.RingCountKey,

@@ -143,13 +143,6 @@
     <comment>[string] tool: the tool the user refused.</comment>
   </data>
 
-  <data name="Actions.ViewOutput.Name" xml:space="preserve">
-    <value>View JARVIS output</value>
-  </data>
-  <data name="Actions.ViewOutput.Description" xml:space="preserve">
-    <value>Opens the full untruncated output of the last command JARVIS ran.</value>
-  </data>
-
   <data name="Actions.CheckModels.Name" xml:space="preserve">
     <value>Check JARVIS models</value>
   </data>
@@ -167,28 +160,6 @@
   </data>
   <data name="Actions.CheckModels.Both.Label" xml:space="preserve">
     <value>Both</value>
-  </data>
-  <data name="Actions.CheckModels.ReportTitle" xml:space="preserve">
-    <value>Model check</value>
-  </data>
-
-  <data name="Actions.DownloadComponent.Name" xml:space="preserve">
-    <value>Download JARVIS component</value>
-  </data>
-  <data name="Actions.DownloadComponent.Description" xml:space="preserve">
-    <value>Fetches a native binary or model JARVIS needs.</value>
-  </data>
-  <data name="Actions.DownloadComponent.Component.Label" xml:space="preserve">
-    <value>Component</value>
-  </data>
-  <data name="Actions.DownloadComponent.Component.Description" xml:space="preserve">
-    <value>Which native component to fetch.</value>
-  </data>
-  <data name="Actions.DownloadComponent.Variant.Label" xml:space="preserve">
-    <value>Variant</value>
-  </data>
-  <data name="Actions.DownloadComponent.Variant.Description" xml:space="preserve">
-    <value>Which model or voice to fetch for that component.</value>
   </data>
 
   <data name="Parameter.Mode.OneShot.Label" xml:space="preserve">
@@ -221,10 +192,6 @@
   </data>
   <data name="States.Unavailable" xml:space="preserve">
     <value>Not set up</value>
-  </data>
-
-  <data name="ConfigFlow.CompleteTitle" xml:space="preserve">
-    <value>JARVIS</value>
   </data>
   <data name="ConfigFlow.UnknownStep" xml:space="preserve">
     <value>That step is not part of setup.</value>
@@ -495,9 +462,6 @@
   <data name="Errors.NoModelConfigured" xml:space="preserve">
     <value>No language model is configured.</value>
   </data>
-  <data name="Errors.MicUnavailable" xml:space="preserve">
-    <value>No microphone is available.</value>
-  </data>
   <data name="Errors.ProviderRejected" xml:space="preserve">
     <value>The model provider refused the request.</value>
   </data>
@@ -509,6 +473,7 @@
   </data>
   <data name="Errors.ComponentMissing" xml:space="preserve">
     <value>{component} is not downloaded yet.</value>
+    <comment>[string] component: the component that still has to be downloaded.</comment>
   </data>
   <data name="Errors.AlreadyRunning" xml:space="preserve">
     <value>JARVIS is already running.</value>
@@ -516,9 +481,6 @@
   <data name="Errors.TurnCancelled" xml:space="preserve">
     <comment>Shown when a turn was stopped before it produced an answer, by a cancel press or by the host giving up on it.</comment>
     <value>That was cancelled before JARVIS answered.</value>
-  </data>
-  <data name="Errors.NothingToCancel" xml:space="preserve">
-    <value>JARVIS is not running.</value>
   </data>
 
   <data name="Orb.TypeName" xml:space="preserve">
@@ -543,10 +505,6 @@
   <data name="Actions.ManageComponents.Component.Whisper" xml:space="preserve">
     <value>Local speech to text (Whisper)</value>
   </data>
-
-  <data name="Errors.SttNotInstalled" xml:space="preserve">
-    <value>Local speech recognition is not installed. Install the Whisper component first.</value>
-  </data>
   <data name="Errors.MicrophoneUnavailable" xml:space="preserve">
     <value>No microphone is available.</value>
   </data>
@@ -560,10 +518,6 @@
   <data name="Runtime.UnknownComponent" xml:space="preserve">
     <value>{component} is not a component JARVIS knows about.</value>
     <comment>[string] component: the name the user chose.</comment>
-  </data>
-  <data name="Runtime.Installed" xml:space="preserve">
-    <value>{component} is installed.</value>
-    <comment>[string] component: the component just installed.</comment>
   </data>
   <data name="Runtime.InstallFailed" xml:space="preserve">
     <value>{component} could not be installed. JARVIS will keep using the built-in fallback.</value>
@@ -613,8 +567,25 @@
     <comment>[reason] technical reason the registration was refused.</comment>
   </data>
   <data name="Runtime.Issue.Detail" xml:space="preserve">
-    <value>{reason} {purpose} {detail}</value>
-    <comment>[reason][purpose][detail] reason, purpose, and technical detail.</comment>
+    <value>{reason}</value>
+    <comment>[reason] the sentence the user reads.</comment>
+  </data>
+  <data name="Runtime.Issue.Purpose" xml:space="preserve">
+    <value>It is used for {purpose}.</value>
+    <comment>[string] purpose: what the component is for.</comment>
+  </data>
+  <data name="Runtime.Issue.TechnicalDetail" xml:space="preserve">
+    <value>Technical detail: {detail}</value>
+    <comment>[string] detail: provider text or a status string, deliberately not translated.</comment>
+  </data>
+
+  <data name="Runtime.Issue.Retried.One" xml:space="preserve">
+    <value>Tried once.</value>
+    <comment>[plural] Attempts made to fetch the component.</comment>
+  </data>
+  <data name="Runtime.Issue.Retried.Other" xml:space="preserve">
+    <value>Tried {count} times.</value>
+    <comment>[plural][int][count] Attempts made to fetch the component.</comment>
   </data>
   <data name="Runtime.IssueStillFailing" xml:space="preserve">
     <value>Still unavailable. JARVIS will keep using the built-in fallback.</value>
@@ -645,10 +616,6 @@
   <data name="Orb.Config.PresetOptions.Custom" xml:space="preserve">
     <value>Custom</value>
   </data>
-
-  <data name="Orb.Config.Rings" xml:space="preserve">
-    <value>Rings</value>
-  </data>
   <data name="Orb.Config.RingCount" xml:space="preserve">
     <value>Ring count</value>
   </data>
@@ -663,10 +630,6 @@
   </data>
   <data name="Orb.Config.RingRotation" xml:space="preserve">
     <value>Rotate rings</value>
-  </data>
-
-  <data name="Orb.Config.Colours" xml:space="preserve">
-    <value>Colours</value>
   </data>
   <data name="Orb.Config.AccentColor" xml:space="preserve">
     <value>Accent</value>
@@ -693,9 +656,6 @@
   <data name="Orb.Config.TextSizeHint" xml:space="preserve">
     <value>How large the text is inside the orb.</value>
   </data>
-  <data name="Orb.Config.Text" xml:space="preserve">
-    <value>Text</value>
-  </data>
   <data name="Orb.Config.ShowText" xml:space="preserve">
     <value>Show text</value>
   </data>
@@ -714,10 +674,6 @@
   <data name="Orb.Config.TextSize" xml:space="preserve">
     <value>Text size</value>
   </data>
-
-  <data name="Orb.Config.Reactivity" xml:space="preserve">
-    <value>Reactivity</value>
-  </data>
   <data name="Orb.Config.AudioReactive" xml:space="preserve">
     <value>React to audio</value>
   </data>
@@ -729,10 +685,6 @@
   </data>
   <data name="Orb.Config.SensitivityHint" xml:space="preserve">
     <value>How hard a sound has to push to move the orb.</value>
-  </data>
-
-  <data name="Orb.Config.Behaviour" xml:space="preserve">
-    <value>Behaviour</value>
   </data>
   <data name="Orb.Config.Scope" xml:space="preserve">
     <value>Share state with</value>
@@ -746,4 +698,10 @@
   <data name="Orb.Config.ScopeOptions.Local" xml:space="preserve">
     <value>This orb only</value>
   </data>
-</root>
+  <data name="Errors.UnknownComponent" xml:space="preserve">
+    <value>There is no JARVIS component called '{name}'.</value>
+    <comment>[string] name: the component identifier that was refused.</comment>
+  </data>
+  <data name="Errors.ConfirmationRequired" xml:space="preserve">
+    <value>JARVIS wants to do something first, so it is waiting for you to confirm.</value>
+  </data></root>
