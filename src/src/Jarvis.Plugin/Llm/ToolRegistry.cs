@@ -72,13 +72,20 @@ public sealed class ToolRegistry(
 	/// <summary>
 	/// How long a tool call waits for a person to answer before it gives up.
 	/// <para>
-	/// Long, because a human has to notice the question, read it and reach for the pad. Bounded anyway,
-	/// because the alternative is a turn that never ends: the confirmation lives on a widget or an action,
-	/// and neither of those can promise the question was ever seen. Without a bound, one unanswered
-	/// question holds the assistant for the rest of the session.
+	/// Short on purpose. This used to be ten minutes on the reasoning that a person has to notice the
+	/// question and reach for the pad, which is true, and on the bound being needed at all, which is also
+	/// true, but the two do not compose: every caller gives up first. The say action is cancelled by the host
+	/// after twenty seconds, so a ten minute wait could only ever end as the caller being cancelled. The turn
+	/// died with "that was cancelled before JARVIS answered" and the refusal this bound exists to produce was
+	/// never written, so an unanswered question cost the user both the answer and the reason.
+	/// </para>
+	/// <para>
+	/// Twelve seconds is what a person actually needs to answer a yes or no, and it is short enough to land
+	/// inside the caller's own patience, so the turn ends with the refusal the model can explain rather than
+	/// with a timeout the user cannot interpret.
 	/// </para>
 	/// </summary>
-	private static readonly TimeSpan ConfirmationTimeout = TimeSpan.FromMinutes(10);
+	private static readonly TimeSpan ConfirmationTimeout = TimeSpan.FromSeconds(12);
 
 	public IReadOnlyCollection<string> Names => _tools.Keys;
 

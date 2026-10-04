@@ -30,7 +30,7 @@ Everything runs as the signed-in user except the optional service. See
 | Check | Command | Result |
 | --- | --- | --- |
 | Build | `dotnet build -c Release` | 0 warnings, 0 errors |
-| Tests | `dotnet test` | **558 passed**, 0 failed |
+| Tests | `dotnet test` | **559 passed**, 0 failed |
 | Manifest validation | `macrodeck-plugin validate --artifact ... --level Publication` | 0 errors, 0 warnings |
 | Conformance, project | `src/conformance.md` | conformant |
 | Conformance, artifact | `src/artifact-conformance.md` | conformant, and it carries MDC0104 through MDC0107 |
@@ -163,8 +163,20 @@ because `planfix.md` does not contain them, and a reader of that file would othe
   now spaced through a process-wide gate, retried while the exception is marked retryable, and bounded by a
   budget so an unreachable host costs the budget rather than a multiple of it.
 
-None of the three was reachable by a test that ran the code the way a user does, which is the same weakness
-in all three: the audit exercised units and never the assembled path against a host that answers slowly.
+- **A request that needed confirming died as a bare timeout instead of an answer.** Under the default
+  `ConfirmAll` safety mode every tool that acts asks first, which is correct, but the gate waited ten minutes
+  for the answer. Every caller gives up long before that: the say action is cancelled by the host after twenty
+  seconds. So the wait could only ever end as the caller being cancelled, the refusal the bound exists to
+  produce was never written, and the user saw "that was cancelled before JARVIS answered" with no reason. The
+  bound is now twelve seconds, which is what a person needs to answer a yes or no and short enough to land
+  inside the caller's patience, so the turn ends with a refusal the model can explain.
+
+Note that there is no `web_search` tool. A request to search the web is served by navigating a browser to a
+search engine and reading the page, which is why the model reached for `browser_navigate`.
+
+None of these was reachable by a test that ran the code the way a user does, which is the same weakness
+in all of them: the audit exercised units and never the assembled path against a host and a caller that
+answer slowly.
 
 ## Known limitations
 

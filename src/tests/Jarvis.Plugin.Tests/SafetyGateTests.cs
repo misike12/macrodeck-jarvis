@@ -343,6 +343,30 @@ public class SafetyGateTests
 		});
 	}
 
+	/// <summary>An unanswered question must end the turn with a refusal, not outlive the caller.</summary>
+	[Test]
+	public async Task An_unanswered_confirmation_refuses_while_the_caller_is_still_waiting()
+	{
+		var (_, registry) = Build(new JarvisSettings { Safety = SafetyMode.ConfirmAll }, out var tool);
+
+		var started = System.Diagnostics.Stopwatch.StartNew();
+		var outcome = await registry.InvokeAsync(Call(tool.Name), CancellationToken.None);
+		started.Stop();
+
+		// The say action is cancelled by the host after twenty seconds. A wait longer than that cannot
+		// produce the refusal it exists to produce, because the caller is gone before it is written.
+		Assert.Multiple(() =>
+		{
+			Assert.That(
+				started.Elapsed,
+				Is.LessThan(TimeSpan.FromSeconds(15)),
+				"the gate waited longer than any caller survives, so the turn ended as a timeout with no reason");
+			Assert.That(outcome.Ok, Is.False);
+			Assert.That(tool.Invocations, Is.Zero);
+			Assert.That(outcome.Content, Does.Contain("not run").IgnoreCase);
+		});
+	}
+
 	private static async Task WaitForConfirmationAsync(AssistantSession session)
 	{
 		for (var attempt = 0; attempt < 100 && session.PendingConfirmation is null; attempt++)

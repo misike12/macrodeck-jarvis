@@ -10,5 +10,5 @@ id:          com.misike12.jarvis
 publisher:   misike12
 rid:         win-x64
 bytes:       2238772
-sha256:      cc6ac02cc381b6ce8a93d880fb2f1db105e82e67a4328345c027cd6ec10f4efe
+sha256:      896ca7a041d5572277c258b81d908dc25ddc56512ac00526fdbccc1fbd05fa2e
 published:   https://github.com/misike12/macrodeck-jarvis/releases
