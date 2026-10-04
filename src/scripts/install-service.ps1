@@ -171,6 +171,73 @@ resetting the descriptor; check the directory's permissions in Computer Manageme
 
 Write-Host "Verified: ordinary users cannot modify $installDirectory"
 
+# An earlier version of this script registered the service straight out of the build output, which is
+# inside the user's own profile. A registration is not a privilege on its own, but that one points at a
+# binary the user can replace, so anyone able to start the service runs their own code as SYSTEM. Leaving
+# it behind is the worst of both states: the new binary is correct but the old registration can still be
+# started. It has to be deleted outright, because sc.exe config cannot move a service to a different
+# binary path and the installer below creates a new one rather than reconfiguring the old.
+$existing = Get-CimInstance Win32_Service -Filter "Name='JarvisService'" -ErrorAction SilentlyContinue
+
+if ($null -ne $existing) {
+    $quoted = [regex]::Match($existing.PathName, '^"([^"]+)"')
+    $bare = [regex]::Match($existing.PathName, '^(\S+)')
+
+    if ($quoted.Success) {
+        $registeredBinary = $quoted.Groups[1].Value
+    }
+    elseif ($bare.Success) {
+        $registeredBinary = $bare.Groups[1].Value
+    }
+    else {
+        $registeredBinary = $existing.PathName
+    }
+
+    $insideInstallDirectory = $registeredBinary.StartsWith(
+        $installDirectory, [StringComparison]::OrdinalIgnoreCase)
+
+    if (-not $insideInstallDirectory) {
+        Write-Host "Removing a previous registration pointing at $registeredBinary"
+
+        if ($existing.State -ne 'Stopped') {
+            Stop-Service -Name 'JarvisService' -Force -ErrorAction SilentlyContinue
+
+            $stopped = (Get-Date).AddSeconds(15)
+
+            while ((Get-Service -Name 'JarvisService' -ErrorAction SilentlyContinue) -ne $null -and
+                   (Get-Date) -lt $stopped) {
+                Start-Sleep -Milliseconds 500
+            }
+        }
+
+        # Out parameters, because Start-Process cannot otherwise keep them, and the exit code is checked:
+        # a delete that failed would leave the old registration in place and the create below would then
+        # fail with a name-already-exists error that says nothing about the real cause.
+        $null = Start-Process -FilePath 'sc.exe' -ArgumentList @('delete', 'JarvisService') `
+            -Wait -PassThru -NoNewWindow -RedirectStandardOutput 'NUL'
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error @"
+The previous registration could not be removed, so the service cannot be reinstalled.
+
+    sc.exe delete JarvisService
+
+This usually means the service is still open in the service console. Close it and run again.
+"@
+            exit 1
+        }
+
+        # The manager keeps the service marked for deletion until every handle to it is closed, so creating
+        # the replacement immediately can still collide with the name.
+        $gone = (Get-Date).AddSeconds(15)
+
+        while ((Get-Service -Name 'JarvisService' -ErrorAction SilentlyContinue) -ne $null -and
+               (Get-Date) -lt $gone) {
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
+
 # A tray-mode instance holds its own executable open, so a rebuild over it fails with MSB3026 and the
 # install then runs a stale binary. Only this exact binary is stopped: on a shared machine the name alone
 # would match another user's instance.
