@@ -1,0 +1,41 @@
+name: Publish plugin
+
+# The release has to come from a build, not from a maintainer uploading a file. A hand-built artifact has
+# no build record in the Creator Portal, nothing binds its contents to a commit, and it needs a personal
+# access token sitting on the machine that made it. Cutting a tag and letting this run produces all three.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    # OIDC rather than a token. The store verifies the artifact's provenance against the workflow run, so
+    # the credential here is not a secret to be leaked and rotated but an identity to be exchanged.
+    permissions:
+      contents: read
+      id-token: write
+
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install the Macro Deck CLI
+        run: dotnet tool install --global MacroDeck.Plugin.Packaging
+
+      - name: Build the plugin
+        run: macrodeck-plugin build --source src/Jarvis.Plugin --output ./artifacts
+
+      - name: Validate the artifact at publication level
+        run: macrodeck-plugin validate --artifact ./artifacts/*.macroDeckPlugin --level Publication
+
+      - name: Register the build
+        uses: Macro-Deck-App/GitHub-Actions/.github/workflows/publish-plugin.yml@v1
+        with:
+          artifact-path: ./artifacts

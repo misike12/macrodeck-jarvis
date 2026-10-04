@@ -163,3 +163,12 @@ local-feed/*
 # JARVIS: never commit the developer settings file or the API keys it holds.
 jarvis.settings.json
 
+# Packed plugins. The artifact is a build output and is not reviewable, so it stays out of the tree; what
+# is committed instead is the digest below, which is what binds a published release to a commit.
+*.macroDeckPlugin
+artifacts/
+
+# The digest of the last packed artifact, recorded so a reviewer can tell whether the published file
+# came from this source. Written by scripts/regenerate-conformance.ps1.
+artifact-digest.txt
+

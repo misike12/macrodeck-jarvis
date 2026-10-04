@@ -1,0 +1,54 @@
+name: Verify
+
+# Conformance is a gate, not a report someone remembers to regenerate. The two committed reports were
+# hand-run with nothing enforcing them, so a change to the manifest or the capability shape could land
+# with the reports still describing the previous commit.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        run: dotnet build src/Jarvis.Plugin.slnx -c Release
+
+      - name: Test
+        run: dotnet test src/Jarvis.Plugin.slnx -c Release --no-build
+
+      - name: Install the Macro Deck CLI
+        run: dotnet tool install --global MacroDeck.Plugin.Packaging
+
+      - name: Validate the manifest
+        run: macrodeck-plugin validate --manifest src/Jarvis.Plugin/manifest.json --level Publication
+
+      - name: Conformance
+        run: macrodeck-plugin test --project src/Jarvis.Plugin --report markdown --output src/conformance.md
+
+      # The artifact is the subject that carries the manifest checks. The project report skips MDC0104
+      # through MDC0107 by construction, so gating on it would be gating on something that cannot pass.
+      - name: Pack and check conformance against the artifact
+        run: ./src/scripts/regenerate-conformance.ps1
+
+      # Required checks that SKIP rather than pass are the reason the previous report could claim
+      # conformance while validating none of the manifest. This fails instead.
+      - name: The artifact report must be conformant
+        run: ./src/scripts/require-conformance.ps1 -Report src/artifact-conformance.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conformance
+          path: |
+            src/conformance.md
+            src/artifact-conformance.md

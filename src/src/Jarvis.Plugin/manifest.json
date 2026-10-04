@@ -3,7 +3,7 @@
   "manifestVersion": 1,
   "id": "com.misu.jarvis",
   "name": "JARVIS",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A voice-driven assistant for your deck.",
   "icon": "Assets/icon.svg",
   "entrypoints": {
@@ -24,6 +24,14 @@
   "compatibility": {
     "macroDeck": ">=3.0.0-0"
   },
+  "ai": {
+    "interaction": true,
+    "generatedContent": true,
+    "generatedAssets": false,
+    "services": [
+      "NVIDIA NIM"
+    ]
+  },
   "permissions": [
     "net:outbound",
     "fs:user-files",
@@ -31,5 +39,17 @@
     "events:publish",
     "host:notifications",
     "host:widgets"
-  ]
+  ],
+  "services": {
+    "elevated": {
+      "summary": "JARVIS can use a separate Windows service that runs as LocalSystem for machine-wide operations.",
+      "executable": "Jarvis Service.exe",
+      "installScript": "scripts/install-service.ps1",
+      "uninstallScript": "scripts/uninstall-service.ps1",
+      "pipe": "jarvis-service",
+      "grantedTo": "the account that ran the install script, plus SYSTEM and Administrators",
+      "writes": "HKLM\\SOFTWARE\\Jarvis and keys below it, and only those",
+      "optional": true
+    }
+  }
 }

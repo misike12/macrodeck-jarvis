@@ -4,6 +4,13 @@
         <OutputType>Exe</OutputType>
         <IsPackable>false</IsPackable>
         <UserSecretsId>Jarvis.Plugin-PluginDevelopment</UserSecretsId>
+
+        <!-- Stated rather than inherited from the file name. The manifest's entrypoint names
+             Jarvis.Plugin.dll and the packer looks the project up by that assembly name, so both currently
+             agree only because the project file happens to be called the right thing. Renaming either
+             without the other breaks the artifact at pack time. -->
+        <AssemblyName>Jarvis.Plugin</AssemblyName>
+        <RootNamespace>Jarvis.Plugin</RootNamespace>
     </PropertyGroup>
 
     <!-- Microsoft.NET.Sdk plus this framework reference, not Microsoft.NET.Sdk.Web: a plugin is a

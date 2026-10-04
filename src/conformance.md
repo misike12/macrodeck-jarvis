@@ -1,9 +1,9 @@
 # Macro Deck plugin conformance report
 
 Suite version: `1.2.0`  
-Plugin: `com.misu.jarvis` `1.1.0`  
+Plugin: `com.misu.jarvis` `1.1.1`  
 Conformant: **yes**  
-Passed: 34 - Failed: 0 - Skipped: 15
+Passed: 33 - Failed: 0 - Skipped: 16
 
 | Id | Title | Category | Requirement | Outcome | Detail |
 |---|---|---|---|---|---|
@@ -51,7 +51,7 @@ Passed: 34 - Failed: 0 - Skipped: 15
 | MDC0702 | /_macrodeck/info and /_macrodeck/diagnostics agree with what the host itself observed about this session | HealthEndpoint | Required | PASS |  |
 | MDC0703 | An unmapped route under /_macrodeck/ answers 404 | HealthEndpoint | Required | PASS |  |
 | MDC0704 | The subject serves its endpoints at the base address its launcher was told to expect | HealthEndpoint | Required | PASS |  |
-| MDC0801 | Logging while draining is paused does not block, and queued traffic is not silently lost after resuming | BoundedQueues | Recommended | PASS |  |
+| MDC0801 | Logging while draining is paused does not block, and queued traffic is not silently lost after resuming | BoundedQueues | Recommended | SKIP | No declared action produced any observable log output. |
 | MDC0802 | Under a logging flood while paused, a trailing Error still survives and Dropped is reported honestly | BoundedQueues | Recommended | SKIP | No declared action produced a batch's worth of log traffic while draining was paused, so there was no flood for a trailing Error to have to survive. |
 | MDC0803 | Every collected log event respects the protocol's structural field limits | BoundedQueues | Required | PASS |  |
 | MDC0804 | Reconnecting does not replay a burst of previously published events | BoundedQueues | Required | PASS |  |
