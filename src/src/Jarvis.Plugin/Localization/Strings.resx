@@ -478,10 +478,14 @@
   <data name="Errors.AlreadyRunning" xml:space="preserve">
     <value>JARVIS is already running.</value>
   </data>
-  <data name="Errors.TurnCancelled" xml:space="preserve">
-    <comment>Shown when a turn was stopped before it produced an answer, by a cancel press or by the host giving up on it.</comment>
-    <value>That was cancelled before JARVIS answered.</value>
-  </data>
+<data name="Errors.TurnCancelled" xml:space="preserve">
+      <comment>Shown when a turn was stopped before it produced an answer, by a cancel press or by the host giving up on it.</comment>
+      <value>That was cancelled before JARVIS answered.</value>
+    </data>
+    <data name="Errors.TurnStarted" xml:space="preserve">
+      <comment>Shown on the button that started a turn. The turn outlives the press, so the answer arrives as speech rather than in the button.</comment>
+      <value>Started. JARVIS will answer out loud.</value>
+    </data>
 
   <data name="Orb.TypeName" xml:space="preserve">
     <value>JARVIS orb</value>

@@ -30,7 +30,7 @@ Everything runs as the signed-in user except the optional service. See
 | Check | Command | Result |
 | --- | --- | --- |
 | Build | `dotnet build -c Release` | 0 warnings, 0 errors |
-| Tests | `dotnet test` | **559 passed**, 0 failed |
+| Tests | `dotnet test` | **562 passed**, 0 failed |
 | Manifest validation | `macrodeck-plugin validate --artifact ... --level Publication` | 0 errors, 0 warnings |
 | Conformance, project | `src/conformance.md` | conformant |
 | Conformance, artifact | `src/artifact-conformance.md` | conformant, and it carries MDC0104 through MDC0107 |
@@ -170,6 +170,17 @@ because `planfix.md` does not contain them, and a reader of that file would othe
   produce was never written, and the user saw "that was cancelled before JARVIS answered" with no reason. The
   bound is now twelve seconds, which is what a person needs to answer a yes or no and short enough to land
   inside the caller's patience, so the turn ends with a refusal the model can explain.
+
+- **A long answer was cut off at twenty seconds because a deck button waited for it.** The host's
+  `ProtocolTimeouts.CapabilityInvoke` is thirty seconds and is a protocol constant, not a setting, so an
+  invocation past it is cancelled and its result discarded. The button awaited the turn and was capped just
+  inside that ceiling, which meant a spoken answer was interrupted while the model was still talking, and the
+  cap could not be raised because the next wall is the host's. The turn now leaves the press instead: it runs
+  on its own token bounded by the conversation timeout, and the button returns `Accepted` immediately. The
+  answer arrives as speech and in the orb, which is where it belongs. `Accepted` rather than `Succeeded`
+  because at the moment of the press the answer does not exist yet. Anything knowable up front, a missing
+  model or a missing prompt, is still refused synchronously. The conversation timeout default was twenty
+  seconds, which is shorter than many replies, and is now two minutes; the setting allows ten.
 
 Note that there is no `web_search` tool. A request to search the web is served by navigating a browser to a
 search engine and reading the page, which is why the model reached for `browser_navigate`.

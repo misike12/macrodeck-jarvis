@@ -119,7 +119,7 @@ public sealed record JarvisSettings
 
 	public int MaxIterations { get; init; } = 4;
 
-	public int ConversationTimeoutSeconds { get; init; } = 20;
+	public int ConversationTimeoutSeconds { get; init; } = 120;
 
 	public MemoryMode Memory { get; init; } = MemoryMode.PersistentNotes;
 

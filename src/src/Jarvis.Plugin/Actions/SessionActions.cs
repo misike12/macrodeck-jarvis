@@ -1,6 +1,7 @@
 using MacroDeck.Localization;
 using MacroDeck.Sdk;
 using MacroDeck.Sdk.Actions;
+using Serilog;
 using Jarvis.Plugin.Core;
 using Jarvis.Plugin.Speech;
 
@@ -127,7 +128,7 @@ public sealed class ActivateAction(AssistantSession session, ListeningPipeline l
 			description: Strings.Actions.Activate.Prompt.Description()),
 	];
 
-	public IActionExecutor CreateExecutor() => new Executor(listening);
+	public IActionExecutor CreateExecutor() => new Executor(session, listening);
 
 	public Task<ActionStateSnapshot?> GetActionStateAsync(
 		IReadOnlyDictionary<string, object?> parameters,
@@ -136,7 +137,7 @@ public sealed class ActivateAction(AssistantSession session, ListeningPipeline l
 		return Task.FromResult<ActionStateSnapshot?>(AssistantStateReader.Read(session));
 	}
 
-	private sealed class Executor(ListeningPipeline listening) : IActionExecutor
+	private sealed class Executor(AssistantSession session, ListeningPipeline listening) : IActionExecutor
 	{
 		public Task<ActionResult> ExecuteAsync(ActionExecutionContext context)
 		{
@@ -151,11 +152,21 @@ public sealed class ActivateAction(AssistantSession session, ListeningPipeline l
 
 			var prompt = ActionParameters.ReadText(context.Parameters, ActionParameters.Prompt);
 
+			// Refused here rather than inside the turn. A missing model is known before a turn starts, and a
+			// press that has already returned cannot report it afterwards: the tile would claim the turn began
+			// and the reason would arrive later as speech nobody asked for.
+			if (!session.HasLlmCredentials)
+			{
+				return Task.FromResult(ActionResult.Failed(
+					ActionErrorCodes.NotConfigured, Strings.Errors.NoModelConfigured()));
+			}
+
 			// Every press goes through the voice loop. It used to be split: a wait-for-wake-word press took a
 			// path that opened no microphone, started no turn and reported success anyway.
-			return ActionBudget.RunAsync(
-				token => listening.ListenAndAnswerAsync(prompt, token),
-				context.CancellationToken);
+			return Task.FromResult(ActionBudget.StartTurn(
+				session,
+				session.Logger,
+				token => listening.ListenAndAnswerAsync(prompt, token)));
 		}
 	}
 }
@@ -248,9 +259,16 @@ public sealed class ToggleAction(AssistantSession session, ListeningPipeline lis
 			// as the activate button rather than a path that only marked the session as running.
 			if (!session.IsRunning)
 			{
-return ActionBudget.RunAsync(
-				token => listening.ListenAndAnswerAsync(null, token),
-				context.CancellationToken);
+				if (!session.HasLlmCredentials)
+				{
+					return Task.FromResult(ActionResult.Failed(
+						ActionErrorCodes.NotConfigured, Strings.Errors.NoModelConfigured()));
+				}
+
+				return Task.FromResult(ActionBudget.StartTurn(
+					session,
+					session.Logger,
+					token => listening.ListenAndAnswerAsync(null, token)));
 			}
 
 			return Task.FromResult(session.Cancel(false));
@@ -270,24 +288,62 @@ return ActionBudget.RunAsync(
 /// The returned source is disposed by the caller's using, which also cancels anything still running.
 /// </para>
 /// </summary>
+/// <summary>
+/// Starts a turn and lets the press go.
+/// <para>
+/// A turn cannot be awaited by the button that starts it. The host's <c>CapabilityInvoke</c> ceiling is thirty
+/// seconds and it is a protocol constant, not a setting: past it the host cancels the invocation and throws
+/// the result away. An answer that takes longer than that was never going to fit, so the press used to be
+/// capped just inside the ceiling, which meant a spoken answer was cut off at the point where the model was
+/// still talking. Raising the cap does not help, because the next wall is the host's and it is not ours to
+/// move.
+/// </para>
+/// <para>
+/// So the turn runs on its own token, bounded by the conversation timeout, and the press returns
+/// <see cref="ActionResult.Accepted"/> immediately. The answer arrives as speech and in the orb, which is
+/// where an assistant's answer belongs anyway. The session already owns a turn that outlives an invocation
+/// and a cancel button that stops it, so nothing new is left running unowned.
+/// </para>
+/// <para>
+/// The result is <c>Accepted</c> rather than <c>Succeeded</c> on purpose: the work was taken and will be
+/// heard, but at the moment of the press nobody can confirm it finished, and reporting success for an answer
+/// that has not been produced yet would be a lie the user can see through.
+/// </para>
+/// </summary>
 public static class ActionBudget
 {
-	public static async Task<ActionResult> RunAsync(
-		Func<CancellationToken, Task<ActionResult>> work,
-		CancellationToken cancellationToken)
+	public static ActionResult StartTurn(
+		AssistantSession session,
+		ILogger logger,
+		Func<CancellationToken, Task<ActionResult>> work)
 	{
-		using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		var budget = new CancellationTokenSource(session.ConversationBudget);
 
-		budget.CancelAfter(AssistantSession.ActionBudget);
+		_ = Task.Run(
+			async () =>
+			{
+				try
+				{
+					await work(budget.Token).ConfigureAwait(false);
+				}
+				catch (OperationCanceledException)
+				{
+					// The turn was cancelled, or ran out of its conversation timeout. Either way the session
+					// has already put its own state back, and the user has heard whatever was said.
+				}
+				catch (Exception exception) when (exception is not OutOfMemoryException)
+				{
+					// Nothing is left to return this to, so it would otherwise vanish without a trace.
+					logger.Warning(exception, "A turn that had already left its button failed.");
+				}
+				finally
+				{
+					budget.Dispose();
+				}
+			},
+			CancellationToken.None);
 
-		try
-		{
-			return await work(budget.Token).ConfigureAwait(false);
-		}
-		catch (OperationCanceledException) when (budget.IsCancellationRequested)
-		{
-			return ActionResult.Failed(ActionErrorCodes.Timeout, Strings.Errors.TurnCancelled());
-		}
+		return ActionResult.Accepted(Strings.Errors.TurnStarted());
 	}
 }
 
@@ -316,9 +372,25 @@ public sealed class SayAction(AssistantSession session) : IActionDefinition
 		{
 			var text = ActionParameters.ReadText(context.Parameters, ActionParameters.Text);
 
-			return ActionBudget.RunAsync(
-				token => session.SayAsync(text ?? string.Empty, token),
-				context.CancellationToken);
+			// The prompt is validated here rather than inside the turn, because the turn has already left by
+			// the time it would report a problem and the press would show as started either way.
+			if (text is null)
+			{
+				return Task.FromResult(ActionResult.Failed(
+					ActionErrorCodes.InvalidParameter,
+					MacroDeckStrings.Validation.Required(Strings.Actions.Say.Prompt.Label())));
+			}
+
+			if (!session.HasLlmCredentials)
+			{
+				return Task.FromResult(ActionResult.Failed(
+					ActionErrorCodes.NotConfigured, Strings.Errors.NoModelConfigured()));
+			}
+
+			return Task.FromResult(ActionBudget.StartTurn(
+				session,
+				session.Logger,
+				token => session.SayAsync(text, token)));
 		}
 	}
 }

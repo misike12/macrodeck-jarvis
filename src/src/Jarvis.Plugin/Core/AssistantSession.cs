@@ -256,20 +256,27 @@ try
 	/// <summary>
 	/// How long one turn may run before it is abandoned.
 	/// <para>
-	/// The host cancels a capability invocation after thirty seconds and takes the concurrency slot back, so
-	/// a turn that keeps going past that point is work nobody is waiting for. The margin is deliberate: the
-	/// budget has to expire early enough to unwind, log and return a result before the host gives up on the
-	/// slot itself.
+	/// Taken from the conversation timeout in settings rather than fixed here, because a turn's length is a
+	/// property of the conversation and not of the button. This used to be a hardcoded twenty seconds that
+	/// ignored the setting entirely, so a user who had raised the timeout to five minutes still had every long
+	/// answer cut off at twenty, and the number that governed a spoken conversation was not the number shown
+	/// for it in the settings.
 	/// </para>
 	/// <para>
 	/// Applied by the action executors and not here, because the limit belongs to a deck button press. The
-	/// hotkey and the wake word are not capability invocations, have no thirty second ceiling, and are
-	/// legitimately allowed to run for as long as a person takes to speak a sentence and hear the answer.
+	/// hotkey and the wake word are not capability invocations and are not capped this way, because a person
+	/// taking their time to speak a sentence is not a fault.
 	/// </para>
 	/// </summary>
-	public static TimeSpan ActionBudget => TimeSpan.FromSeconds(20);
+	public TimeSpan ConversationBudget => TimeSpan.FromSeconds(_settings.Current.ConversationTimeoutSeconds);
 
 	private const int MaxHistoryMessages = 20;
+
+	/// <summary>Whether a model is configured, so a caller can refuse a turn before starting one it cannot finish.</summary>
+	public bool HasLlmCredentials => _settings.Current.HasLlmCredentials;
+
+	/// <summary>The logger the session already uses, so a caller that outlives it can log through the same one.</summary>
+	public ILogger Logger => _logger;
 
 	private bool _seeded;
 
