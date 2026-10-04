@@ -1,0 +1,14 @@
+# The artifact this source produces.
+#
+# The packed plugin is a build output and is not committed, which leaves a reviewer unable to tell whether
+# a published release came from this source. This records what it hashes to instead, so the artifact a
+# release publishes can be checked against the commit it claims to be from.
+#
+# Regenerate with: src\scripts\regenerate-conformance.ps1
+version:     1.1.1
+id:          com.misike12.jarvis
+publisher:   misike12
+rid:         win-x64
+bytes:       2237110
+sha256:      4bd4222d000bf88f174ea75ba68627c11709a087d26bf4cc60656b5fe6634087
+published:   https://github.com/misike12/macrodeck-jarvis/releases
