@@ -34,6 +34,7 @@ private readonly RuntimeManager _runtime;
 	private readonly GlobalHotkey _hotkey;
 	private readonly WakeWordDetector _wakeWord;
 	private readonly WhisperTranscriber _transcriber;
+	private readonly ServiceAvailability _serviceAvailability;
 	private IUiResourceRegistry? _resources;
 
 	public PluginIntegration(
@@ -47,7 +48,8 @@ private readonly RuntimeManager _runtime;
 		ListeningPipeline listening,
 		GlobalHotkey hotkey,
 		WakeWordDetector wakeWord,
-		WhisperTranscriber transcriber)
+WhisperTranscriber transcriber,
+		ServiceAvailability serviceAvailability)
 	{
 		_logger = logger.ForContext<PluginIntegration>();
 		_settings = settings;
@@ -59,6 +61,7 @@ private readonly RuntimeManager _runtime;
 		_hotkey = hotkey;
 		_wakeWord = wakeWord;
 		_transcriber = transcriber;
+		_serviceAvailability = serviceAvailability;
 
 		_widgetTypes = new OrbWidgetTypeProvider(logger);
 
@@ -131,6 +134,8 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 			settings.Llm,
 			settings.LlmModel,
 			settings.HasLlmCredentials);
+
+		await ProbeElevatedServiceAsync(settings, cancellationToken).ConfigureAwait(false);
 
 		if (settings.MicrophoneAlwaysOn)
 		{
@@ -267,6 +272,48 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 				_logger.Warning(exception, "An unattended turn failed.");
 			}
 		});
+	}
+
+	/// <summary>
+	/// Finds out whether the elevated service is there, so the tools that need it are either offered or not
+	/// for a stated reason.
+	/// <para>
+	/// This was never called before, so the answer was never known: the tool was registered unconditionally
+	/// and a user who had switched the service off still had a model that confidently called it. The probe
+	/// is skipped entirely when the setting says the service is off, since there is nothing to ask.
+	/// </para>
+	/// </summary>
+	private async Task ProbeElevatedServiceAsync(JarvisSettings settings, CancellationToken cancellationToken)
+	{
+		if (!settings.ElevatedServiceEnabled)
+		{
+			_logger.Information(
+				"The elevated service is switched off, so the tools that need it will not be offered.");
+
+			return;
+		}
+
+		try
+		{
+			if (await _serviceAvailability.RefreshAsync(cancellationToken).ConfigureAwait(false))
+			{
+				_logger.Information("The elevated service is answering.");
+			}
+			else
+			{
+				_logger.Warning(
+					"The elevated service is not answering. Machine-wide registry changes will not be offered "
+						+ "until it does. Run scripts\\install-service.ps1 -Start from an elevated PowerShell.");
+			}
+		}
+		catch (OperationCanceledException)
+		{
+			// The session is going away, which is not a fault in the probe.
+		}
+		catch (Exception exception) when (exception is not OutOfMemoryException)
+		{
+			_logger.Warning(exception, "The elevated service could not be probed.");
+		}
 	}
 
 	public Task ShutdownAsync()

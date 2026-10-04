@@ -395,6 +395,60 @@ public class ElevatedOperationTests
 	}
 
 	/// <summary>
+	/// The tray's administrator switch, which used to exist only as a tick box.
+	/// <para>
+	/// Every machine-changing operation has to be refused while it is off, and the two that change nothing
+	/// have to keep working, or a caller cannot discover that the switch is the reason.
+	/// </para>
+	/// </summary>
+	[TestCase("registry_get")]
+	[TestCase("registry_set")]
+	[TestCase("registry_delete")]
+	public void Administrator_operations_are_refused_while_the_switch_is_off(string operation)
+	{
+		using var pipe = new PipeServer(NullLogger.Instance, UniquePipeName())
+		{
+			AllowAdminOperations = false,
+		};
+
+		var reply = pipe.Handle(Protocol.Request(operation, new JsonObject
+		{
+			["hive"] = "HKLM",
+			["path"] = @"SOFTWARE\Jarvis\ServiceTests",
+			["name"] = "Anything",
+			["value"] = "anything",
+		}).ToJsonString());
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(reply["ok"]!.GetValue<bool>(), Is.False, operation);
+			Assert.That(reply["content"]!.GetValue<string>(), Does.Contain("switched off"));
+		});
+	}
+
+	[TestCase("ping")]
+	[TestCase("status")]
+	public void A_call_that_changes_nothing_still_works_while_the_switch_is_off(string operation)
+	{
+		using var pipe = new PipeServer(NullLogger.Instance, UniquePipeName())
+		{
+			AllowAdminOperations = false,
+		};
+
+		var reply = pipe.Handle(Protocol.Request(operation).ToJsonString());
+
+		Assert.That(reply["ok"]!.GetValue<bool>(), Is.True, operation);
+	}
+
+	[Test]
+	public void The_switch_is_on_by_default_so_a_fresh_install_is_not_refusing_everything()
+	{
+		using var pipe = new PipeServer(NullLogger.Instance, UniquePipeName());
+
+		Assert.That(pipe.AllowAdminOperations, Is.True);
+	}
+
+	/// <summary>
 	/// A pipe name of this test's own.
 	/// <para>
 	/// Not the production name: the service allows one instance per pipe name, so a test that used the real

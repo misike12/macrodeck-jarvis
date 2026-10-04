@@ -205,6 +205,11 @@ public static class Program
 		var pipe = new PipeServer(log);
 		using var tray = new TrayIconContext(operations);
 
+		// Applied before the listener starts, so a stored "off" is in force for the first request rather than
+		// for every one after the user happens to open the menu.
+		pipe.AllowAdminOperations = tray.AllowAdminOperations;
+		tray.AllowAdminOperationsChanged += allowed => pipe.AllowAdminOperations = allowed;
+
 		log.Information($"{ServiceDisplayName} is starting in tray mode. {ElevatedOperations.Describe()}");
 
 		pipe.Start();
@@ -230,8 +235,6 @@ public static class Program
 			// Awaited: a reconnect that starts a second listener before the first has released the pipe
 			// name leaves two instances answering for the same client.
 			await pipe.Stop().ConfigureAwait(false);
-			// fresh listener is equivalent to a restarted one.
-			pipe.Start();
 			pipe.Start();
 			tray.Update(pipe.IsListening);
 			tray.Notify("JARVIS Service", "The listener was rebuilt.");

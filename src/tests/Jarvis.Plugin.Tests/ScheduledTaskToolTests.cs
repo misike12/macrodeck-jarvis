@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using System.Text.Json.Nodes;
+using Jarvis.Plugin.Core;
 using Jarvis.Plugin.Llm;
 using NUnit.Framework;
 
@@ -26,6 +27,22 @@ public class ScheduledTaskToolTests
 
 	private static string Command => Notepad.First(File.Exists);
 
+	/// <summary>
+	/// A settings store for the task tools. Elevated scheduling is on by default here so the validation
+	/// tests below keep reaching the check they were written for rather than stopping at the new gate.
+	/// </summary>
+	private static JarvisSettingsStore Store(bool elevatedScheduling = true)
+	{
+		var store = new JarvisSettingsStore(RuntimeTestLog.Logger, LocalSettingsFile.Load(
+			Path.Combine(Path.GetTempPath(), "jarvis-task-nonexistent")));
+
+		store.Apply(store.Current with { ElevatedServiceScheduling = elevatedScheduling });
+
+		return store;
+	}
+
+	private static ScheduledTaskTools.CreateScheduledTaskTool Tool(bool elevatedScheduling = true) =>
+		new(Store(elevatedScheduling));
 	private static string _folder = null!;
 
 	[SetUp]
@@ -92,7 +109,7 @@ public class ScheduledTaskToolTests
 	[Test, Explicit("Needs a reachable task scheduler.")]
 	public async Task A_task_can_be_created_read_and_removed()
 	{
-		var create = new ScheduledTaskTools.CreateScheduledTaskTool();
+		var create = Tool();
 		var read = new ScheduledTaskTools.GetScheduledTaskTool();
 		var remove = new ScheduledTaskTools.DeleteScheduledTaskTool();
 
@@ -142,7 +159,7 @@ public class ScheduledTaskToolTests
 	public async Task Each_schedule_produces_the_trigger_it_names(string schedule, string? time, string expected)
 	{
 		var created = await Invoke(
-			new ScheduledTaskTools.CreateScheduledTaskTool(),
+			Tool(),
 			Args(
 				("name", "JarvisProbe"),
 				("command", Command),
@@ -173,7 +190,7 @@ public class ScheduledTaskToolTests
 	public async Task A_command_has_to_be_a_full_path(string command)
 	{
 		var outcome = await Invoke(
-			new ScheduledTaskTools.CreateScheduledTaskTool(),
+			Tool(),
 			Args(("name", "JarvisProbe"), ("command", command), ("folder", _folder)));
 
 		Assert.Multiple(() =>
@@ -187,7 +204,7 @@ public class ScheduledTaskToolTests
 	public async Task A_command_that_is_not_there_is_refused()
 	{
 		var outcome = await Invoke(
-			new ScheduledTaskTools.CreateScheduledTaskTool(),
+			Tool(),
 			Args(
 				("name", "JarvisProbe"),
 				("command", $@"C:\Windows\System32\no-such-program-{Guid.CreateVersion7():N}.exe"),
@@ -202,7 +219,7 @@ public class ScheduledTaskToolTests
 	public async Task An_unknown_schedule_is_refused(string schedule)
 	{
 		var outcome = await Invoke(
-			new ScheduledTaskTools.CreateScheduledTaskTool(),
+			Tool(),
 			Args(("name", "JarvisProbe"), ("command", Command), ("folder", _folder), ("schedule", schedule)));
 
 		Assert.That(outcome.Ok, Is.False);
@@ -225,7 +242,7 @@ public class ScheduledTaskToolTests
 
 		arguments["time"] = time is null ? null : JsonValue.Create(time);
 
-		var outcome = await Invoke(new ScheduledTaskTools.CreateScheduledTaskTool(), arguments);
+		var outcome = await Invoke(Tool(), arguments);
 
 		Assert.That(outcome.Ok, Is.False);
 	}
@@ -254,7 +271,7 @@ public class ScheduledTaskToolTests
 			Args(("command", Command)),
 		})
 		{
-			var outcome = await Invoke(new ScheduledTaskTools.CreateScheduledTaskTool(), arguments);
+			var outcome = await Invoke(Tool(), arguments);
 			Assert.That(outcome.Ok, Is.False);
 		}
 	}
@@ -305,7 +322,7 @@ public class ScheduledTaskToolTests
 		{
 			Assert.That(new ScheduledTaskTools.ListScheduledTasksTool().RequiresConfirmation, Is.False);
 			Assert.That(new ScheduledTaskTools.GetScheduledTaskTool().RequiresConfirmation, Is.False);
-			Assert.That(new ScheduledTaskTools.CreateScheduledTaskTool().RequiresConfirmation, Is.True);
+			Assert.That(Tool().RequiresConfirmation, Is.True);
 			Assert.That(new ScheduledTaskTools.DeleteScheduledTaskTool().RequiresConfirmation, Is.True);
 			Assert.That(new ScheduledTaskTools.RunScheduledTaskTool().RequiresConfirmation, Is.True);
 		});
@@ -318,7 +335,7 @@ public class ScheduledTaskToolTests
 		{
 			Assert.That(new ScheduledTaskTools.ListScheduledTasksTool().Name, Is.EqualTo("list_scheduled_tasks"));
 			Assert.That(new ScheduledTaskTools.GetScheduledTaskTool().Name, Is.EqualTo("get_scheduled_task"));
-			Assert.That(new ScheduledTaskTools.CreateScheduledTaskTool().Name, Is.EqualTo("create_scheduled_task"));
+			Assert.That(Tool().Name, Is.EqualTo("create_scheduled_task"));
 			Assert.That(new ScheduledTaskTools.DeleteScheduledTaskTool().Name, Is.EqualTo("delete_scheduled_task"));
 			Assert.That(new ScheduledTaskTools.RunScheduledTaskTool().Name, Is.EqualTo("run_scheduled_task"));
 		});
@@ -331,7 +348,7 @@ public class ScheduledTaskToolTests
 		[
 			new ScheduledTaskTools.ListScheduledTasksTool(),
 			new ScheduledTaskTools.GetScheduledTaskTool(),
-			new ScheduledTaskTools.CreateScheduledTaskTool(),
+			Tool(),
 			new ScheduledTaskTools.DeleteScheduledTaskTool(),
 			new ScheduledTaskTools.RunScheduledTaskTool(),
 		];

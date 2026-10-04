@@ -18,15 +18,55 @@ namespace Jarvis.Plugin.Llm;
 /// said it could not be done.
 /// </para>
 /// </summary>
-public sealed class ElevatedRegistryTool : ITool
+public sealed class ElevatedRegistryTool : ITool, IConditionalTool
 {
 	private readonly ElevatedServiceClient _client;
+	private readonly ServiceAvailability _availability;
+	private readonly JarvisSettingsStore _settings;
 	private readonly ILogger _logger;
 
-	public ElevatedRegistryTool(ElevatedServiceClient client, ILogger logger)
+	public ElevatedRegistryTool(
+		ElevatedServiceClient client,
+		ServiceAvailability availability,
+		JarvisSettingsStore settings,
+		ILogger logger)
 	{
 		_client = client;
+		_availability = availability;
+		_settings = settings;
 		_logger = logger.ForContext<ElevatedRegistryTool>();
+	}
+
+	/// <summary>
+	/// Three separate things have to be true before this tool is worth offering, and they are reported
+	/// separately because the fix for each is different.
+	/// <para>
+	/// Offering it while any of them is false produced a tool the model called confidently and that silently
+	/// did nothing, which is the failure mode this replaces.
+	/// </para>
+	/// </summary>
+	public (bool Available, string UnavailableReason) DescribeAvailability()
+	{
+		var settings = _settings.Current;
+
+		if (!settings.ElevatedServiceEnabled)
+		{
+			return (false, "The elevated service is switched off in JARVIS's settings, so machine-wide "
+				+ "registry changes are not available. Ask the user to turn it on in the configuration.");
+		}
+
+		if (!settings.ElevatedServiceAdminOperations)
+		{
+			return (false, "Machine-wide registry changes are switched off in JARVIS's settings.");
+		}
+
+		if (!_availability.IsAvailable)
+		{
+			return (false, "The JARVIS elevated service is not answering, so machine-wide registry changes "
+				+ "are not available. Ask the user to install and start it.");
+		}
+
+		return (true, string.Empty);
 	}
 
 	public string Name => "registry_elevated";

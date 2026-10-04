@@ -45,12 +45,16 @@ public static class PluginServices
 			provider.GetRequiredService<ILogger>(),
 			provider.GetRequiredService<BargeInDetector>()));
 
-		builder.Services.AddSingleton<ChatClient>();
+builder.Services.AddSingleton<ChatClient>();
 		builder.Services.AddSingleton<VisionClient>();
 		builder.Services.AddSingleton<MemoryStore>();
 		builder.Services.AddSingleton<MicrophoneMonitor>();
-	builder.Services.AddSingleton<BargeInDetector>();
-	builder.Services.AddSingleton(provider => new ElevatedServiceClient(ElevatedServiceClient.DefaultTimeout));
+		builder.Services.AddSingleton<BargeInDetector>();
+
+		builder.Services.AddSingleton(provider => new ElevatedServiceClient(ElevatedServiceClient.DefaultTimeout));
+		builder.Services.AddSingleton(provider => new ServiceAvailability(
+			provider.GetRequiredService<ElevatedServiceClient>(),
+			provider.GetRequiredService<ILogger>()));
 
 		builder.Services.AddSingleton(provider => new RuntimeManager(
 			provider.GetRequiredService<IHttpClientFactory>().CreateClient("nim"),
@@ -101,10 +105,15 @@ public static class PluginServices
 			registry.Register(new RegistryTools.RegistryGetTool());
 			registry.Register(new RegistryTools.RegistrySetTool());
 			registry.Register(new RegistryTools.RegistryDeleteTool());
-			registry.Register(new ElevatedRegistryTool(provider.GetRequiredService<ElevatedServiceClient>(), logger));
+			registry.Register(new ElevatedRegistryTool(
+				provider.GetRequiredService<ElevatedServiceClient>(),
+				provider.GetRequiredService<ServiceAvailability>(),
+				provider.GetRequiredService<JarvisSettingsStore>(),
+				logger));
 			registry.Register(new ScheduledTaskTools.ListScheduledTasksTool());
 			registry.Register(new ScheduledTaskTools.GetScheduledTaskTool());
-			registry.Register(new ScheduledTaskTools.CreateScheduledTaskTool());
+			registry.Register(new ScheduledTaskTools.CreateScheduledTaskTool(
+				provider.GetRequiredService<JarvisSettingsStore>()));
 			registry.Register(new ScheduledTaskTools.DeleteScheduledTaskTool());
 			registry.Register(new ScheduledTaskTools.RunScheduledTaskTool());
 			registry.Register(new ScreenshotTool(provider.GetRequiredService<VisionClient>(), logger));

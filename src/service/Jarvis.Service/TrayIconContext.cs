@@ -28,7 +28,13 @@ public sealed class TrayIconContext : IDisposable
 	private readonly ContextMenuStrip _menu;
 
 	/// <summary>Whether the plugin may ask for operations that need administrator rights.</summary>
-	public bool AllowAdminOperations { get; private set; } = true;
+	public bool AllowAdminOperations { get; private set; } = ServicePreferences.AllowAdminOperations;
+
+	/// <summary>
+	/// Raised when the user changes the administrator switch, so the pipe can honour it immediately rather
+	/// than on the next launch.
+	/// </summary>
+	public event Action<bool>? AllowAdminOperationsChanged;
 
 	/// <summary>Raised when the user asks to exit, or to rebuild the listener.</summary>
 	public event Action? ExitRequested;
@@ -52,10 +58,13 @@ public sealed class TrayIconContext : IDisposable
 		_allowAdmin = new ToolStripMenuItem("Allow administrator operations")
 		{
 			CheckOnClick = true,
-			Checked = true,
+			Checked = AllowAdminOperations,
 		};
 
-		_allowAdmin.CheckedChanged += (_, _) => AllowAdminOperations = _allowAdmin.Checked;
+		// Wired after the initial state is set on both items, so reading the stored preference does not
+		// register as a change by the user and write it straight back.
+		_startWithWindows.CheckedChanged += OnStartWithWindowsChanged;
+		_allowAdmin.CheckedChanged += OnAllowAdminChanged;
 
 		_reconnect = new ToolStripMenuItem("Reconnect") { Enabled = true };
 		_exit = new ToolStripMenuItem("Exit") { Enabled = true };
@@ -88,6 +97,70 @@ public sealed class TrayIconContext : IDisposable
 		};
 
 		_icon.DoubleClick += (_, _) => ReconnectRequested?.Invoke();
+	}
+
+	/// <summary>
+	/// Applies the autostart change, and undoes the tick if it could not be applied.
+	/// <para>
+	/// A checkbox that shows a state nothing acted on is worse than no checkbox, so the menu reports the
+	/// failure and puts itself back rather than leaving the user believing they had changed something.
+	/// </para>
+	/// </summary>
+	private void OnStartWithWindowsChanged(object? sender, EventArgs e)
+	{
+		var wanted = _startWithWindows.Checked;
+		var applied = wanted ? Startup.TryRegister() : Startup.TryUnregister();
+
+		if (applied)
+		{
+			return;
+		}
+
+		_startWithWindows.Checked = !wanted;
+
+		Notify(
+			"JARVIS Service",
+			wanted
+				? "This account could not be set to start JARVIS at sign-in."
+				: "This account's sign-in entry for JARVIS could not be removed.",
+			warning: true);
+	}
+
+	private void OnAllowAdminChanged(object? sender, EventArgs e)
+	{
+		var wanted = _allowAdmin.Checked;
+
+		if (ServicePreferences.AllowAdminOperations == wanted)
+		{
+			AllowAdminOperations = wanted;
+			AllowAdminOperationsChanged?.Invoke(wanted);
+			return;
+		}
+
+		ServicePreferences.AllowAdminOperations = wanted;
+
+		// Stored, not assumed: a preference this process cannot keep would revert on the next launch, and a
+		// security switch that quietly comes back on is worse than one that visibly failed.
+		if (ServicePreferences.AllowAdminOperations != wanted)
+		{
+			_allowAdmin.Checked = !wanted;
+
+			Notify(
+				"JARVIS Service",
+				"That change could not be saved, so it has been put back.",
+				warning: true);
+
+			return;
+		}
+
+		AllowAdminOperations = wanted;
+		AllowAdminOperationsChanged?.Invoke(wanted);
+
+		Notify(
+			"JARVIS Service",
+			wanted
+				? "Administrator operations are allowed again."
+				: "Administrator operations are switched off. Nothing the plugin asks for will change the machine.");
 	}
 
 	/// <summary>

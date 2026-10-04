@@ -27,6 +27,34 @@ public interface ITool
 }
 
 /// <summary>
+/// A tool that is not always worth offering.
+/// <para>
+/// The registry is built once, so a tool whose availability depends on a setting or on another process
+/// cannot be registered or unregistered to match. Reading <see cref="IsAvailable"/> at the moment the
+/// catalogue is built means a change takes effect on the next turn rather than after a restart, which is
+/// the difference between a setting that works and one that appears not to.
+/// </para>
+/// </summary>
+public interface IConditionalTool
+{
+	/// <summary>
+	/// Whether the tool should be offered right now, and why not when it should not. The reason is shown to
+	/// the model so it can tell the user something better than "that failed".
+	/// </summary>
+	(bool Available, string UnavailableReason) DescribeAvailability();
+}
+
+/// <summary>
+/// A tool that is not available, reduced to the two things the registry needs.
+/// </summary>
+public readonly record struct ToolAvailability(bool Available, string UnavailableReason)
+{
+	public static ToolAvailability Always => new(true, string.Empty);
+
+	public static ToolAvailability Never(string reason) => new(false, reason);
+}
+
+/// <summary>
 /// Holds the tools the model may call and enforces the configured safety mode before any of them runs.
 /// A refusal is returned to the model as a tool result rather than thrown, so the model can explain
 /// itself instead of the turn dying.
@@ -56,14 +84,50 @@ public sealed class ToolRegistry(
 
 	public void Register(ITool tool) => _tools[tool.Name] = tool;
 
+	/// <summary>
+	/// The tools the model may call, skipping any that is currently unavailable.
+	/// </summary>
 	public IReadOnlyList<ToolDefinition> Definitions =>
-		_tools.Values.Select(tool => tool.Definition).ToArray();
+		_tools.Values
+			.Select(Describe)
+			.Where(tool => tool.Definition is not null)
+			.Select(tool => tool.Definition!)
+			.ToArray();
+
+	/// <summary>
+	/// A tool and, when it is unavailable, why. Null is used rather than a filtered second pass so the
+	/// reason is available to a caller that got the tool by name, which is what an invoke does.
+	/// </summary>
+	private (ToolDefinition? Definition, string Reason) Describe(ITool tool)
+	{
+		if (tool is not IConditionalTool conditional)
+		{
+			return (tool.Definition, string.Empty);
+		}
+
+		var (available, reason) = conditional.DescribeAvailability();
+
+		return available ? (tool.Definition, string.Empty) : (null, reason);
+	}
+
+	/// <summary>Why a tool by name is not currently callable, or an empty string when it is.</summary>
+	public string UnavailableReason(string name) =>
+		_tools.TryGetValue(name, out var tool) ? Describe(tool).Reason : $"There is no tool called {name}.";
 
 	public async Task<ToolOutcome> InvokeAsync(ToolCall call, CancellationToken cancellationToken)
 	{
 		if (!_tools.TryGetValue(call.Name, out var tool))
 		{
 			return ToolOutcome.Failure($"There is no tool called {call.Name}.");
+		}
+
+		var availability = Describe(tool);
+
+		if (availability.Definition is null)
+		{
+			// Refused with the reason rather than as an exception. The model is the one that has to explain
+			// this to the user, so it needs to know which of "switched off" and "not installed" applies.
+			return ToolOutcome.Failure(availability.Reason);
 		}
 
 		var arguments = call.ParseArguments();

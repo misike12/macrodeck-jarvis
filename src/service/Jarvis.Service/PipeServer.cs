@@ -65,10 +65,20 @@ public sealed class PipeServer : IDisposable
 				"The pipe's access rules could not be established, so the service will not open a pipe it "
 					+ "cannot restrict.");
 
-		// Created here rather than inside the listener task so that a name already taken, or a directory
+// Created here rather than inside the listener task so that a name already taken, or a directory
 		// that cannot be created, is reported before the service claims to be running.
 		_current = CreateServer();
 	}
+
+	/// <summary>
+	/// Whether the plugin may ask for anything that changes machine state.
+	/// <para>
+	/// Defaults to true and is only turned off deliberately from the tray menu. <c>ping</c> and
+	/// <c>status</c> stay available either way, so a caller can still find out that the switch exists rather
+	/// than concluding the service has gone.
+	/// </para>
+	/// </summary>
+	public bool AllowAdminOperations { get; set; } = true;
 
 	/// <summary>Whether the service is accepting connections right now.</summary>
 	public bool IsListening => !_disposed && _listener is { IsCompleted: false };
@@ -469,7 +479,17 @@ var reply = Handle(request);
 				return Protocol.Reply(false, "The request did not name an operation.");
 			}
 
-			var arguments = request["args"] as JsonObject ?? new JsonObject();
+var arguments = request["args"] as JsonObject ?? new JsonObject();
+
+			// The user's switch, honoured before anything else runs. It existed on the menu and did nothing:
+			// un-ticking it left every registry operation working, which is the one thing a switch labelled
+			// with a security claim must never do.
+			if (!AllowAdminOperations && operation is not ("ping" or "status"))
+			{
+				return Protocol.Reply(false,
+					"Administrator operations are switched off, so nothing was changed. Turn them back on in the "
+						+ "JARVIS tray icon to allow this.");
+			}
 
 			return operation switch
 			{

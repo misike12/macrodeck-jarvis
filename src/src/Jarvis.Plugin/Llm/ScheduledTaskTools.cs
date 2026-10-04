@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json.Nodes;
+using Jarvis.Plugin.Core;
 
 namespace Jarvis.Plugin.Llm;
 
@@ -342,7 +343,7 @@ public static class ScheduledTaskTools
 	}
 
 	/// <summary>Creates a task.</summary>
-	public sealed class CreateScheduledTaskTool : ITool
+	public sealed class CreateScheduledTaskTool(JarvisSettingsStore settings) : ITool
 	{
 		public string Name => "create_scheduled_task";
 
@@ -372,8 +373,9 @@ public static class ScheduledTaskTools
 					["elevated"] = new JsonObject
 					{
 						["type"] = "boolean",
-						["description"] = "Run with the highest privileges available. Only takes effect if you "
-							+ "are already an administrator.",
+						["description"] = "Run with the highest privileges the account has. It runs unattended "
+							+ "with no prompt, so it is only allowed for a program in Program Files or Windows "
+							+ "System32, and only when elevated scheduling is switched on in the settings.",
 					},
 				},
 				["required"] = new JsonArray("name", "command"),
@@ -411,6 +413,23 @@ public static class ScheduledTaskTools
 			if (schedule is not ("daily" or "atlogon" or "once"))
 			{
 				return Task.FromResult(ToolOutcome.Failure("The schedule must be daily, atlogon or once."));
+			}
+
+			if (elevated)
+			{
+				// Two gates, checked here rather than in the schema, because the model supplies the path and
+				// the schema cannot say anything about where a string points.
+				if (!settings.Current.ElevatedServiceScheduling)
+				{
+					return Task.FromResult(ToolOutcome.Failure(
+						"Elevated scheduling is switched off in JARVIS's settings. Ask the user to turn it on, "
+							+ "or schedule the task without the elevated option."));
+				}
+
+				if (!ScheduledTaskPolicy.IsElevatedCommandAllowed(command))
+				{
+					return Task.FromResult(ToolOutcome.Failure(ScheduledTaskPolicy.ElevatedPathRefusal));
+				}
 			}
 
 			if (schedule == "daily"
