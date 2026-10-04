@@ -171,6 +171,35 @@ resetting the descriptor; check the directory's permissions in Computer Manageme
 
 Write-Host "Verified: ordinary users cannot modify $installDirectory"
 
+# The machine-wide state directory, established here rather than left to the first log line. Program Data
+# hands every local user read access by default, and this directory holds the log, which names the account
+# the pipe is granted to and the key paths callers asked about. The service narrows the descriptor when it
+# creates the directory itself, but a directory created with the default one stays wide until then, and on a
+# machine where the service never starts there is no then.
+$stateDirectory = Join-Path $env:ProgramData 'Jarvis'
+
+if (-not (Test-Path $stateDirectory)) {
+    New-Item -ItemType Directory -Path $stateDirectory -Force | Out-Null
+}
+
+$stateAcl = New-Object Security.AccessControl.DirectorySecurity
+$stateAcl.SetAccessRuleProtection($true, $false)
+
+$stateInherit = [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+$statePropagate = [Security.AccessControl.PropagationFlags]::None
+$stateAllow = [Security.AccessControl.AccessControlType]::Allow
+
+foreach ($identity in @(
+    (New-Object Security.Principal.SecurityIdentifier('S-1-5-18')),
+    (New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544'))
+)) {
+    $stateAcl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
+        $identity, 'FullControl', $stateInherit, $statePropagate, $stateAllow)))
+}
+
+Set-Acl -LiteralPath $stateDirectory -AclObject $stateAcl
+Write-Host "Verified: $stateDirectory is readable only by SYSTEM and administrators"
+
 # An earlier version of this script registered the service straight out of the build output, which is
 # inside the user's own profile. A registration is not a privilege on its own, but that one points at a
 # binary the user can replace, so anyone able to start the service runs their own code as SYSTEM. Leaving

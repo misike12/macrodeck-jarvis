@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Security.AccessControl;
+using System.Security.Principal;
 
 namespace Jarvis.Service;
 
@@ -7,8 +9,7 @@ namespace Jarvis.Service;
 /// <para>
 /// Not Serilog and not the hosting package's logging: the service is a separate process with no log
 /// viewer, so its whole logging requirement is a line to the console that the service control manager
-/// captures into the system event log. A logger abstraction here would be a dependency with no second
-/// implementation.
+/// captures into the system event log, plus a file that can be read straight after a failed start.
 /// </para>
 /// <para>
 /// Writes are serialised because a service handles requests from a pipe and from a tray click at the same
@@ -17,25 +18,38 @@ namespace Jarvis.Service;
 /// </summary>
 public static class ServiceLog
 {
+	/// <summary>
+	/// The point at which the log is rotated. Without a bound this file is the one thing that grows
+	/// forever on a machine where the service is restarted often, which is exactly what happens while it is
+	/// misconfigured.
+	/// </summary>
+	public const int MaximumLogBytes = 1024 * 1024;
+
+	public const string DirectoryName = "Jarvis";
+
+	public const string LogFileName = "Jarvis.Service.log";
+
 	private static readonly Lock Gate = new();
 
-	private static bool _consoleOnly = true;
-
-	/// <summary>When true, nothing is written to the system event log.</summary>
-	public static bool ConsoleOnly
-	{
-		get => _consoleOnly;
-		set
-		{
-			lock (Gate)
-			{
-				_consoleOnly = value;
-			}
-		}
-	}
+	/// <summary>
+	/// Whether the console has ever accepted a write.
+	/// <para>
+	/// Null until the first attempt. A service started by the service control manager has no console, and a
+	/// write to the handle it reports can fail; guessing once and remembering is cheaper than catching on
+	/// every line, and one failure means there is nothing there to write to.
+	/// </para>
+	/// </summary>
+	private static bool? _consoleWorks;
 
 	/// <summary>The timestamp prefix, exposed so a caller can build one line without logging twice.</summary>
 	public static string Stamp() => DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+
+	/// <summary>The directory the service logs into and keeps its recorded identifier in.</summary>
+	public static string LogDirectory =>
+		Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), DirectoryName);
+
+	/// <summary>The log file's full path.</summary>
+	public static string LogFile => Path.Combine(LogDirectory, LogFileName);
 
 	public static void Information(string message) => Write("INF", message);
 
@@ -54,17 +68,41 @@ public static class ServiceLog
 				CultureInfo.InvariantCulture,
 				$"[{DateTime.Now:HH:mm:ss}] {level} {message}");
 
-			Console.Out.WriteLine(line);
+			TryAppendToConsole(line);
 
-			// Also written to a file. A service has no console, and the event log needs a registered source,
-			// so without this the only trace of why the service control manager rejected a start is an
-			// event saying the process ended. A file needs no registration and is readable straight away.
+			// Also written to a file. A service has no console, and the service control manager only reports
+			// that the process ended, so without this the only trace of why a start was rejected is an event
+			// saying nothing happened. A file needs no registration and is readable straight away.
 			TryAppendToFile(line);
+		}
+	}
 
-			if (!_consoleOnly)
-			{
-				EventLog.Write(level, message);
-			}
+	/// <summary>
+	/// Writes to the console when there is one.
+	/// <para>
+	/// Every diagnostic the service produces goes through here, so an unguarded write means a service that
+	/// fails to log fails to start. Under the service control manager there is no console to write to.
+	/// </para>
+	/// </summary>
+	private static void TryAppendToConsole(string line)
+	{
+		if (_consoleWorks is false)
+		{
+			return;
+		}
+
+		try
+		{
+			Console.Out.WriteLine(line);
+			_consoleWorks = true;
+		}
+		catch (Exception exception) when (
+			exception is IOException
+				or ObjectDisposedException
+				or System.Security.SecurityException
+				or PlatformNotSupportedException)
+		{
+			_consoleWorks = false;
 		}
 	}
 
@@ -72,57 +110,70 @@ public static class ServiceLog
 	{
 		try
 		{
-			var directory = Path.Combine(
-				Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-				"Jarvis");
+			var directory = LogDirectory;
 
-			Directory.CreateDirectory(directory);
+			if (!Directory.Exists(directory))
+			{
+				Directory.CreateDirectory(directory);
+				RestrictDirectory(directory);
+			}
 
-			File.AppendAllText(Path.Combine(directory, "Jarvis.Service.log"), line + Environment.NewLine);
+			var file = LogFile;
+			RotateIfOversized(file);
+
+			File.AppendAllText(file, line + Environment.NewLine);
 		}
 		catch (Exception exception) when (
 			exception is UnauthorizedAccessException or IOException or System.Security.SecurityException)
 		{
-			// Nothing to do. The console line already happened.
+			// Nothing to do. The console line already happened, and a logger that throws takes the service
+			// down with it.
 		}
 	}
-}
 
-/// <summary>
-/// Writes to the Windows event log, which is where a service's output belongs once it is running as a
-/// service rather than in a console.
-/// <para>
-/// Every call is guarded. A service whose only diagnostic is the event log must not fail because the event
-/// log is unavailable, which it is for an unprivileged process.
-/// </para>
-/// </summary>
-public static class EventLog
-{
-	private const string Source = "JarvisService";
-	private const string Log = "Application";
-
-	public static void Write(string level, string message)
+	/// <summary>
+	/// Renames an oversized log so the next write starts a new one, keeping exactly one previous file.
+	/// </summary>
+	private static void RotateIfOversized(string file)
 	{
-		try
+		if (!File.Exists(file) || new FileInfo(file).Length < MaximumLogBytes)
 		{
-			var kind = level switch
-			{
-				"ERR" or "FTL" => System.Diagnostics.EventLogEntryType.Error,
-				"WRN" => System.Diagnostics.EventLogEntryType.Warning,
-				_ => System.Diagnostics.EventLogEntryType.Information,
-			};
+			return;
+		}
 
-			using var log = new System.Diagnostics.EventLog(Log) { Source = Source };
-			log.WriteEntry(message, kind);
-		}
-		catch (Exception exception) when (
-			exception is System.Security.SecurityException
-				or System.ComponentModel.Win32Exception
-				or InvalidOperationException
-				or UnauthorizedAccessException)
+		File.Move(file, file + ".1", overwrite: true);
+	}
+
+	/// <summary>
+	/// Removes write access for everyone who is not SYSTEM or an administrator.
+	/// <para>
+	/// The default descriptor for a directory under Program Data lets every local user read it, which for a
+	/// log of this service means disclosing the recorded account identifier and the paths it was asked to
+	/// touch. The descriptor is applied at creation and is not inherited, so it is the whole list.
+	/// </para>
+	/// </summary>
+	public static void RestrictDirectory(string directory)
+	{
+		var security = new DirectorySecurity();
+
+		security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+
+		const InheritanceFlags inheritance = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
+
+		foreach (var wellKnown in new[]
 		{
-			// Nothing to do. The console line already happened, and failing here would turn a diagnostic
-			// into a fault.
+			WellKnownSidType.LocalSystemSid,
+			WellKnownSidType.BuiltinAdministratorsSid,
+		})
+		{
+			security.AddAccessRule(new FileSystemAccessRule(
+				new SecurityIdentifier(wellKnown, null),
+				FileSystemRights.FullControl,
+				inheritance,
+				PropagationFlags.None,
+				AccessControlType.Allow));
 		}
+
+		new DirectoryInfo(directory).SetAccessControl(security);
 	}
 }
