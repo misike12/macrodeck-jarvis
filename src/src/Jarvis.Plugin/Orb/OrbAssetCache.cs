@@ -8,15 +8,18 @@ namespace Jarvis.Plugin.Orb;
 
 /// <summary>
 /// Builds and caches one animated GIF per state, then registers each with the host's UI resource store.
-/// Generating on demand rather than at startup means a fresh install answers its health check
-/// immediately, and a state nobody has reached is never paid for.
+/// <para>
+/// The cache key has to name everything that changes a pixel. It used to leave out the four settings a user
+/// can change from the widget configuration, so turning the glow off or asking for a different number of
+/// rings still served the frames built for the previous settings, and the setting appeared to do nothing.
+/// </para>
 /// </summary>
 public sealed class OrbAssetCache(IUiResourceRegistry resources, ILogger logger)
 {
-private const int IdleFrames = 18;
+	private const int IdleFrames = 18;
 	private const int BusyFrames = 24;
 
-private static readonly AssistantState[] AnimatedStates =
+	private static readonly AssistantState[] AnimatedStates =
 	[
 		AssistantState.Idle,
 		AssistantState.Listening,
@@ -33,13 +36,14 @@ private static readonly AssistantState[] AnimatedStates =
 		AssistantState.Unavailable,
 	];
 
-private readonly IUiResourceRegistry _resources = resources;
+	private readonly IUiResourceRegistry _resources = resources;
 	private readonly ILogger _logger = logger.ForContext<OrbAssetCache>();
 
 	/// <summary>
-	/// Keyed on state, preset, palette and an amplitude band rather than on state alone. The key has to
-	/// include all of them: keying on state alone was why every preset produced the same picture, because
-	/// whichever preset was asked for first filled the cache and the rest were served that one.
+	/// Keyed on state, preset, palette, the settings that change the picture, and an amplitude band rather
+	/// than on state alone. The key has to include all of them: keying on state alone was why every preset
+	/// produced the same picture, because whichever preset was asked for first filled the cache and the rest
+	/// were served that one.
 	/// </summary>
 	private readonly ConcurrentDictionary<AssetKey, Lazy<Task<UiResource?>>> _cache = new();
 
@@ -48,14 +52,22 @@ private readonly IUiResourceRegistry _resources = resources;
 		OrbPreset Preset,
 		string Accent,
 		string Core,
-		int AmplitudeBand);
+		int AmplitudeBand,
+		int RingCount,
+		int RingSpeed,
+		bool RingRotation,
+		bool Glow);
 
 	public async Task<UiResource?> GetAsync(
 		AssistantState target,
 		OrbPalette palette,
 		double amplitude,
 		OrbPreset preset,
-		CancellationToken cancellationToken)
+		CancellationToken cancellationToken,
+		int ringCount = 3,
+		double ringSpeed = 1.0,
+		bool ringRotation = true,
+		bool glow = true)
 	{
 		if (!AnimatedStates.Contains(target))
 		{
@@ -64,9 +76,11 @@ private readonly IUiResourceRegistry _resources = resources;
 
 		// Amplitude is quantised into a small number of bands. A distinct asset per amplitude value would
 		// rebuild the animation continuously as a voice rises and falls, which is both expensive and
-		// invisible: the difference between two adjacent levels cannot be seen at 96 pixels.
+		// invisible: the difference between two adjacent levels cannot be seen at this size.
 		var band = Band(amplitude);
-		var key = new AssetKey(target, preset, Accent(palette), Core(palette), band);
+		var speedBand = (int)Math.Round(Math.Clamp(ringSpeed, 0, 4) * 10);
+		var key = new AssetKey(
+			target, preset, Accent(palette), Core(palette), band, ringCount, speedBand, ringRotation, glow);
 
 		var lazy = _cache.GetOrAdd(key, entry => new Lazy<Task<UiResource?>>(
 			() => BuildAsync(entry, palette, cancellationToken),
@@ -116,20 +130,31 @@ private readonly IUiResourceRegistry _resources = resources;
 				cancellationToken.ThrowIfCancellationRequested();
 
 				var phase = (frame / (double)frames) * Math.Tau;
-				gif.AddFrame(OrbFrameRenderer.Render(key.State, phase, palette, amplitude, key.Preset));
+
+				gif.AddFrame(OrbFrameRenderer.Render(
+					key.State,
+					phase,
+					palette,
+					amplitude,
+					key.Preset,
+					key.RingCount,
+					key.RingSpeed / 10.0,
+					key.RingRotation,
+					key.Glow));
 			}
 
 			var bytes = gif.Encode();
-			var name = $"orb-{key.State.ToString().ToLowerInvariant()}-{key.Preset.ToString().ToLowerInvariant()}-{key.AmplitudeBand}";
+			var name = $"orb-{key.State.ToString().ToLowerInvariant()}-{key.Preset.ToString().ToLowerInvariant()}-{key.AmplitudeBand}-{key.RingCount}-{key.RingSpeed}-{(key.RingRotation ? 'r' : 's')}-{(key.Glow ? 'g' : 'n')}";
 			var resource = await _resources
 				.RegisterAsync(name, bytes, "image/gif", cancellationToken)
 				.ConfigureAwait(false);
 
 			_logger.Debug(
-				"Built orb asset for {State}/{Preset} at band {Band}: {Bytes} bytes, {Frames} frames.",
+				"Built orb asset for {State}/{Preset} at band {Band} with {Rings} rings: {Bytes} bytes, {Frames} frames.",
 				key.State,
 				key.Preset,
 				key.AmplitudeBand,
+				key.RingCount,
 				bytes.Length,
 				frames);
 

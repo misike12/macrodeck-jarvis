@@ -185,14 +185,17 @@ public static class OrbConfigView
 					},
 
 					// The widget type declares exactly these groups in AppearanceProperties, so the host's
-					// appearance actions reach the fields this builds.
+					// appearance actions reach the fields this builds. Accent is not among them: the orb has its
+					// own accentColor field above, and node ids have to be unique across the whole tree, so
+					// including the host's accent here declared the same id twice and the configuration view
+					// threw while materializing. The host then reported the configuration as unavailable, which
+					// is why the visual editor never opened even in JSON-only mode's favour.
 					UiWidgetAppearance.Section(
 						data,
 						UiWidgetAppearanceFields.BackgroundColor
 							| UiWidgetAppearanceFields.Label
 							| UiWidgetAppearanceFields.LabelColor
-							| UiWidgetAppearanceFields.Font
-							| UiWidgetAppearanceFields.AccentColor),
+							| UiWidgetAppearanceFields.Font),
 				],
 			},
 

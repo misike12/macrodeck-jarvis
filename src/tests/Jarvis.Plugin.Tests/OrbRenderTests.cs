@@ -101,28 +101,32 @@ public class OrbRenderTests
 		}
 	}
 
-	/// <summary>Monotonic: louder is never quieter. A shape that dips would read as a bug.</summary>
+	/// <summary>Monotonic: a louder voice never shrinks the core.</summary>
 	[Test]
 	public void A_louder_voice_never_renders_a_smaller_core()
 	{
+		// Measured on the radius rather than on the mean lightness of the frame. The core is dark and the halo
+		// is bright, so a core that grows over a bright halo lowers the mean lightness of the picture while the
+		// orb is plainly reacting: that statistic says the opposite of what is on screen. It only ever agreed
+		// with the radius while the halo was invisible, because then nothing bright was being covered.
 		foreach (var state in new[] { AssistantState.Listening, AssistantState.Speaking })
 		{
 			var previous = -1.0;
 
 			foreach (var amplitude in Amplitudes)
 			{
-				var lit = Lightness(OrbFrameRenderer.Render(state, 0.3, OrbPalette.Default, amplitude));
+				var radius = OrbFrameRenderer.CoreRadiusFor(state, amplitude);
 
-				Assert.That(lit, Is.GreaterThanOrEqualTo(previous - 0.01), $"{state} got dimmer at {amplitude}");
-				previous = lit;
+				Assert.That(
+					radius,
+					Is.GreaterThanOrEqualTo(previous),
+					$"{state} shrank its core at amplitude {amplitude}, from {previous:0.0} to {radius:0.0}");
+
+previous = radius;
 			}
 		}
 	}
 
-	/// <summary>
-	/// Presets are meant to be told apart at a glance, so the difference has to be in the geometry rather
-	/// than only in which pixels happen to be lit.
-	/// </summary>
 	/// <summary>
 	/// Presets are meant to be told apart at a glance, so the difference has to be in the outline rather
 	/// than only in which pixels happen to be lit.

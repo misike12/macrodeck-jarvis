@@ -9,23 +9,62 @@ namespace Jarvis.Plugin.Orb;
 /// </summary>
 public static class OrbFrameRenderer
 {
-	public const int Size = 96;
+	/// <summary>
+	/// The edge of the rendered square, in pixels.
+	/// <para>
+	/// This was 96, which is smaller than the widget that displays it: a one-cell orb is roughly 120 to 160
+	/// reference units, so a 96 pixel asset was being stretched to about two and a half times its own size and
+	/// read as a blocky ball. The asset is cheap at this size now, because the encoder compresses a smooth
+	/// radial gradient well, so the resolution can simply match the display rather than being dialled against a
+	/// budget it no longer comes close to.
+	/// </para>
+	/// </summary>
+	public const int Size = 256;
 
-	private const int Samples = 3;
+	/// <summary>
+	/// Samples per axis. Two rather than three, because the edge smoothstep is measured in pixels and the
+	/// extra samples bought visible antialiasing on a 96 pixel asset that was mostly being thrown away by the
+	/// upscale. At this resolution four samples per pixel is where the quality is, and two is enough.
+	/// </summary>
+	private const int Samples = 2;
+
+	/// <summary>
+	/// The most rings any preset draws, so a stored count above it cannot ask for geometry that does not exist.
+	/// </summary>
+	private const int MaximumRings = 8;
 
 	public static byte[] Render(
 		AssistantState state,
 		double phase,
 		OrbPalette palette,
 		double amplitude,
-		OrbPreset preset = OrbPreset.ArcReactor)
+		OrbPreset preset = OrbPreset.ArcReactor,
+		int ringCount = 3,
+		double ringSpeed = 1.0,
+		bool rotateRings = true,
+		bool glow = true)
 	{
 		var buffer = new byte[Size * Size * 4];
 		var centre = Size / 2.0;
 
 		var shape = ShapeOf(preset);
-		var (coreRadius, glowStrength, ringSpeed, ringAlpha) = ShapeFor(state, amplitude);
+		var (coreRadius, glowStrength, _, ringAlpha) = ShapeFor(state, amplitude);
 		coreRadius *= shape.CoreScale;
+
+		// The four settings the user can change, applied to the frame rather than to a layer above it.
+		//
+		// They used to drive a glow disc and a set of rings drawn as separate nodes over the image, while the
+		// image already contained a glow and rings of its own. So the orb drew everything twice, and these
+		// settings changed the duplicate rather than the orb. They belong here, where they change the pixels
+		// that are actually shown, which also means a change to any of them has to reach the asset cache key
+		// or the previous frames are served from it.
+		var rings = Math.Clamp(ringCount, 0, MaximumRings);
+		var ringPhase = rotateRings ? phase * Math.Max(0, ringSpeed) : 0;
+
+		if (!glow)
+		{
+			glowStrength = 0;
+		}
 
 		for (var y = 0; y < Size; y++)
 		{
@@ -51,13 +90,14 @@ public static class OrbFrameRenderer
 						var (r, g, b, a) = Shade(
 							distance,
 							angle,
-							phase,
+							ringPhase,
 							palette,
 							coreRadius,
 							glowStrength,
 							ringAlpha,
 							state,
-							shape);
+							shape,
+							rings);
 
 						red += r * a;
 						green += g * a;
@@ -132,16 +172,32 @@ public static class OrbFrameRenderer
 		_ => new(4, 0.048, 8, 2.3, 0.90, 0.80),
 	};
 
+	/// <summary>
+	/// The core's radius, in pixels, for a state and a voice level.
+	/// <para>
+	/// Exposed because "a louder voice grows the core" is the property, and measuring it by the mean
+	/// lightness of the whole frame gets it wrong: the core is dark and the halo around it is bright, so a
+	/// growing core replaces bright pixels with dark ones and mean lightness falls while the orb is very
+	/// obviously reacting. The radius is the thing that is actually monotonic.
+	/// </para>
+	/// </summary>
+	public static double CoreRadiusFor(
+		AssistantState state,
+		double amplitude,
+		OrbPreset preset = OrbPreset.ArcReactor) =>
+		ShapeFor(state, amplitude).CoreRadius * ShapeOf(preset).CoreScale;
+
 	private static (double R, double G, double B, double A) Shade(
 		double distance,
 		double angle,
-		double phase,
+		double ringPhase,
 		OrbPalette palette,
 		double coreRadius,
 		double glowStrength,
 		double ringAlpha,
 		AssistantState state,
-		PresetShape shape)
+		PresetShape shape,
+		int rings)
 	{
 		var outer = Size * 0.46;
 		var red = 0.0;
@@ -149,12 +205,21 @@ public static class OrbFrameRenderer
 		var blue = 0.0;
 		var alpha = 0.0;
 
-		var glowFalloff = 1 - Math.Clamp(distance / outer, 0, 1);
-		var glow = glowFalloff * glowFalloff * glowStrength;
-		(red, green, blue) = palette.Accent;
-		alpha += glow * 0.55;
+		// The falloff is squared, which concentrates the halo hard against the core, and the alpha it produced was
+		// multiplied down to about a tenth. At idle strength that put the whole halo under a fifth of full
+		// alpha, and the frame builder maps anything below half opacity to the transparent index, so the glow
+		// was being discarded rather than drawn: the orb read as a hard ball with no halo, and switching the
+		// glow off changed no pixels at all because there were none to change. A gentler falloff and a real
+		// weight make it visible, which is the only way the setting can mean anything.
+	var glowFalloff = 1 - Math.Clamp(distance / outer, 0, 1);
+	var glow = glowFalloff * Math.Sqrt(glowFalloff) * glowStrength;
+	(red, green, blue) = palette.Accent;
+	alpha += glow * 1.8;
 
-		var coreEdge = 1 - Math.Clamp((distance - coreRadius) / 1.4, 0, 1);
+		// The edge width is in pixels, so it scales with the render size. Left at its value for a 96 pixel
+		// frame it would be a third as wide again and the core would gain a hard rim at this resolution.
+		var edgeWidth = 1.4 * (Size / 96.0);
+		var coreEdge = 1 - Math.Clamp((distance - coreRadius) / edgeWidth, 0, 1);
 		if (coreEdge > 0)
 		{
 			var inner = 1 - Math.Clamp(distance / Math.Max(1, coreRadius), 0, 1);
@@ -166,10 +231,10 @@ public static class OrbFrameRenderer
 			alpha = Math.Max(alpha, coreEdge * 0.96);
 		}
 
-		for (var ring = 0; ring < shape.Rings; ring++)
+		for (var ring = 0; ring < rings; ring++)
 		{
 			var radius = (Size * 0.24) + (ring * Size * shape.RingSpacing);
-			var width = (1.1 + (ring * 0.25)) * shape.RingWeight;
+			var width = (1.1 + (ring * 0.25)) * shape.RingWeight * (Size / 96.0);
 			var band = Math.Abs(distance - radius);
 
 			if (band > width)
@@ -177,7 +242,7 @@ public static class OrbFrameRenderer
 				continue;
 			}
 
-			var sweep = (phase * (1.0 + (ring * 0.45))) + (angle * 2.0) - (ring * 1.1) + shape.SegmentsOffset;
+			var sweep = (ringPhase * (1.0 + (ring * 0.45))) + (angle * 2.0) - (ring * 1.1) + shape.SegmentsOffset;
 			var segments = Math.Cos(sweep * shape.Segments) * 0.5 + 0.5;
 			var coverage = (1 - (band / width)) * segments * ringAlpha;
 

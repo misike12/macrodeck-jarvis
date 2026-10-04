@@ -31,12 +31,13 @@ public class OrbAssetCacheTests
 		public void Emit(LogEvent logEvent) => Events.Add(logEvent);
 	}
 
-	private static (OrbAssetCache Cache, Sink Logs) NewCache()
+private static (OrbAssetCache Cache, RecordingResourceRegistry Registry, Sink Logs) NewCache()
 	{
 		var sink = new Sink([]);
 		var logger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+		var registry = new RecordingResourceRegistry();
 
-		return (new OrbAssetCache(new RecordingResourceRegistry(), logger), sink);
+		return (new OrbAssetCache(registry, logger), registry, sink);
 	}
 
 	/// <summary>
@@ -45,7 +46,7 @@ public class OrbAssetCacheTests
 	[Test]
 	public async Task Every_state_the_assistant_can_be_in_produces_an_asset()
 	{
-		var (cache, _) = NewCache();
+		var (cache, _, _) = NewCache();
 
 		foreach (var state in Enum.GetValues<AssistantState>())
 		{
@@ -62,7 +63,7 @@ public class OrbAssetCacheTests
 	[Test]
 	public async Task An_unconfigured_assistant_still_produces_an_asset()
 	{
-		var (cache, _) = NewCache();
+		var (cache, _, _) = NewCache();
 
 		var resource = await cache.GetAsync(
 			AssistantState.Unavailable,
@@ -75,13 +76,59 @@ public class OrbAssetCacheTests
 	}
 
 	/// <summary>
+	/// A setting that changes a pixel has to change the cache entry too, or the previous frames are served
+	/// and the setting appears to do nothing.
+	/// <para>
+	/// The key used to name state, preset, palette and amplitude band only. Ring count, ring speed, ring
+	/// rotation and glow were all in the widget configuration and none of them in the key, so switching the
+	/// glow off still served the frames built with it on.
+	/// </para>
+	/// </summary>
+	[Test]
+	public async Task Each_setting_produces_its_own_asset()
+	{
+		var (cache, registry, _) = NewCache();
+
+		await cache.GetAsync(AssistantState.Idle, OrbPalette.Default, 0, OrbPreset.ArcReactor, CancellationToken.None);
+		await cache.GetAsync(
+			AssistantState.Idle, OrbPalette.Default, 0, OrbPreset.ArcReactor, CancellationToken.None, ringCount: 1);
+		await cache.GetAsync(
+			AssistantState.Idle, OrbPalette.Default, 0, OrbPreset.ArcReactor, CancellationToken.None, ringRotation: false);
+		await cache.GetAsync(
+			AssistantState.Idle, OrbPalette.Default, 0, OrbPreset.ArcReactor, CancellationToken.None, glow: false);
+
+		Assert.That(
+			registry.Names.Distinct().Count(),
+			Is.EqualTo(4),
+			"the settings shared a cache entry, so one of them was served the wrong picture: "
+				+ string.Join(", ", registry.Names));
+	}
+
+	/// <summary>The frames have to differ, not merely be registered under different names.</summary>
+	[Test]
+	public async Task Turning_the_glow_off_changes_the_pixels()
+	{
+		var (lit, litRegistry, _) = NewCache();
+		var (unlit, unlitRegistry, _) = NewCache();
+
+		await lit.GetAsync(AssistantState.Idle, OrbPalette.Default, 0, OrbPreset.ArcReactor, CancellationToken.None);
+		await unlit.GetAsync(
+			AssistantState.Idle, OrbPalette.Default, 0, OrbPreset.ArcReactor, CancellationToken.None, glow: false);
+
+		Assert.That(
+			unlitRegistry.Bytes.Single(),
+			Is.Not.EqualTo(litRegistry.Bytes.Single()),
+			"the glow setting changed the name of the asset but not one pixel of it");
+	}
+
+	/// <summary>
 	/// A cancelled session must not leave a half-built asset behind, and must not throw into the
 	/// continuation that swallows it.
 	/// </summary>
 	[Test]
 	public async Task A_cancelled_request_does_not_throw()
 	{
-		var (cache, _) = NewCache();
+		var (cache, _, _) = NewCache();
 
 		using var cancelled = new CancellationTokenSource();
 		await cancelled.CancelAsync();
@@ -98,15 +145,24 @@ public class OrbAssetCacheTests
 
 	private sealed class RecordingResourceRegistry : IUiResourceRegistry
 	{
-public Task<UiResource> RegisterAsync(
+public List<string> Names { get; } = [];
+
+		public List<byte[]> Bytes { get; } = [];
+
+		public Task<UiResource> RegisterAsync(
 			string name,
 			ReadOnlyMemory<byte> content,
 			string mediaType,
-			CancellationToken cancellationToken = default) =>
+			CancellationToken cancellationToken = default)
+		{
+			Names.Add(name);
+			Bytes.Add(content.ToArray());
+
 			// Built without a constructor because the type has none the plugin can see: the host creates these
 			// and hands them back. What matters here is that a resource came back at all, not its contents.
-			Task.FromResult(
+			return Task.FromResult(
 				(System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(UiResource)) as UiResource)!);
+		}
 
 		public Task RemoveAsync(string name, CancellationToken cancellationToken = default) =>
 			Task.CompletedTask;

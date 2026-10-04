@@ -30,7 +30,7 @@ Everything runs as the signed-in user except the optional service. See
 | Check | Command | Result |
 | --- | --- | --- |
 | Build | `dotnet build -c Release` | 0 warnings, 0 errors |
-| Tests | `dotnet test` | **573 passed**, 0 failed |
+| Tests | `dotnet test` | **577 passed**, 0 failed |
 | Manifest validation | `macrodeck-plugin validate --artifact ... --level Publication` | 0 errors, 0 warnings |
 | Conformance, project | `src/conformance.md` | conformant |
 | Conformance, artifact | `src/artifact-conformance.md` | conformant, and it carries MDC0104 through MDC0107 |
@@ -170,10 +170,8 @@ because `planfix.md` does not contain them, and a reader of that file would othe
     rings into the asset, so the separate glow disc and ring layers were drawing the same thing twice at two
     sizes while clipping the rings against the widget edge. Removing them also removed a timer that rewrote a
     rotation twenty-five times a second, forever, to animate a layer whose motion was already baked into the
-    GIF. The widget settings `ringCount`, `ringSpeed`, `ringRotation` and `glow` are consequently inert,
-    because they only ever drove those duplicate layers. Wiring them into the asset means adding them to the
-    asset cache key so a change invalidates the cached GIF, which is left as a known limitation rather than
-    half-done.
+    GIF. The four settings that only ever drove those duplicate layers now reach the renderer instead, and
+    are part of the asset cache key.
 
   Two earlier fixes in this area were real but could not have been enough on their own. The glow modifier
   really did set `Fill` on its child and really did throw, and `Unavailable` really was missing from the asset
@@ -227,6 +225,32 @@ None of these was reachable by a test that ran the code the way a user does, whi
 in all of them: the audit exercised units and never the assembled path against a host and a caller that
 answer slowly.
 
+- **The orb was blocky, and the glow was never drawn at all.** The asset was 96 pixels being displayed at
+  roughly 260, so it was stretched to about two and a half times its own size. It is now 256, which is what
+  the widget actually shows, and supersampling went from three samples per axis to two because the extra
+  samples had been antialiasing an image that was mostly being thrown away by the upscale. This was affordable
+  only because the corrected LZW encoder compresses a smooth radial gradient from 188 KB down to 36 KB, well
+  inside the 2 MiB a resource allows.
+
+  The glow was a second thing wrong and is why the orb looked like a hard ball. Its falloff was squared, which
+  concentrates it hard against the core, and the alpha it produced was multiplied down to about a tenth. At
+  idle strength that put the entire halo below the half-opacity threshold, and the frame builder maps anything
+  under that to the transparent index, so the glow was being discarded rather than drawn. Turning the glow off
+  changed no pixels at all, because there were none to change.
+
+- **Ring count, ring speed, ring rotation and glow did nothing.** They drove a glow disc and a ring set drawn
+  as separate nodes above the image, while the image already contained a glow and rings, so they configured
+  the duplicate rather than the orb. They now go into the renderer, which means they are part of the asset
+  cache key, so changing one and reopening the widget produces a different picture instead of the frames built
+  for the previous setting.
+
+- **The widget's visual configuration could not be opened at all.** The host said the configuration was
+  temporarily unavailable and suggested JSON mode. Two independent faults sat behind that. The surface was
+  matched against the widget type's local id while the host sends the qualified `integrationId::localId` form,
+  so it never matched and no session was created. And once it did match, the configuration view threw while
+  materializing, because the orb declares its own `accentColor` field and the host's appearance section
+  declared a second one: node ids must be unique across the whole tree. The throw was swallowed into the
+  host's generic message, which is why nothing in the log pointed at either.
 ## Known limitations
 
 These are deliberate and recorded rather than fixed.

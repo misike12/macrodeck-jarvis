@@ -18,10 +18,12 @@ namespace Jarvis.Plugin.Orb;
 public sealed class OrbUiProvider(
 	AssistantStateHolder state,
 	IUiResourceRegistry resources,
-	ILogger logger) : IUiProvider
+	ILogger logger,
+	OrbWidgetTypeProvider widgetTypes) : IUiProvider
 {
 	private readonly AssistantStateHolder _state = state;
 	private readonly ILogger _logger = logger.ForContext<OrbUiProvider>();
+	private readonly OrbWidgetTypeProvider _widgetTypes = widgetTypes;
 	private readonly OrbAssetCache _assets = new(resources, logger);
 
 	public static IReadOnlyList<UiSurfaceDeclaration> DeclaredSurfaces { get; } =
@@ -59,12 +61,12 @@ public sealed class OrbUiProvider(
 	/// The widget type is checked rather than assumed. A declined widget configuration leaves the user
 	/// with JSON mode only, because unlike an action there is no declared field list to fall back to.
 	/// </summary>
-	private static bool Serves(UiSurface surface) => surface.Kind switch
+	private bool Serves(UiSurface surface) => surface.Kind switch
 	{
 		UiSurfaceKinds.Widget => true,
 		UiSurfaceKinds.Preview => true,
 		UiSurfaceKinds.Config => ReadAttribute(surface, UiConfigSurfaceAttributes.EntryPoint) == UiConfigEntryPoints.WidgetConfig
-			&& ReadAttribute(surface, UiConfigSurfaceAttributes.WidgetType) == OrbWidgetTypeProvider.OrbTypeId,
+			&& _widgetTypes.IsThisWidgetType(ReadAttribute(surface, UiConfigSurfaceAttributes.WidgetType)),
 		_ => false,
 	};
 

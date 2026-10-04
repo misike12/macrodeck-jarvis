@@ -231,7 +231,7 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 		// Rebuilt per connection rather than per widget, so the asset cache inside it is the process-wide one
 		// it is meant to be.
 		_orbProvider = context.UiResources is { } registry
-			? new OrbUiProvider(_state, registry, _logger)
+			? new OrbUiProvider(_state, registry, _logger, _widgetTypes)
 			: null;
 
 		await _settings.ReloadAsync(context, cancellationToken).ConfigureAwait(false);

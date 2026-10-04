@@ -88,7 +88,21 @@ var target = snapshot.State;
 		// The measured amplitude is passed through, so a voice actually moves the orb. It is read from the
 		// snapshot rather than fetched from the meter here, because the snapshot already carries the value
 		// the deadband decided was worth publishing.
-		_ = _assets.GetAsync(target, palette, snapshot.Amplitude, _data.Preset, _lifetime.Token).ContinueWith(
+		//
+		// The four settings go to the renderer rather than to a layer above the image, because the asset
+		// already contains the glow and the rings. They are part of the cache key on the other side of this
+		// call, so changing one and reopening the widget produces a different picture rather than the frames
+		// built for the previous setting.
+		_ = _assets.GetAsync(
+			target,
+			palette,
+			snapshot.Amplitude,
+			_data.Preset,
+			_lifetime.Token,
+			_data.RingCount,
+			_data.RingSpeed,
+			_data.RingRotation,
+			_data.Glow).ContinueWith(
 			task =>
 			{
 				if (task.Status != TaskStatus.RanToCompletion || task.Result is not { } resource)

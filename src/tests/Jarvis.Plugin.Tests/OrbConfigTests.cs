@@ -1,7 +1,10 @@
 using System.Text.Json;
 using Jarvis.Plugin.Core;
 using Jarvis.Plugin.Orb;
+using MacroDeck.Sdk.Ui;
 using MacroDeck.Ui.Dsl;
+using MacroDeck.Ui.Model.Surfaces;
+using MacroDeck.Ui.Model.Versioning;
 using NUnit.Framework;
 
 namespace Jarvis.Plugin.Tests;
@@ -101,6 +104,107 @@ public class OrbConfigTests
 			Assert.That(root, Is.InstanceOf<MacroDeck.Ui.Config.UiWidgetConfiguration>());
 			Assert.That(root.Key, Is.EqualTo("root"));
 		});
+	}
+
+	/// <summary>
+	/// A configuration surface has to actually be served.
+	/// <para>
+	/// Every other test here builds <see cref="OrbConfigView"/> directly, which is the tree and not the
+	/// routing. The surface was compared against the widget type's <em>local</em> id while the host sends the
+	/// qualified <c>integrationId::localId</c> form, so it never matched, no session was created, and the host
+	/// showed "this widget's configuration is temporarily unavailable" with nothing in the log. The tree was
+	/// fine the entire time, which is exactly why building it was not the thing to check.
+	/// </para>
+/// </summary>
+[Test]
+	public async Task The_visual_configuration_surface_is_served()
+	{
+		var surfaces = new List<UiSurface>();
+
+		foreach (var qualified in new[]
+		{
+			"com.misike12.jarvis::jarvis-orb",
+			OrbWidgetTypeProvider.OrbTypeId,
+		})
+		{
+			surfaces.Clear();
+
+			var session = await Provider().CreateSessionAsync(
+				new UiSessionRequest
+				{
+					UiModelVersion = UiModelVersions.Current,
+					Surface = new UiSurface
+					{
+Kind = UiSurfaceKinds.Config,
+					SessionMode = UiSessionModes.Exclusive,
+					Attributes = Attributes(qualified),
+				},
+				},
+				CancellationToken.None);
+
+			Assert.That(
+				session,
+				Is.Not.Null,
+				$"no configuration session for widget type {qualified}, so the visual editor has nothing to show");
+
+			await session!.DisposeAsync();
+		}
+	}
+
+	/// <summary>Another integration's widget configuration must not be served by this one.</summary>
+	[Test]
+	public async Task Another_integrations_widget_configuration_is_not_served()
+	{
+		var session = await Provider().CreateSessionAsync(
+			new UiSessionRequest
+			{
+				UiModelVersion = UiModelVersions.Current,
+				Surface = new UiSurface
+				{
+					Kind = UiSurfaceKinds.Config,
+				SessionMode = UiSessionModes.Exclusive,
+				Attributes = Attributes("com.example.other::something-else"),
+			},
+			},
+			CancellationToken.None);
+
+		Assert.That(session, Is.Null, "this integration claimed a widget type that is not its own");
+	}
+
+	private static Dictionary<string, System.Text.Json.JsonElement> Attributes(string widgetType)
+	{
+		using var document = JsonDocument.Parse($$"""
+			{
+				"{{UiConfigSurfaceAttributes.EntryPoint}}": "{{UiConfigEntryPoints.WidgetConfig}}",
+				"{{UiConfigSurfaceAttributes.WidgetType}}": "{{widgetType}}",
+				"{{UiConfigSurfaceAttributes.WidgetData}}": {{OrbWidgetData.DefaultJson}}
+			}
+			""");
+
+return document.RootElement
+			.EnumerateObject()
+			// Cloned, because a JsonElement read from a disposed document throws and this dictionary outlives
+			// the parse.
+			.ToDictionary(property => property.Name, property => property.Value.Clone(), StringComparer.Ordinal);
+	}
+
+	private static OrbUiProvider Provider() => new(
+		new AssistantStateHolder(),
+		new ThrowingRegistry(),
+		RuntimeTestLog.Logger,
+		new OrbWidgetTypeProvider(RuntimeTestLog.Logger));
+
+	private sealed class ThrowingRegistry : IUiResourceRegistry
+	{
+		public Task<MacroDeck.Ui.Model.Resources.UiResource> RegisterAsync(
+			string name,
+			ReadOnlyMemory<byte> content,
+			string mediaType,
+			CancellationToken cancellationToken = default) =>
+			throw new InvalidOperationException("A configuration surface must not need to register an asset.");
+
+		public Task RemoveAsync(string name, CancellationToken cancellationToken = default) =>
+			throw new InvalidOperationException("A configuration surface must not remove an asset.");
 	}
 
 	private static HashSet<string> ReadSchemaProperties()
