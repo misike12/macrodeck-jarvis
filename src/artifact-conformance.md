@@ -3,7 +3,7 @@
 Suite version: `1.2.0`  
 Plugin: `com.misike12.jarvis` `1.1.1`  
 Conformant: **yes**  
-Passed: 38 - Failed: 0 - Skipped: 11
+Passed: 37 - Failed: 0 - Skipped: 12
 
 | Id | Title | Category | Requirement | Outcome | Detail |
 |---|---|---|---|---|---|
@@ -41,7 +41,7 @@ Passed: 38 - Failed: 0 - Skipped: 11
 | MDC0501 | An invocation receives exactly one reply, never more | TimeoutAndCancellation | Required | PASS |  |
 | MDC0502 | A deadline that elapses produces TIMEOUT, and nothing arrives afterward | TimeoutAndCancellation | Recommended | SKIP | No declared action ran long enough, under a 300 ms deadline, to observe deadline enforcement. |
 | MDC0503 | Cancelling an unknown or already-answered correlation produces no message at all | TimeoutAndCancellation | Required | PASS |  |
-| MDC0504 | Cancelling an in-flight invocation produces exactly one cancelled reply | TimeoutAndCancellation | Recommended | PASS |  |
+| MDC0504 | Cancelling an in-flight invocation produces exactly one cancelled reply | TimeoutAndCancellation | Recommended | SKIP | No declared action stayed in flight long enough to be cancelled before it completed on its own. |
 | MDC0505 | A burst beyond MaxConcurrentInvocations never exceeds the reported in-flight bound, and every invocation completes | TimeoutAndCancellation | Recommended | PASS |  |
 | MDC0601 | After a non-fatal disconnect, the subject reconnects and becomes ready again | DisconnectAndReconnect | Required | PASS |  |
 | MDC0602 | Reconnecting inside the resume window presents resumeSessionId and resumes with the same session id | DisconnectAndReconnect | Required | PASS |  |

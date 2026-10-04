@@ -47,9 +47,15 @@ internal static class OrbView
 		};
 	}
 
-	/// <summary>
+/// <summary>
 	/// A radial glow behind the core. Static geometry on purpose: the smoothness comes from the animated
 	/// core asset, so nothing here costs a patch.
+	/// <para>
+	/// <c>Fill</c> is on the modifier, not on its child. A modifier is a wrapper: the host lays its child
+	/// out inside it, and a child of a wrapper may not set <c>MainSize</c>, <c>Fill</c>, <c>ColumnSpan</c>
+	/// or <c>RowSpan</c>. Setting it on the child threw <c>UiViewException</c> while the widget session was
+	/// opening, which surfaced as an empty widget and a repeated <c>session.open</c> failure.
+	/// </para>
 	/// </summary>
 	private static UiModifier GlowLayer(OrbWidgetData data) => new()
 	{
@@ -57,10 +63,10 @@ internal static class OrbView
 		RequiredComponentVersion = 2,
 		Background = data.Glow ? Gradient(data) : UiBackground.Solid(data.CoreColor),
 		Clip = UiComponentClips.Circle,
+		Fill = true,
 		Child = new UiStack
 		{
 			Key = "glow-fill",
-			Fill = true,
 			Children = [],
 		},
 	};
