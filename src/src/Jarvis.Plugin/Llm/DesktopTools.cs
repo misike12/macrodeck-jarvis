@@ -40,7 +40,7 @@ public static partial class DesktopTools
 				return string.IsNullOrEmpty(text)
 					? ToolOutcome.Success("The clipboard holds no text.")
 					: ToolOutcome.Success(text);
-			});
+			}, cancellationToken);
 		}
 	}
 
@@ -79,7 +79,7 @@ public static partial class DesktopTools
 			{
 				NativeClipboard.Write(text);
 				return ToolOutcome.Success($"Copied {text.Length} characters to the clipboard.");
-			});
+			}, cancellationToken);
 		}
 	}
 
@@ -297,7 +297,7 @@ public static partial class DesktopTools
 				}
 
 				return ToolOutcome.Success($"Volume set to {value}%.");
-			});
+			}, cancellationToken);
 		}
 	}
 
@@ -305,8 +305,15 @@ public static partial class DesktopTools
 	/// The clipboard is a single-threaded apartment object, and this process's thread pool threads are not.
 	/// Every clipboard call therefore runs on its own short-lived STA thread rather than on the caller's,
 	/// which is the difference between working and a COM exception.
+	/// <para>
+	/// The wait has a deadline. Another process holding the clipboard open makes OpenClipboard fail
+	/// repeatedly, and without a bound the caller would wait for it indefinitely while the host had already
+	/// taken its invocation slot back.
+	/// </para>
 	/// </summary>
-	private static Task<ToolOutcome> RunOnSta(Func<ToolOutcome> action)
+	private static async Task<ToolOutcome> RunOnSta(
+		Func<ToolOutcome> action,
+		CancellationToken cancellationToken = default)
 	{
 		var completion = new TaskCompletionSource<ToolOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -314,11 +321,11 @@ public static partial class DesktopTools
 		{
 			try
 			{
-				completion.SetResult(action());
+				_ = completion.TrySetResult(action());
 			}
 			catch (Exception exception) when (exception is not OutOfMemoryException)
 			{
-				completion.SetResult(ToolOutcome.Failure(exception.Message));
+				_ = completion.TrySetResult(ToolOutcome.Failure(exception.Message));
 			}
 		})
 		{
@@ -328,6 +335,24 @@ public static partial class DesktopTools
 		thread.SetApartmentState(ApartmentState.STA);
 		thread.Start();
 
-		return completion.Task;
+		using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+		budget.CancelAfter(ClipboardTimeout);
+
+		try
+		{
+			return await completion.Task.WaitAsync(budget.Token).ConfigureAwait(false);
+		}
+		catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+		{
+			return ToolOutcome.Failure("The clipboard did not become available in time.");
+		}
+		catch (OperationCanceledException)
+		{
+			return ToolOutcome.Failure("The request was cancelled.");
+		}
 	}
+
+	/// <summary>How long a clipboard call may take before the wait is abandoned.</summary>
+	private static TimeSpan ClipboardTimeout => TimeSpan.FromSeconds(10);
 }

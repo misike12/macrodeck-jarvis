@@ -56,11 +56,23 @@ public static class ScheduledTaskTools
 
 	private const int OleAuthenticate = 5;
 
+	/// <summary>How long a scheduler call may take before the wait is abandoned.</summary>
+	private static TimeSpan ComTimeout => TimeSpan.FromSeconds(20);
+
 	/// <summary>
 	/// Every scheduler call runs on a short-lived STA thread. The scheduler is a single-threaded apartment
 	/// object and a pool thread is not one, so this is the difference between working and a COM exception.
+	/// <para>
+	/// The thread is background and the result carries a deadline. A COM call into the scheduler has no
+	/// cancellation of its own, so if it never returns the completion task would never complete and the
+	/// caller's invocation slot would be held past the point the host had already taken it back. The thread
+	/// is left to finish on its own and is reclaimed by the runtime; abandoning the wait is what stops the
+	/// turn, not the abandoned call.
+	/// </para>
 	/// </summary>
-	private static Task<ToolOutcome> RunOnSta(Func<object, ToolOutcome> body)
+	private static Task<ToolOutcome> RunOnSta(
+		Func<object, ToolOutcome> body,
+		CancellationToken cancellationToken = default)
 	{
 		var completion = new TaskCompletionSource<ToolOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -84,11 +96,14 @@ public static class ScheduledTaskTools
 				}
 
 				service = NewComObject(ServiceClass);
-				completion.SetResult(body(service));
+
+				// SetResult only if nobody gave up waiting, so a late COM return cannot fault a completion
+				// that has already been handed a timeout.
+				_ = completion.TrySetResult(body(service));
 			}
 			catch (Exception exception) when (exception is not OutOfMemoryException)
 			{
-				completion.SetResult(ToolOutcome.Failure(
+				_ = completion.TrySetResult(ToolOutcome.Failure(
 					exception is COMException
 						? "The task scheduler refused the request: " + exception.Message
 						: exception.Message));
@@ -113,7 +128,31 @@ public static class ScheduledTaskTools
 		thread.SetApartmentState(ApartmentState.STA);
 		thread.Start();
 
-		return completion.Task;
+		return Await(completion.Task, cancellationToken);
+	}
+
+	/// <summary>
+	/// Waits for a COM call with a deadline, reporting a timeout rather than hanging.
+	/// </summary>
+	private static async Task<ToolOutcome> Await(Task<ToolOutcome> task, CancellationToken cancellationToken)
+	{
+		using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+		budget.CancelAfter(ComTimeout);
+
+		try
+		{
+			return await task.WaitAsync(budget.Token).ConfigureAwait(false);
+		}
+		catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+		{
+			return ToolOutcome.Failure(
+				$"The task scheduler did not answer within {ComTimeout.TotalSeconds:0} seconds.");
+		}
+		catch (OperationCanceledException)
+		{
+			return ToolOutcome.Failure("The request was cancelled.");
+		}
 	}
 
 	/// <summary>
@@ -204,7 +243,7 @@ public static class ScheduledTaskTools
 				return count == 0
 					? ToolOutcome.Failure(filter is null ? "No tasks matched." : $"No task path contains '{filter}'.")
 					: ToolOutcome.Success(builder.ToString());
-			});
+			}, cancellationToken);
 	}
 
 	/// <summary>Reads one task.</summary>
@@ -298,7 +337,7 @@ public static class ScheduledTaskTools
 				}
 
 				return ToolOutcome.Success(builder.ToString());
-			});
+			}, cancellationToken);
 		}
 	}
 
@@ -451,7 +490,7 @@ public static class ScheduledTaskTools
 
 				return ToolOutcome.Success(
 					$"Scheduled '{registeredPath}' ({schedule}) to run {command}.");
-			});
+			}, cancellationToken);
 		}
 
 		/// <summary>
@@ -529,7 +568,7 @@ public static class ScheduledTaskTools
 				target.DeleteTask(name, 0);
 
 				return ToolOutcome.Success($"Removed {path}.");
-			});
+			}, cancellationToken);
 		}
 	}
 
@@ -582,7 +621,7 @@ public static class ScheduledTaskTools
 				task.Run(null);
 
 				return ToolOutcome.Success($"Started {path}.");
-			});
+			}, cancellationToken);
 		}
 	}
 }

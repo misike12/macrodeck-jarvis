@@ -91,19 +91,35 @@ public sealed class ChatClient(
 				return await FailureFromResponseAsync(response, cancellationToken).ConfigureAwait(false);
 			}
 
+// The response was requested with ResponseHeadersRead, so HttpClient.Timeout covers the headers and
+			// nothing after them. Without a budget of its own the stream loop below reads until the server
+			// closes, and a provider holding the connection open while emitting keepalive comments would keep
+			// the turn alive indefinitely. Declared out here so the catch can tell this timeout apart from the
+			// caller's own cancellation.
+			using var streamBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+			streamBudget.CancelAfter(StreamTimeout);
+
 			try
 			{
 				await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-				var completion = await ReadStreamAsync(stream, onTextDelta, cancellationToken).ConfigureAwait(false);
+
+				var completion = await ReadStreamAsync(stream, onTextDelta, streamBudget.Token).ConfigureAwait(false);
 
 				return completion is null
 					? (null, ModelFailure.EmptyResponse, "The model returned no content.")
 					: (completion, ModelFailure.None, string.Empty);
 			}
-			catch (JsonException exception)
+catch (JsonException exception)
 			{
 				_logger.Warning(exception, "The model response could not be read.");
 				return (null, ModelFailure.ProviderRejected, "The model response could not be read.");
+			}
+			catch (OperationCanceledException) when (
+				streamBudget.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+			{
+				_logger.Warning("The model stopped sending after {Seconds} seconds.", StreamTimeout.TotalSeconds);
+				return (null, ModelFailure.Timeout, $"No answer within {StreamTimeout.TotalSeconds:0} seconds.");
 			}
 		}
 	}
@@ -171,6 +187,15 @@ public async Task<ModelProbe> ProbeAsync(string model, CancellationToken cancell
 	/// timeout, which is right for a real completion and far too long for a yes/no check.
 	/// </summary>
 	private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(10);
+
+	/// <summary>
+	/// How long the response body may take once the headers have arrived.
+	/// <para>
+	/// Separate from the client's own timeout, which does not apply to the body at all because the request
+	/// asks for the headers only.
+	/// </para>
+	/// </summary>
+	private static readonly TimeSpan StreamTimeout = TimeSpan.FromSeconds(90);
 
 /// <summary>
 	/// Where the configured provider lives and what to authenticate with. Public because the vision client

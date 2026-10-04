@@ -224,7 +224,7 @@ public static class WebTools
 					return ToolOutcome.Failure($"{uri} returned {(int)response.StatusCode} {response.ReasonPhrase}.");
 				}
 
-				var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+				var body = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
 				var text = ToReadableText(body, response.Content.Headers.ContentType?.MediaType ?? string.Empty);
 
 				return string.IsNullOrWhiteSpace(text)
@@ -365,7 +365,7 @@ public static class WebTools
 							continue;
 						}
 
-						var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+						var body = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
 						var text = ToReadableText(body, response.Content.Headers.ContentType?.MediaType ?? string.Empty);
 
 						if (string.IsNullOrWhiteSpace(text))
@@ -430,7 +430,7 @@ public static class WebTools
 						$"The search returned {(int)response.StatusCode} {response.ReasonPhrase}.");
 				}
 
-				var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+				var body = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
 				var results = Parse(body, count);
 
 				return results.Count == 0

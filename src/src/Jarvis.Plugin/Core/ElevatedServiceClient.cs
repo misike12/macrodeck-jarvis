@@ -66,7 +66,7 @@ _pipeName,
 
 			using var reader = new StreamReader(pipe, Wire, detectEncodingFromByteOrderMarks: false, 1024, leaveOpen: true);
 
-			await writer.WriteLineAsync(request.ToJsonString()).ConfigureAwait(false);
+			await writer.WriteLineAsync(request.ToJsonString().AsMemory(), timeoutSource.Token).ConfigureAwait(false);
 
 			var line = await reader.ReadLineAsync(timeoutSource.Token).ConfigureAwait(false);
 

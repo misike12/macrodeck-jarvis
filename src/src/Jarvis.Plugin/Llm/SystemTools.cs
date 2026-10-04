@@ -119,6 +119,11 @@ public static class SystemTools
 	/// also refuses when a confirmation would be useless, which is the case that actually happens: a session
 	/// that is about to lose power cannot answer a dialog to consent to losing power.
 	/// </summary>
+	/// <summary>How long a power command may take before it is abandoned.</summary>
+	private static TimeSpan CommandTimeout => TimeSpan.FromSeconds(15);
+
+	/// <summary>How long a power command may take before it is abandoned.</summary>
+
 	public sealed class SetSystemPowerTool : ITool
 	{
 		public string Name => "set_system_power";
@@ -155,13 +160,13 @@ public static class SystemTools
 					return await ExecuteAsync(
 						"shutdown.exe",
 						"/s /t 15 /c \"JARVIS is shutting down. Run 'shutdown /a' to cancel.\"",
-						"The computer will shut down in fifteen seconds. Run 'shutdown /a' to cancel.").ConfigureAwait(false);
+						"The computer will shut down in fifteen seconds. Run 'shutdown /a' to cancel.", cancellationToken).ConfigureAwait(false);
 
 				case "restart":
 					return await ExecuteAsync(
 						"shutdown.exe",
 						"/r /t 15 /c \"JARVIS is restarting. Run 'shutdown /a' to cancel.\"",
-						"The computer will restart in fifteen seconds. Run 'shutdown /a' to cancel.").ConfigureAwait(false);
+						"The computer will restart in fifteen seconds. Run 'shutdown /a' to cancel.", cancellationToken).ConfigureAwait(false);
 
 				case "sleep":
 					// Rundll32 with the suspend entry point is the documented way to sleep without waking the
@@ -169,7 +174,7 @@ public static class SystemTools
 					return await ExecuteAsync(
 						"rundll32.exe",
 						"powrprof.dll,SetSuspendState 0,1,0",
-						"The computer is going to sleep.").ConfigureAwait(false);
+						"The computer is going to sleep.", cancellationToken).ConfigureAwait(false);
 
 				case "lock":
 					LockWorkstation();
@@ -181,8 +186,24 @@ public static class SystemTools
 			}
 		}
 
-		private static async Task<ToolOutcome> ExecuteAsync(string fileName, string arguments, string message)
+/// <summary>
+		/// Runs one of the power commands.
+		/// <para>
+		/// The caller's token is forwarded and a deadline of its own applied. Without either, a rundll32
+		/// suspend that never returns would hold the turn open indefinitely, and the host would reclaim the
+		/// invocation while the child process kept running.
+		/// </para>
+		/// </summary>
+		private static async Task<ToolOutcome> ExecuteAsync(
+			string fileName,
+			string arguments,
+			string message,
+			CancellationToken cancellationToken)
 		{
+			using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+			budget.CancelAfter(CommandTimeout);
+
 			try
 			{
 				using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -198,8 +219,12 @@ public static class SystemTools
 					return ToolOutcome.Failure("The power command could not be started.");
 				}
 
-				await process.WaitForExitAsync().ConfigureAwait(false);
+				await process.WaitForExitAsync(budget.Token).ConfigureAwait(false);
 				return ToolOutcome.Success(message);
+			}
+			catch (OperationCanceledException)
+			{
+				return ToolOutcome.Failure($"The power command did not finish within {CommandTimeout.TotalSeconds:0} seconds.");
 			}
 			catch (System.ComponentModel.Win32Exception exception)
 			{

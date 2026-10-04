@@ -39,7 +39,8 @@ public static class BrowserTools
 	/// </summary>
 	private const int DebuggingPort = 9333;
 
-	private const int StartupTimeoutSeconds = 30;
+	/// <summary>How long to wait for the browser to publish its debugging port.</summary>
+	private static TimeSpan StartupTimeout => TimeSpan.FromSeconds(10);
 
 	private const string DefaultExecutable =
 		@"C:\Users\Misu\AppData\Local\Thorium\Application\thorium.exe";
@@ -100,23 +101,37 @@ public static class BrowserTools
 					return (null, "The browser could not be started.");
 				}
 
+				// Bounded well below the host's thirty second ceiling, because this wait is followed by connecting to
+				// the browser, which has a cost of its own. A thirty second poll followed by a five second
+				// connect is a press the host has already given up on.
+				using var startup = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+				startup.CancelAfter(StartupTimeout);
+
 				var started = DateTime.UtcNow;
 
-				while (DateTime.UtcNow - started < TimeSpan.FromSeconds(StartupTimeoutSeconds))
+				try
 				{
-					version = await ThBrowser.ReadVersionAsync(DebuggingPort, cancellationToken).ConfigureAwait(false);
-
-					if (version is not null)
+					while (DateTime.UtcNow - started < StartupTimeout)
 					{
-						break;
-					}
+						version = await ThBrowser.ReadVersionAsync(DebuggingPort, startup.Token).ConfigureAwait(false);
 
-					await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+						if (version is not null)
+						{
+							break;
+						}
+
+						await Task.Delay(250, startup.Token).ConfigureAwait(false);
+					}
+				}
+				catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+				{
+					return (null, $"The browser did not offer its debugging port within {StartupTimeout.TotalSeconds:0} seconds.");
 				}
 
 				if (version is null)
 				{
-					return (null, $"The browser did not offer its debugging port within {StartupTimeoutSeconds} seconds.");
+					return (null, $"The browser did not offer its debugging port within {StartupTimeout.TotalSeconds:0} seconds.");
 				}
 			}
 
@@ -464,6 +479,11 @@ public static class BrowserTools
 [SupportedOSPlatform("windows")]
 internal sealed class ThBrowser : IDisposable
 {
+	/// <summary>Typing is bounded per call, matching the desktop keyboard tool.</summary>
+	private const int MaximumCharacters = 8_000;
+
+	/// <summary>How long one DevTools command may take to be answered.</summary>
+	private static TimeSpan CommandTimeout => TimeSpan.FromSeconds(15);
 	private readonly ClientWebSocket _socket = new();
 	private readonly SemaphoreSlim _send = new(1, 1);
 	private int _nextId;
@@ -548,9 +568,26 @@ internal sealed class ThBrowser : IDisposable
 			_send.Release();
 		}
 
+		// Bounded, because a DevTools round trip has no deadline of its own: the loop discards every reply
+		// that is not the one being waited for, so a browser that answers something else on every command
+		// would otherwise spin here until the caller gave up.
+		using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+		budget.CancelAfter(CommandTimeout);
+
 		while (true)
 		{
-			var reply = await ReceiveAsync(cancellationToken).ConfigureAwait(false);
+			JsonObject? reply;
+
+			try
+			{
+				reply = await ReceiveAsync(budget.Token).ConfigureAwait(false);
+			}
+			catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+			{
+				throw new TimeoutException(
+					$"The browser did not answer within {CommandTimeout.TotalSeconds:0} seconds.");
+			}
 
 			if (reply is not null
 				&& reply["id"]?.GetValue<int>() is { } replyId
@@ -566,6 +603,7 @@ internal sealed class ThBrowser : IDisposable
 			}
 		}
 	}
+
 
 	private async Task<JsonObject?> ReceiveAsync(CancellationToken cancellationToken)
 	{
@@ -833,6 +871,16 @@ internal sealed class ThBrowser : IDisposable
 
 	internal async Task TypeAsync(string text, CancellationToken cancellationToken)
 	{
+		// Capped, like the desktop keyboard tool. Each character costs two DevTools round trips, so an
+		// unbounded length is a request to make two hundred thousand of them, and a model that miscounts
+		// would otherwise be able to occupy the turn for as long as it liked.
+		if (text.Length > MaximumCharacters)
+		{
+			throw new ArgumentOutOfRangeException(
+				nameof(text),
+				$"Typing is limited to {MaximumCharacters} characters at a time; this request was {text.Length}.");
+		}
+
 		foreach (var character in text)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
