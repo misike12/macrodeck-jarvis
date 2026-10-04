@@ -17,12 +17,6 @@ namespace Jarvis.Plugin.Orb;
 /// </summary>
 internal sealed class OrbUiSession : IUiSession
 {
-	/// <summary>
-	/// Twenty-five patches a second. The host refills its bucket at thirty and terminates a session
-	/// that overshoots, so the sweep deliberately leaves a fifth of the ceiling as headroom.
-	/// </summary>
-	private static readonly TimeSpan SweepInterval = TimeSpan.FromMilliseconds(40);
-
 private readonly OrbWidgetData _data;
 	private readonly OrbAssetCache _assets;
 
@@ -38,12 +32,10 @@ private readonly OrbWidgetData _data;
 	private readonly CancellationTokenSource _lifetime = new();
 	private readonly UiState<AssistantState> _orbState;
 	private readonly UiState<UiResource?> _core;
-	private readonly UiState<double> _sweep;
 	private readonly UiState<string> _reply;
 	private readonly UiState<string> _transcript;
 	private readonly UiView _view;
 	private readonly IDisposable _subscription;
-	private readonly Timer _timer;
 
 public OrbUiSession(
 		OrbWidgetData data,
@@ -55,7 +47,6 @@ public OrbUiSession(
 
 		_orbState = new UiState<AssistantState>(AssistantState.Idle);
 		_core = new UiState<UiResource?>(null);
-		_sweep = new UiState<double>(0);
 		_reply = new UiState<string>(string.Empty);
 		_transcript = new UiState<string>(string.Empty);
 
@@ -65,13 +56,12 @@ public OrbUiSession(
 			SessionMode = UiSessionModes.Shared,
 		};
 
-_view = new UiView(surface, OrbView.Build(data, _orbState, _core, _sweep, _reply, _transcript));
+_view = new UiView(surface, OrbView.Build(data, _orbState, _core, _reply, _transcript));
 
 		_view.HandlerFaulted += (_, args) =>
 			Faulted?.Invoke(this, new UiSessionFaultedEventArgs(args.NodeId, args.Exception));
 
 		_subscription = state.Subscribe(OnSnapshot);
-		_timer = new Timer(OnSweep, null, SweepInterval, SweepInterval);
 	}
 
 	public event EventHandler? Changed;
@@ -114,25 +104,13 @@ var target = snapshot.State;
 			TaskScheduler.Default);
 	}
 
-	private void OnSweep(object? state)
-	{
-		if (!_data.RingRotation)
-		{
-			return;
-		}
-
-		_sweep.Set((_sweep.Peek() + (_data.RingSpeed * 6.0)) % 360.0);
-		Changed?.Invoke(this, EventArgs.Empty);
-	}
-
 public ValueTask DisposeAsync()
 	{
 		// Cancelled before anything is torn down, so an asset fetch in flight stops rather than completing
 		// against a registry this session is already detaching from.
 		_lifetime.Cancel();
 
-_timer.Dispose();
-		_subscription.Dispose();
+_subscription.Dispose();
 		_view.Dispose();
 		_lifetime.Dispose();
 

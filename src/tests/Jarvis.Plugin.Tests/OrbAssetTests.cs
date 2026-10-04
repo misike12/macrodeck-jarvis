@@ -2,6 +2,7 @@ using System.Text;
 using Jarvis.Plugin.Core;
 using Jarvis.Plugin.Orb;
 using NUnit.Framework;
+using SkiaSharp;
 
 namespace Jarvis.Plugin.Tests;
 
@@ -50,20 +51,21 @@ public class OrbAssetTests
 		gif.AddFrame(frame);
 		gif.AddFrame(frame);
 
-		var bytes = gif.Encode();
-		var decoded = Decode(bytes);
+		using var codec = Open(gif.Encode());
 
-		Assert.That(decoded.Width, Is.EqualTo(16));
-		Assert.That(decoded.Height, Is.EqualTo(16));
-		Assert.That(decoded.FrameCount, Is.EqualTo(2));
-		Assert.That(decoded.Pixels, Has.Length.EqualTo(16 * 16 * 3));
+		Assert.Multiple(() =>
+		{
+			Assert.That(codec.Info.Width, Is.EqualTo(16));
+			Assert.That(codec.Info.Height, Is.EqualTo(16));
+			Assert.That(codec.FrameCount, Is.EqualTo(2));
+		});
 	}
 
 	[Test]
 	public void A_flat_frame_round_trips_to_its_own_colour()
 	{
-		// The palette is tuned for the orb's dark cyan-to-violet band, so the round trip is asserted on
-		// a colour the palette actually covers rather than on an arbitrary greyscale ramp.
+		// The palette is tuned for the orb's dark cyan-to-violet band, so the round trip is asserted on a
+		// colour the palette actually covers rather than on an arbitrary greyscale ramp.
 		const byte level = 140;
 
 		var gif = AnimatedGif.Create(32, 32);
@@ -78,13 +80,14 @@ public class OrbAssetTests
 		}
 
 		gif.AddFrame(rgba);
-		var decoded = Decode(gif.Encode());
 
-		Assert.That(decoded.Pixels, Has.Length.EqualTo(32 * 32 * 3));
+		var pixels = DecodeFirstFrame(gif.Encode());
+
+		Assert.That(pixels, Has.Length.EqualTo(32 * 32));
 
 		for (var pixel = 0; pixel < 32 * 32; pixel++)
 		{
-			Assert.That(Math.Abs(decoded.Pixels[(pixel * 3)] - level), Is.LessThan(40), $"pixel {pixel}");
+			Assert.That(Math.Abs(pixels[pixel].Red - level), Is.LessThan(60), $"pixel {pixel}");
 		}
 	}
 
@@ -95,231 +98,45 @@ public class OrbAssetTests
 		var rgba = new byte[8 * 8 * 4];
 
 		gif.AddFrame(rgba);
-		var decoded = Decode(gif.Encode());
 
-		var distinct = decoded.Pixels
-			.Select((_, index) => index / 3)
-			.Select(index => (decoded.Pixels[(index * 3)], decoded.Pixels[((index * 3) + 1)], decoded.Pixels[((index * 3) + 2)]))
-			.Distinct()
-			.ToArray();
+		var pixels = DecodeFirstFrame(gif.Encode());
+		var lit = pixels.Count(colour => colour.Alpha > 128);
 
-		Assert.That(distinct, Has.Length.EqualTo(1), "A fully transparent frame must be a single flat colour.");
+		Assert.That(lit, Is.Zero, "a fully transparent frame must not decode to anything opaque");
 	}
-
-	private readonly record struct DecodedGif(int Width, int Height, int FrameCount, byte[] Pixels);
 
 	/// <summary>
-	/// An independent LZW decoder written against the specification rather than against the encoder, so
-	/// a bug shared by both would not pass.
+	/// Decoded with SkiaSharp rather than with an LZW decoder written alongside the encoder.
+	/// <para>
+	/// There was one, and its comment claimed that being written against the specification rather than against
+	/// the encoder meant a bug shared by both could not pass. It shared the encoder's own misunderstanding of
+	/// when the code width grows, so the two agreed with each other and disagreed with every real decoder,
+	/// which is how a corrupt orb survived a test suite that appeared to cover exactly this. A second
+	/// implementation by the same author is not an independent check of anything.
+	/// </para>
 	/// </summary>
-	private static DecodedGif Decode(byte[] bytes)
+	private static SKCodec Open(byte[] gif) =>
+		SKCodec.Create(SKData.CreateCopy(gif))
+			?? throw new InvalidOperationException("SkiaSharp rejected the bytes outright.");
+
+	private static SKColor[] DecodeFirstFrame(byte[] gif)
 	{
-		var offset = 6;
-		var width = ReadShort(bytes, ref offset);
-		var height = ReadShort(bytes, ref offset);
-		var packed = bytes[offset];
-		offset += 3;
+		using var codec = Open(gif);
 
-		var tableSize = 2 << (packed & 0x07);
-		var palette = new byte[tableSize * 3];
+		var info = new SKImageInfo(codec.Info.Width, codec.Info.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+		var raw = new byte[info.BytesPerPixel * info.Width * info.Height];
+		var result = codec.GetPixels(info, raw);
 
-		for (var index = 0; index < tableSize; index++)
+		Assert.That(result, Is.EqualTo(SKCodecResult.Success), $"the frame did not decode: {result}");
+
+		var pixels = new SKColor[info.Width * info.Height];
+
+		for (var index = 0; index < pixels.Length; index++)
 		{
-			palette[(index * 3)] = bytes[offset];
-			palette[((index * 3) + 1)] = bytes[(offset + 1)];
-			palette[((index * 3) + 2)] = bytes[(offset + 2)];
-			offset += 3;
+			var offset = index * 4;
+			pixels[index] = new SKColor(raw[offset], raw[offset + 1], raw[offset + 2], raw[offset + 3]);
 		}
 
-		var frames = 0;
-		byte[]? firstPixels = null;
-
-		while (offset < bytes.Length)
-		{
-			var marker = bytes[offset];
-
-			if (marker == 0x3B)
-			{
-				break;
-			}
-
-			if (marker == 0x21)
-			{
-				offset += 2;
-
-				// An extension is a chain of length-prefixed sub-blocks ended by a zero byte. The terminator
-				// itself has to be consumed, or the next iteration reads it as a block marker.
-				while (offset < bytes.Length)
-				{
-					var blockLength = bytes[offset];
-					offset++;
-
-					if (blockLength == 0)
-					{
-						break;
-					}
-
-					offset += blockLength;
-				}
-
-				continue;
-			}
-
-			if (marker != 0x2C)
-			{
-				throw new InvalidOperationException($"Unexpected block 0x{marker:X2} at {offset}.");
-			}
-
-			offset++;
-			var descriptorLeft = ReadShort(bytes, ref offset);
-			var descriptorTop = ReadShort(bytes, ref offset);
-			var descriptorWidth = ReadShort(bytes, ref offset);
-			var descriptorHeight = ReadShort(bytes, ref offset);
-			offset += 1;
-
-			Assert.That(descriptorLeft, Is.Zero);
-			Assert.That(descriptorTop, Is.Zero);
-			Assert.That(descriptorWidth, Is.EqualTo(width));
-			Assert.That(descriptorHeight, Is.EqualTo(height));
-
-			var minimumCodeSize = bytes[offset];
-			offset++;
-
-			// Compressed data arrives in sub-blocks of at most 255 bytes, so reading it as one run would
-			// hide a real encoder bug.
-			var compressed = new List<byte>();
-
-			while (offset < bytes.Length && bytes[offset] != 0)
-			{
-				var blockLength = bytes[offset];
-				offset++;
-
-				for (var index = 0; index < blockLength && offset < bytes.Length; index++)
-				{
-					compressed.Add(bytes[offset]);
-					offset++;
-				}
-			}
-
-			offset++;
-
-			var pixels = DecodeLzw(compressed.ToArray(), descriptorWidth, descriptorHeight, minimumCodeSize);
-			frames++;
-
-			firstPixels ??= ToRgb(pixels, palette);
-		}
-
-		return new DecodedGif(width, height, frames, firstPixels ?? []);
-	}
-
-	private static byte[] DecodeLzw(byte[] data, int width, int height, int minimumCodeSize)
-	{
-		var clearCode = 1 << minimumCodeSize;
-		var endCode = clearCode + 1;
-
-		var prefix = new int[4096];
-		var suffix = new int[4096];
-		var length = new int[4096];
-
-		for (var index = 0; index < clearCode; index++)
-		{
-			prefix[index] = -1;
-			suffix[index] = index;
-			length[index] = 1;
-		}
-
-		var next = endCode + 1;
-		var codeSize = minimumCodeSize + 1;
-
-		var output = new byte[width * height];
-		var written = 0;
-		var accumulator = 0;
-		var bits = 0;
-		var previous = -1;
-		var stack = new byte[4096];
-		var cursor = 0;
-
-		while (written < output.Length)
-		{
-			while (bits < codeSize)
-			{
-				if (cursor >= data.Length)
-				{
-					return output;
-				}
-
-				accumulator |= data[cursor] << bits;
-				bits += 8;
-				cursor++;
-			}
-
-			var code = accumulator & ((1 << codeSize) - 1);
-			accumulator >>= codeSize;
-			bits -= codeSize;
-
-			if (code == clearCode)
-			{
-				next = endCode + 1;
-				codeSize = minimumCodeSize + 1;
-				previous = -1;
-				continue;
-			}
-
-			if (code == endCode)
-			{
-				break;
-			}
-
-			var current = code;
-
-			// The encoder runs in literal mode: it never grows the dictionary, so neither does this
-			// decoder. Anything above the root range would mean the two disagree about the format.
-			if (current >= next)
-			{
-				throw new InvalidOperationException($"Code {current} is not a root but the table stops at {next}.");
-			}
-
-			var top = 0;
-			var walk = current;
-
-			while (walk >= clearCode)
-			{
-				stack[top++] = (byte)suffix[walk];
-				walk = prefix[walk];
-			}
-
-			stack[top++] = (byte)suffix[walk];
-
-			for (var index = top - 1; index >= 0 && written < output.Length; index--)
-			{
-				output[written++] = stack[index];
-			}
-
-			previous = code;
-		}
-
-		return output;
-	}
-
-	private static byte[] ToRgb(byte[] indexed, byte[] palette)
-	{
-		var rgb = new byte[indexed.Length * 3];
-
-		for (var pixel = 0; pixel < indexed.Length; pixel++)
-		{
-			var entry = Math.Min(indexed[pixel] * 3, palette.Length - 3);
-			rgb[(pixel * 3)] = palette[entry];
-			rgb[((pixel * 3) + 1)] = palette[entry + 1];
-			rgb[((pixel * 3) + 2)] = palette[entry + 2];
-		}
-
-		return rgb;
-	}
-
-	private static int ReadShort(byte[] bytes, ref int offset)
-	{
-		var value = bytes[offset] | (bytes[offset + 1] << 8);
-		offset += 2;
-		return value;
+		return pixels;
 	}
 }

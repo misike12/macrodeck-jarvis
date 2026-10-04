@@ -30,7 +30,7 @@ Everything runs as the signed-in user except the optional service. See
 | Check | Command | Result |
 | --- | --- | --- |
 | Build | `dotnet build -c Release` | 0 warnings, 0 errors |
-| Tests | `dotnet test` | **566 passed**, 0 failed |
+| Tests | `dotnet test` | **573 passed**, 0 failed |
 | Manifest validation | `macrodeck-plugin validate --artifact ... --level Publication` | 0 errors, 0 warnings |
 | Conformance, project | `src/conformance.md` | conformant |
 | Conformance, artifact | `src/artifact-conformance.md` | conformant, and it carries MDC0104 through MDC0107 |
@@ -142,6 +142,21 @@ file is claimed as fixed unless it is.
 Both of these were found by running the built plugin on this machine, not by reading it. They are recorded
 because `planfix.md` does not contain them, and a reader of that file would otherwise take it as complete.
 
+- **The orb image was corrupt, so nothing drew even once the binding was fixed.** `AnimatedGif` is a
+  hand-written GIF89a, and its LZW wrote every pixel as its own nine-bit literal without ever growing the
+  dictionary. A decoder builds the same table as it reads, so after about 250 codes it widens to ten bits while
+  the encoder is still writing nine: the two disagree about where every subsequent code begins. A 96 pixel frame
+  is 9216 codes, so it desynchronised almost immediately. The file kept a valid header, frame count and
+  trailer, so nothing anywhere reported an error and the picture was simply absent. The encoder now emits the
+  longest match and grows the dictionary, widening one code later than the count alone suggests, because the
+  decoder adds its entry only after reading the following code.
+
+  The suite could not catch this because `OrbAssetTests` carried its own hand-written LZW decoder whose comment
+  claimed that being written against the specification rather than against the encoder meant a shared bug could
+  not pass. It had the same misunderstanding, so the two agreed with each other and disagreed with every real
+  decoder. That test now decodes with SkiaSharp, because a second implementation by the same author is not an
+  independent check of anything. The fault was found by bisecting: an 8 pixel frame, whose 64 codes never
+  widen, decoded perfectly while a 96 pixel one did not.
 - **The orb never drew anything, in any state, for any user.** `UiValue.From` and `UiText.From` take a
   computed function, and the framework subscribes a computed property to each state it reads *while the tree
   is being built* by reading `Value`. Reading `Peek()` is documented as the reading that does not subscribe.
@@ -149,7 +164,16 @@ because `planfix.md` does not contain them, and a reader of that file would othe
   arrived, `_core` was written, nothing was listening, and the widget stayed empty. No error existed to find,
   because each line did exactly what it said. The rings had the same problem in a second form: a `UiTransform`
   with no children draws nothing, so they were empty elements rotating forever while the comment described
-  them as visible. Bindings now read `Value`, and each ring is a bordered modifier inside its transform.
+  them as visible.
+
+    The orb is now one image and nothing else. `OrbFrameRenderer` already draws the core, the glow and the
+    rings into the asset, so the separate glow disc and ring layers were drawing the same thing twice at two
+    sizes while clipping the rings against the widget edge. Removing them also removed a timer that rewrote a
+    rotation twenty-five times a second, forever, to animate a layer whose motion was already baked into the
+    GIF. The widget settings `ringCount`, `ringSpeed`, `ringRotation` and `glow` are consequently inert,
+    because they only ever drove those duplicate layers. Wiring them into the asset means adding them to the
+    asset cache key so a change invalidates the cached GIF, which is left as a known limitation rather than
+    half-done.
 
   Two earlier fixes in this area were real but could not have been enough on their own. The glow modifier
   really did set `Fill` on its child and really did throw, and `Unavailable` really was missing from the asset

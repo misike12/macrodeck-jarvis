@@ -1,5 +1,4 @@
 using Jarvis.Plugin.Core;
-using MacroDeck.Sdk.Ui;
 using MacroDeck.Ui.Model.Resources;
 using MacroDeck.Ui.Components;
 using MacroDeck.Ui.Dsl;
@@ -9,8 +8,20 @@ using MacroDeck.Ui.Runtime;
 namespace Jarvis.Plugin.Orb;
 
 /// <summary>
-/// Composes the orb. Every animated quantity is a <see cref="UiState{T}"/> the tree reads, so a change
-/// emits one <c>set-properties</c> patch on one node rather than rebuilding anything.
+/// Composes the orb, which is one image.
+/// <para>
+/// The orb is drawn analytically by <see cref="OrbFrameRenderer"/> into an animated GIF: the core, the glow
+/// and the rings are all inside the asset, and the browser decodes it at its own frame rate. So the tree has
+/// nothing to animate. A state change swaps one <c>source</c> on one node and costs a single
+/// <c>set-properties</c> patch.
+/// </para>
+/// <para>
+/// This used to carry a glow disc and a set of rotating rings as separate layers above the image. All three
+/// drew the same thing, so the orb appeared twice at two sizes, and the rings were clipped by the widget
+/// edge. They were also not free: a timer rewrote a rotation twenty-five times a second to animate a layer
+/// that was already baked into the asset, which is a patch every forty milliseconds forever, for an
+/// animation that plays itself.
+/// </para>
 /// </summary>
 internal static class OrbView
 {
@@ -18,17 +29,10 @@ internal static class OrbView
 		OrbWidgetData data,
 		UiState<AssistantState> orbState,
 		UiState<UiResource?> core,
-		UiState<double> sweep,
 		UiState<string> reply,
 		UiState<string> transcript)
 	{
-		var layers = new List<UiElement>
-		{
-			GlowLayer(data),
-			CoreLayer(core),
-		};
-
-		layers.AddRange(RingLayers(data, sweep));
+		var layers = new List<UiElement> { CoreLayer(core) };
 
 		if (data.ShowText)
 		{
@@ -47,40 +51,7 @@ internal static class OrbView
 		};
 	}
 
-/// <summary>
-	/// A radial glow behind the core. Static geometry on purpose: the smoothness comes from the animated
-	/// core asset, so nothing here costs a patch.
-	/// <para>
-	/// <c>Fill</c> is on the modifier, not on its child. A modifier is a wrapper: the host lays its child
-	/// out inside it, and a child of a wrapper may not set <c>MainSize</c>, <c>Fill</c>, <c>ColumnSpan</c>
-	/// or <c>RowSpan</c>. Setting it on the child threw <c>UiViewException</c> while the widget session was
-	/// opening, which surfaced as an empty widget and a repeated <c>session.open</c> failure.
-	/// </para>
-	/// </summary>
-	private static UiModifier GlowLayer(OrbWidgetData data) => new()
-	{
-		Key = "glow",
-		RequiredComponentVersion = 2,
-		Background = data.Glow ? Gradient(data) : UiBackground.Solid(data.CoreColor),
-		Clip = UiComponentClips.Circle,
-		Fill = true,
-		Child = new UiStack
-		{
-			Key = "glow-fill",
-			Children = [],
-		},
-	};
-
-	private static UiGradient Gradient(OrbWidgetData data) => UiGradient.Radial(
-		0.5,
-		0.5,
-		[
-			new UiGradientStop { Offset = 0, Color = data.AccentColor },
-			new UiGradientStop { Offset = 0.55, Color = Mix(data.CoreColor, data.AccentColor, 0.25) },
-			new UiGradientStop { Offset = 1, Color = data.CoreColor },
-		]);
-
-/// <summary>
+	/// <summary>
 	/// The animated core. All the smooth motion lives inside the asset, so the browser decodes it at its
 	/// own frame rate and the whole orb costs exactly one patch when the state changes.
 	/// <para>
@@ -88,8 +59,7 @@ internal static class OrbView
 	/// each state it reads while the tree is being built, and only a recorded dependency is re-evaluated when
 	/// that state is written. <c>Peek</c> reads without subscribing, so binding the image through it produced a
 	/// tree that was correct once and then never again: the asset arrived, the state was written, and nothing
-	/// was listening, so the widget stayed empty with no error anywhere. Every binding in this file was written
-	/// that way, so nothing in it had ever been reactive.
+	/// was listening, so the widget stayed empty with no error anywhere.
 	/// </para>
 	/// </summary>
 	private static UiImage CoreLayer(UiState<UiResource?> core) => new()
@@ -98,47 +68,6 @@ internal static class OrbView
 		Source = UiValue.From(() => core.Value!),
 		Size = UiSize.FromBasis(0.86),
 	};
-
-/// <summary>
-	/// Each ring is a <c>ui.transform</c> whose only animated property is <c>rotation</c>, which is the
-	/// framework's own documented idiom for a sweeping element. Rings counter-rotate so the composition never
-	/// looks like one rigid disc.
-	/// <para>
-	/// The ring is drawn by a bordered modifier inside the transform. A transform with no children of its own
-	/// draws nothing at all, so these used to be an empty element rotating forever, described in the comment
-	/// above as though they were visible.
-	/// </para>
-	/// </summary>
-	private static IEnumerable<UiElement> RingLayers(OrbWidgetData data, UiState<double> sweep)
-	{
-		for (var index = 0; index < data.RingCount; index++)
-		{
-			var direction = index % 2 == 0 ? 1 : -1;
-			var offset = index * 120;
-			var extent = 0.92 - (index * 0.06);
-
-			yield return new UiTransform
-			{
-				Key = $"ring{index}",
-				Rotation = UiValue.From(() => ((sweep.Value * direction) + offset) % 360.0),
-				OriginX = 0.5,
-				OriginY = 0.5,
-				Children =
-				[
-					new UiModifier
-					{
-						Key = $"ring{index}-art",
-						MainSize = UiSize.FromBasis(extent),
-						Fill = UiValue.Of(true),
-						Clip = UiValue.Of(UiComponentClips.Circle),
-						BorderWidth = UiSize.FromBasis(0.012),
-						BorderColor = UiValue.Of(data.AccentColor),
-						Child = new UiStack { Key = $"ring{index}-fill", Children = [] },
-					},
-				],
-			};
-		}
-	}
 
 	private static UiTextRun TextLayer(
 		OrbWidgetData data,
@@ -183,33 +112,5 @@ internal static class OrbView
 			AssistantState.Unavailable => string.Empty,
 			_ => reply,
 		};
-	}
-
-	private static string Mix(string from, string to, double amount)
-	{
-		if (!TryParse(from, out var r1, out var g1, out var b1) || !TryParse(to, out var r2, out var g2, out var b2))
-		{
-			return from;
-		}
-
-		var r = (int)Math.Round(r1 + ((r2 - r1) * amount));
-		var g = (int)Math.Round(g1 + ((g2 - g1) * amount));
-		var b = (int)Math.Round(b1 + ((b2 - b1) * amount));
-
-		return $"#{r:x2}{g:x2}{b:x2}";
-	}
-
-	private static bool TryParse(string hex, out int r, out int g, out int b)
-	{
-		r = g = b = 0;
-
-		if (hex.Length != 7 || hex[0] != '#')
-		{
-			return false;
-		}
-
-		return int.TryParse(hex.AsSpan(1, 2), System.Globalization.NumberStyles.HexNumber, null, out r)
-			&& int.TryParse(hex.AsSpan(3, 2), System.Globalization.NumberStyles.HexNumber, null, out g)
-			&& int.TryParse(hex.AsSpan(5, 2), System.Globalization.NumberStyles.HexNumber, null, out b);
 	}
 }

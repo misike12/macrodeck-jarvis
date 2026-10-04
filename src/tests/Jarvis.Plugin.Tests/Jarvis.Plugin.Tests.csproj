@@ -25,7 +25,11 @@
         <ProjectReference Include="..\..\service\Jarvis.Service\Jarvis.Service.csproj" />
     </ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="NAudio.Wasapi" />
-  </ItemGroup>
+<ItemGroup>
+        <PackageReference Include="NAudio.Wasapi" />
+        <!-- Only to decode the orb's GIF in a test. The orb is the one image this plugin draws, and it
+             draws it with a hand-written encoder, so the encoder is checked against a real decoder
+             rather than against itself. -->
+        <PackageReference Include="SkiaSharp" />
+    </ItemGroup>
 </Project>

@@ -24,6 +24,10 @@ namespace Jarvis.Plugin.Tests;
 [TestFixture]
 public class OrbViewTests
 {
+	private static readonly string[] BareOrb = ["ui.stack", "ui.image"];
+
+	private static readonly string[] OrbWithText = ["ui.stack", "ui.image", "ui.text"];
+
 	private static UiView BuildFor(OrbWidgetData data) =>
 		new(
 			new UiSurface { Kind = UiSurfaceKinds.Widget, SessionMode = UiSessionModes.Shared },
@@ -31,7 +35,6 @@ public class OrbViewTests
 				data,
 				new UiState<AssistantState>(AssistantState.Idle),
 				new UiState<MacroDeck.Ui.Model.Resources.UiResource?>(null),
-				new UiState<double>(0),
 				new UiState<string>(string.Empty),
 				new UiState<string>(string.Empty)));
 
@@ -99,5 +102,50 @@ public class OrbViewTests
 		using var document = JsonDocument.Parse("""{ "preset": "from-the-future", "rings": 2 }""");
 
 		Assert.That(BuildFor(OrbWidgetData.Parse(document.RootElement)), Is.Not.Null);
+	}
+
+	/// <summary>
+	/// The orb is one image, because the asset already contains the core, the glow and the rings.
+	/// <para>
+	/// It used to carry a glow disc and a ring per setting as separate layers above that image, which drew
+	/// everything twice at two sizes and clipped the rings against the widget edge. It also rewrote a rotation
+	/// twenty-five times a second to animate a layer whose motion was already baked into the GIF. Counting the
+	/// nodes is what makes both visible: a duplicate layer cannot be added without the count moving.
+	/// </para>
+	/// </summary>
+	[Test]
+	public void The_orb_is_one_image_and_nothing_else()
+	{
+		using var view = BuildFor(new OrbWidgetData { ShowText = false });
+
+		var root = view.Tree.Root;
+		var types = new List<string>();
+		Collect(root, types);
+
+		Assert.That(
+			types,
+			Is.EqualTo(BareOrb),
+			"the orb drew something besides its image, so part of it is drawn twice");
+	}
+
+	[Test]
+	public void Text_adds_exactly_one_layer_when_it_is_asked_for()
+	{
+		using var view = BuildFor(new OrbWidgetData { ShowText = true });
+
+		var types = new List<string>();
+		Collect(view.Tree.Root, types);
+
+		Assert.That(types, Is.EqualTo(OrbWithText));
+	}
+
+	private static void Collect(MacroDeck.Ui.Model.Nodes.UiNode node, List<string> types)
+	{
+		types.Add(node.Type);
+
+		foreach (var child in node.Children ?? [])
+		{
+			Collect(child, types);
+		}
 	}
 }

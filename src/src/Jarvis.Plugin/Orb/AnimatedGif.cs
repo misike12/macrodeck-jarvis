@@ -122,22 +122,78 @@ public sealed class AnimatedGif
 	}
 
 	/// <summary>
-	/// Literal-mode LZW: every pixel is emitted as its own root code and the dictionary is never grown.
-	/// The compressed form of a run-encoding encoder and this differ by the table-growth bookkeeping,
-	/// which is the classic place a hand-written GIF goes subtly wrong and renders as noise in a browser.
-	/// The cost is size, not correctness: about 1.125 times the raw frame, which for a 96 pixel orb at
-	/// twenty-four frames is roughly a quarter of a megabyte against a two megabyte resource limit.
+	/// LZW as the format actually defines it: emit the longest match, add the one the match implies, and widen
+	/// the code as the dictionary fills.
+	/// <para>
+	/// This used to write every pixel as its own nine-bit literal and never grow the dictionary. That looks
+	/// simpler and it is wrong: the decoder builds the same table as it reads, so after about 250 codes it
+	/// widens to ten bits while this side is still writing nine. From that point the two disagree about where
+	/// every code starts, and the rest of the frame is noise. The file still has a valid header, a valid
+	/// frame count and a valid trailer, so nothing reports an error and the image is simply absent. A 96 pixel
+	/// square is 9216 codes, so it desynchronises almost immediately and every frame is affected.
+	/// </para>
+	/// <para>
+	/// The dictionary is cleared when it is full rather than left to overflow, which is what the format's own
+	/// clear code exists for.
+	/// </para>
 	/// </summary>
 	private static void WriteLzw(Stream stream, byte[] indexed)
 	{
-		const int codeSize = MinimumCodeSize + 1;
+		const int maximumCodeSize = 12;
+
+		var codeSize = MinimumCodeSize + 1;
+		var next = EndCode + 1;
+		var dictionary = new Dictionary<(int Prefix, byte Suffix), int>(indexed.Length);
 
 		var writer = new BitWriter(stream);
 		writer.Write(ClearCode, codeSize);
 
-		foreach (var pixel in indexed)
+		if (indexed.Length > 0)
 		{
-			writer.Write(pixel, codeSize);
+			var prefix = (int)indexed[0];
+
+			for (var index = 1; index < indexed.Length; index++)
+			{
+				var suffix = indexed[index];
+
+				if (dictionary.TryGetValue((prefix, suffix), out var found))
+				{
+					prefix = found;
+					continue;
+				}
+
+				writer.Write(prefix, codeSize);
+
+				if (next == (1 << maximumCodeSize))
+				{
+					// Full. Clearing costs one code and is the only way to get the width back down.
+					writer.Write(ClearCode, codeSize);
+					dictionary.Clear();
+					next = EndCode + 1;
+					codeSize = MinimumCodeSize + 1;
+				}
+				else
+				{
+					dictionary[(prefix, suffix)] = next;
+					next++;
+
+					// Widened one code later than the count alone suggests, and the delay is the whole
+					// subtlety. The decoder adds the entry implied by a code only after it has read the
+					// following one, so its table runs exactly one behind this one at the moment each code is
+					// written. Widening as soon as this table reaches the width being written puts this side a
+					// code ahead, and from that code on the two disagree about where every code begins. It was
+					// checked against a real decoder rather than reasoned about: an 8 pixel frame, whose 64 codes
+					// never widen at all, decoded perfectly while a 96 pixel one did not.
+					if (next > (1 << codeSize) && codeSize < maximumCodeSize)
+					{
+						codeSize++;
+					}
+				}
+
+				prefix = suffix;
+			}
+
+			writer.Write(prefix, codeSize);
 		}
 
 		writer.Write(EndCode, codeSize);
