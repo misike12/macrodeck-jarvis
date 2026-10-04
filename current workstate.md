@@ -30,7 +30,7 @@ Everything runs as the signed-in user except the optional service. See
 | Check | Command | Result |
 | --- | --- | --- |
 | Build | `dotnet build -c Release` | 0 warnings, 0 errors |
-| Tests | `dotnet test` | **554 passed**, 0 failed |
+| Tests | `dotnet test` | **558 passed**, 0 failed |
 | Manifest validation | `macrodeck-plugin validate --artifact ... --level Publication` | 0 errors, 0 warnings |
 | Conformance, project | `src/conformance.md` | conformant |
 | Conformance, artifact | `src/artifact-conformance.md` | conformant, and it carries MDC0104 through MDC0107 |
@@ -151,9 +151,20 @@ because `planfix.md` does not contain them, and a reader of that file would othe
 - **The orb's glow modifier was never drawn.** Its `Fill` was set on the wrapper element rather than on the
   shape, so the glow layer resolved to a node with no fill and drew nothing. The core was rendering; the
   halo around it was simply absent in every state.
+- **The configuration could not be read at all, so the plugin started with no API key.** This is the one
+  that made JARVIS unusable, and it presented as two separate bugs: an empty widget and an assistant that
+  would not answer. `JarvisSettingsStore.ReloadAsync` read the roughly forty fields the setup flow writes as
+  one host callback each, back to back, because `IIntegrationConfig` offers only `GetStringAsync` and
+  `GetSecretAsync` for a single key and has no bulk form. The host answers a plugin that calls back too
+  quickly with `HostInvocationException: This plugin is calling back into the host too quickly.`, the reload
+  was abandoned, every field fell back to its default, and `HasLlmCredentials` was false, so the state was
+  `Unavailable`: no key, no conversation, and nothing drawn in the widget. The one line in the log read
+  "Configuration could not be read; using local values.", which is true and says nothing about why. Reads are
+  now spaced through a process-wide gate, retried while the exception is marked retryable, and bounded by a
+  budget so an unreachable host costs the budget rather than a multiple of it.
 
-Neither was reachable by a test that ran the code the way a user does, which is the same weakness in both
-cases: the audit exercised units and never the assembled view.
+None of the three was reachable by a test that ran the code the way a user does, which is the same weakness
+in all three: the audit exercised units and never the assembled path against a host that answers slowly.
 
 ## Known limitations
 

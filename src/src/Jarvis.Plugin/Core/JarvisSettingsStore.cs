@@ -65,7 +65,9 @@ public sealed class JarvisSettingsStore
 	private readonly LocalSettingsFile _local;
 	private readonly ILogger _logger;
 
-	private readonly Dictionary<string, string> _read = new(StringComparer.Ordinal);
+	// Published as a whole. A read that failed part way through leaves the previous dictionary in place,
+	// so a field the host did not answer keeps its last known value instead of becoming empty.
+	private Dictionary<string, string> _read = new(StringComparer.Ordinal);
 
 	private JarvisSettings _current = new();
 
@@ -158,6 +160,85 @@ public sealed class JarvisSettingsStore
 	/// <summary>Reads a value written during this reload.</summary>
 	private string Stored(string field) => _read.GetValueOrDefault(field) ?? string.Empty;
 
+	/// <summary>The host refuses a plugin that calls back too often, so a run of reads is spaced out.</summary>
+	private static readonly TimeSpan HostCallSpacing = TimeSpan.FromMilliseconds(60);
+
+	/// <summary>First wait after a refused call, doubled on each further attempt up to <see cref="HostMaxRetryDelay"/>.</summary>
+	private static readonly TimeSpan HostRetryDelay = TimeSpan.FromMilliseconds(120);
+
+	private static readonly TimeSpan HostMaxRetryDelay = TimeSpan.FromMilliseconds(600);
+
+	/// <summary>
+	/// Ceiling on how long one reload may spend waiting. Without it a host that refuses everything turns a
+	/// reload into forty fields times five attempts times the backoff, which is over a minute, and a reload
+	/// happens on every reconnect.
+	/// </summary>
+	private static readonly TimeSpan HostReadBudget = TimeSpan.FromSeconds(20);
+
+	private const int MaxHostReadAttempts = 4;
+
+	/// <summary>
+	/// Serialises every config read across all stores in the process, so two integrations cannot combine
+	/// into one burst either.
+	/// </summary>
+	private static readonly SemaphoreSlim HostCalls = new(1, 1);
+
+	/// <summary>
+	/// Issues one host callback, spaced so that a run of them stays under the host's rate limit.
+	/// <para>
+	/// This is not defensive. The host answers a plugin that calls back too quickly with
+	/// <c>HostInvocationException: This plugin is calling back into the host too quickly.</c>, and reading the
+	/// roughly forty fields the setup flow writes is one call per field, because the config API exposes only
+	/// <c>GetStringAsync</c> and <c>GetSecretAsync</c> for a single key with no bulk form. Issued back to back
+	/// they tripped that limit, the whole reload was abandoned, and the plugin came up with no API key: the
+	/// assistant sat in <c>Unavailable</c>, so it would not talk and the orb had nothing to draw, while the
+	/// only sign was one warning line reading as though nothing had gone wrong.
+	/// </para>
+	/// <para>
+	/// The wait happens while the gate is held, which is what makes the spacing real. Retries are for the
+	/// calls that are still refused, and cover only what the exception marks retryable, so a refusal the host
+	/// means as final fails immediately rather than after four waits. Retrying also stops once the reload's
+	/// whole budget is gone, so an unreachable host costs the budget rather than a multiple of it.
+	/// </para>
+	/// </summary>
+	private async Task<T> ReadFromHostAsync<T>(
+		Func<Task<T>> call,
+		long budgetExpiresAt,
+		CancellationToken cancellationToken)
+	{
+		var delay = HostRetryDelay;
+
+		for (var attempt = 1; ; attempt++)
+		{
+			await HostCalls.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+			try
+			{
+				await Task.Delay(HostCallSpacing, cancellationToken).ConfigureAwait(false);
+
+				return await call().ConfigureAwait(false);
+			}
+			catch (HostInvocationException exception)
+				when (exception.Retryable
+					&& attempt < MaxHostReadAttempts
+					&& Environment.TickCount64 < budgetExpiresAt)
+			{
+				_logger.Debug(
+					"Host refused a callback as too frequent ({Code}), attempt {Attempt}; waiting {Delay}.",
+					exception.Code,
+					attempt,
+					delay);
+
+				await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+				delay = TimeSpan.FromMilliseconds(Math.Min(delay.TotalMilliseconds * 2, HostMaxRetryDelay.TotalMilliseconds));
+			}
+			finally
+			{
+				HostCalls.Release();
+			}
+		}
+	}
+
 /// <summary>
 	/// Reads every configured value back from the host.
 	/// <para>
@@ -190,35 +271,62 @@ public sealed class JarvisSettingsStore
 		{
 			try
 			{
-				var entries = await context.Config.GetEntriesAsync(cancellationToken).ConfigureAwait(false);
-				var entry = entries.Count > 0 ? entries[0] : (ConfigEntrySnapshot?)null;
+				var budgetExpiresAt = Environment.TickCount64 + (long)HostReadBudget.TotalMilliseconds;
+
+				var entries = await ReadFromHostAsync(
+					() => context.Config.GetEntriesAsync(cancellationToken), budgetExpiresAt, cancellationToken).ConfigureAwait(false);
+
+				var entry = entries is { Count: > 0 } ? entries[0] : (ConfigEntrySnapshot?)null;
 
 				if (entry is { } configured)
 				{
-					async Task<string?> GetStringAsync(string field) =>
-						await context.Config.GetStringAsync(configured.Id, field, cancellationToken).ConfigureAwait(false);
+					// Collected into a local dictionary and only published once every field has arrived. A
+					// burst that trips the host's rate limit half way through used to leave _read partly
+					// filled, so some fields read back as empty rather than as "not answered".
+					var read = new Dictionary<string, string>(StringComparer.Ordinal);
 
 					foreach (var field in StringFields)
 					{
-						_read[field] = await GetStringAsync(field).ConfigureAwait(false) ?? string.Empty;
+						read[field] = await ReadFromHostAsync(
+							() => context.Config.GetStringAsync(configured.Id, field, cancellationToken),
+							budgetExpiresAt,
+							cancellationToken).ConfigureAwait(false) ?? string.Empty;
 					}
 
 					nvidiaKey = FirstNonEmpty(
-						await context.Config.GetSecretAsync(configured.Id, JarvisSettingsStoreFields.NvidiaKeyEntryField, cancellationToken).ConfigureAwait(false),
+						await ReadFromHostAsync(
+							() => context.Config.GetSecretAsync(
+								configured.Id, JarvisSettingsStoreFields.NvidiaKeyEntryField, cancellationToken),
+							budgetExpiresAt,
+							cancellationToken).ConfigureAwait(false),
 						nvidiaKey);
 
 					picovoiceKey = FirstNonEmpty(
-						await context.Config.GetSecretAsync(configured.Id, JarvisSettingsStoreFields.PicovoiceKeyField, cancellationToken).ConfigureAwait(false),
+						await ReadFromHostAsync(
+							() => context.Config.GetSecretAsync(
+								configured.Id, JarvisSettingsStoreFields.PicovoiceKeyField, cancellationToken),
+							budgetExpiresAt,
+							cancellationToken).ConfigureAwait(false),
 						picovoiceKey);
 
 					selfHostedToken = FirstNonEmpty(
-						await context.Config.GetSecretAsync(configured.Id, JarvisSettingsStoreFields.SelfHostedTokenField, cancellationToken).ConfigureAwait(false),
+						await ReadFromHostAsync(
+							() => context.Config.GetSecretAsync(
+								configured.Id, JarvisSettingsStoreFields.SelfHostedTokenField, cancellationToken),
+							budgetExpiresAt,
+							cancellationToken).ConfigureAwait(false),
 						selfHostedToken);
+
+					_read = read;
 				}
 			}
 			catch (HostInvocationException exception)
 			{
-				_logger.Warning(exception, "Configuration could not be read; using local values.");
+				_logger.Warning(
+					exception,
+					"Configuration could not be read within {Budget} over {Attempts} attempts per field; keeping the previous values.",
+					HostReadBudget,
+					MaxHostReadAttempts);
 			}
 		}
 
