@@ -125,7 +125,9 @@ public sealed class ActivateAction(AssistantSession session, ListeningPipeline l
 
 			// Every press goes through the voice loop. It used to be split: a wait-for-wake-word press took a
 			// path that opened no microphone, started no turn and reported success anyway.
-			return listening.ListenAndAnswerAsync(prompt, context.CancellationToken);
+			return ActionBudget.RunAsync(
+				token => listening.ListenAndAnswerAsync(prompt, token),
+				context.CancellationToken);
 		}
 	}
 }
@@ -215,10 +217,45 @@ public sealed class ToggleAction(AssistantSession session, ListeningPipeline lis
 			// as the activate button rather than a path that only marked the session as running.
 			if (!session.IsRunning)
 			{
-				return listening.ListenAndAnswerAsync(null, context.CancellationToken);
+return ActionBudget.RunAsync(
+				token => listening.ListenAndAnswerAsync(null, token),
+				context.CancellationToken);
 			}
 
 			return Task.FromResult(session.Cancel(false));
+		}
+	}
+}
+
+/// <summary>
+/// Applies the host's thirty second capability ceiling to work started from a deck button.
+/// <para>
+/// A turn can legitimately take minutes: a model call, a wait for a person to confirm, a slow tool. None of
+/// that is a problem for the hotkey or the wake word, which are not capability invocations. It is a problem
+/// for a button press, because the host cancels the invocation at thirty seconds and reclaims the slot while
+/// the turn keeps running inside it. So the ceiling is applied here, where the press is known to be a press.
+/// </para>
+/// <para>
+/// The returned source is disposed by the caller's using, which also cancels anything still running.
+/// </para>
+/// </summary>
+public static class ActionBudget
+{
+	public static async Task<ActionResult> RunAsync(
+		Func<CancellationToken, Task<ActionResult>> work,
+		CancellationToken cancellationToken)
+	{
+		using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+		budget.CancelAfter(AssistantSession.ActionBudget);
+
+		try
+		{
+			return await work(budget.Token).ConfigureAwait(false);
+		}
+		catch (OperationCanceledException) when (budget.IsCancellationRequested)
+		{
+			return ActionResult.Failed(ActionErrorCodes.Timeout, Strings.Errors.TurnCancelled());
 		}
 	}
 }
@@ -246,10 +283,13 @@ public sealed class SayAction(AssistantSession session) : IActionDefinition
 
 	private sealed class Executor(AssistantSession session) : IActionExecutor
 	{
-public Task<ActionResult> ExecuteAsync(ActionExecutionContext context)
+		public Task<ActionResult> ExecuteAsync(ActionExecutionContext context)
 		{
 			var text = ActionParameters.ReadText(context.Parameters, ActionParameters.Text);
-			return session.SayAsync(text ?? string.Empty, context.CancellationToken);
+
+			return ActionBudget.RunAsync(
+				token => session.SayAsync(text ?? string.Empty, token),
+				context.CancellationToken);
 		}
 	}
 }

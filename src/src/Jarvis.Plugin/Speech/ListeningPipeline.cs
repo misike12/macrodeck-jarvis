@@ -185,6 +185,10 @@ if (_listenCts is not null)
 				return ActionResult.Failed(ActionErrorCodes.Unavailable, Strings.Errors.AlreadyRunning());
 			}
 
+// No budget of its own. The host's thirty second capability bound applies to a deck button press, not
+			// to the hotkey or the wake word, which have no such limit and legitimately run for as long as a
+			// person takes to speak. The budget is applied where that distinction is known: in the action
+			// executors, which wrap the host's token.
 			cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 			_listenCts = cts;
 		}

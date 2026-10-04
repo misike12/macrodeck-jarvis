@@ -139,7 +139,7 @@ BeginTurn(cancellationToken);
 
 		try
 		{
-ChatMessage[] history;
+			ChatMessage[] history;
 			lock (_turnGate)
 			{
 				SeedFromMemoryOnce(settings);
@@ -244,6 +244,22 @@ try
 			_logger.Warning(exception, "The reply could not be spoken.");
 		}
 	}
+
+	/// <summary>
+	/// How long one turn may run before it is abandoned.
+	/// <para>
+	/// The host cancels a capability invocation after thirty seconds and takes the concurrency slot back, so
+	/// a turn that keeps going past that point is work nobody is waiting for. The margin is deliberate: the
+	/// budget has to expire early enough to unwind, log and return a result before the host gives up on the
+	/// slot itself.
+	/// </para>
+	/// <para>
+	/// Applied by the action executors and not here, because the limit belongs to a deck button press. The
+	/// hotkey and the wake word are not capability invocations, have no thirty second ceiling, and are
+	/// legitimately allowed to run for as long as a person takes to speak a sentence and hear the answer.
+	/// </para>
+	/// </summary>
+	public static TimeSpan ActionBudget => TimeSpan.FromSeconds(20);
 
 	private const int MaxHistoryMessages = 20;
 
