@@ -1,4 +1,6 @@
+using System.Buffers.Binary;
 using System.Runtime.Versioning;
+using System.Text;
 using System.Text.Json.Nodes;
 
 namespace Jarvis.Service;
@@ -106,15 +108,110 @@ public static class Protocol
 		return message;
 	}
 
+	/// <summary>
+	/// The largest message either side will send or accept, in bytes of UTF-8.
+	/// <para>
+	/// Checked against the length prefix before the body is read. A limit applied after the message has been
+	/// read is not a limit: the reader has already allocated whatever the sender declared, which in a
+	/// LocalSystem process is an allocation an unprivileged peer chose.
+	/// </para>
+	/// </summary>
+	public const int MaximumMessageBytes = 64 * 1024;
+
+	private const int PrefixBytes = 4;
+
+	private static readonly Encoding Wire = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+	/// <summary>
+	/// Writes one length-prefixed message and flushes it.
+	/// </summary>
+	public static async Task WriteFrameAsync(Stream stream, string payload, CancellationToken cancellationToken)
+	{
+		var body = Wire.GetBytes(payload);
+
+		if (body.Length > MaximumMessageBytes)
+		{
+			throw new InvalidDataException(
+				$"A reply of {body.Length} bytes is over the {MaximumMessageBytes} byte limit.");
+		}
+
+		var prefix = new byte[PrefixBytes];
+
+		BinaryPrimitives.WriteUInt32LittleEndian(prefix, (uint)body.Length);
+
+		await stream.WriteAsync(prefix, cancellationToken).ConfigureAwait(false);
+		await stream.WriteAsync(body, cancellationToken).ConfigureAwait(false);
+		await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <summary>
+	/// Reads one length-prefixed message, or null when the peer disconnected cleanly.
+	/// </summary>
+	/// <exception cref="InvalidDataException">
+	/// The declared length is zero or over the limit. Nothing is read in that case, so the caller is left at a
+	/// known position and must close rather than try to resynchronise: the body the peer is still sending has
+	/// no framing to resynchronise against.
+	/// </exception>
+	public static async Task<string?> ReadFrameAsync(Stream stream, CancellationToken cancellationToken)
+	{
+		var prefix = new byte[PrefixBytes];
+		var declared = await ReadAtLeastAsync(stream, prefix, PrefixBytes, cancellationToken).ConfigureAwait(false);
+
+		if (declared < PrefixBytes)
+		{
+			return null;
+		}
+
+		var length = BinaryPrimitives.ReadUInt32LittleEndian(prefix);
+
+		if (length is 0 or > MaximumMessageBytes)
+		{
+			throw new InvalidDataException(
+				$"A message declared {length} bytes, which is outside 1 to {MaximumMessageBytes}.");
+		}
+
+		var body = new byte[length];
+		var read = await ReadAtLeastAsync(stream, body, body.Length, cancellationToken).ConfigureAwait(false);
+
+		return read < length ? null : Wire.GetString(body);
+	}
+
+	/// <summary>
+	/// Reads exactly <paramref name="count"/> bytes unless the peer stops first, in which case it reports how
+	/// many arrived so a clean close at a frame boundary can be told from a truncated message.
+	/// </summary>
+	private static async Task<int> ReadAtLeastAsync(
+		Stream stream,
+		byte[] buffer,
+		int count,
+		CancellationToken cancellationToken)
+	{
+		var total = 0;
+
+		while (total < count)
+		{
+			var read = await stream.ReadAsync(buffer.AsMemory(total, count - total), cancellationToken)
+				.ConfigureAwait(false);
+
+			if (read == 0)
+			{
+				return total;
+			}
+
+			total += read;
+		}
+
+		return total;
+	}
+
 	public static bool TryParse(string line, out JsonObject message)
 	{
 		message = null!;
 
 		try
 		{
-			// A line longer than this is not one of ours, and parsing it would be a way to make the service
-			// allocate whatever the sender asked it to.
-			if (line.Length is 0 or > 64 * 1024)
+			// A secondary assertion, not the limit: the length prefix is what actually bounds the allocation.
+			if (line.Length == 0 || line.Length > MaximumMessageBytes)
 			{
 				return false;
 			}

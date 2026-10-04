@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text.Json.Nodes;
 using Jarvis.Plugin.Core;
 using NUnit.Framework;
@@ -119,6 +120,86 @@ public class ProtocolTests
 		var huge = new string('a', 128 * 1024);
 
 		Assert.That(Protocol.ParseRequest(huge), Is.Null);
+	}
+
+	/// <summary>
+	/// The bound has to be applied to the declared length, before the body is touched.
+	/// <para>
+	/// The test above cannot catch a regression here, because it hands over a finished string. This one sends
+	/// a length prefix claiming a gigabyte and then sends nothing: if the reader allocated the body up front
+	/// it would either exhaust memory or sit waiting for a gigabyte that never arrives, and the only way to
+	/// tell those apart is to make the refusal arrive without the bytes.
+	/// </para>
+	/// </summary>
+	[Test]
+	public void A_length_prefix_over_the_limit_is_refused_without_reading_the_body()
+	{
+		using var stream = new MemoryStream();
+
+		var prefix = new byte[4];
+
+		BinaryPrimitives.WriteUInt32LittleEndian(prefix, 0x4000_0000);
+
+		stream.Write(prefix);
+		stream.Position = 0;
+
+		// Nothing after the prefix: a reader that trusts the declaration will wait rather than answer.
+		var refused = Assert.ThrowsAsync<InvalidDataException>(
+			async () => await Protocol.ReadFrameAsync(stream, CancellationToken.None));
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(refused!.Message, Does.Contain("outside"));
+			Assert.That(stream.Position, Is.EqualTo(4), "the reader consumed past the prefix");
+		});
+	}
+
+	/// <summary>A frame round trips through the framing byte for byte, including non-ASCII content.</summary>
+	[Test]
+	public async Task A_frame_round_trips_through_the_framing()
+	{
+		var payload = """{"v":1,"op":"ping","args":{"note":"árvíztűrő tükörfúrógép — ✓"}}""";
+
+		using var stream = new MemoryStream();
+
+		await Protocol.WriteFrameAsync(stream, payload, CancellationToken.None);
+
+		stream.Position = 0;
+
+		Assert.That(await Protocol.ReadFrameAsync(stream, CancellationToken.None), Is.EqualTo(payload));
+	}
+
+	/// <summary>A peer that closes at a frame boundary reads as gone, not as a protocol failure.</summary>
+	[Test]
+	public async Task A_peer_that_disconnects_at_a_frame_boundary_reads_as_gone()
+	{
+		using var empty = new MemoryStream();
+
+		Assert.That(await Protocol.ReadFrameAsync(empty, CancellationToken.None), Is.Null);
+
+		using var truncated = new MemoryStream();
+
+		var prefix = new byte[4];
+
+		BinaryPrimitives.WriteUInt32LittleEndian(prefix, 100);
+		truncated.Write(prefix);
+		truncated.Write(new byte[10]);
+
+		Assert.That(await Protocol.ReadFrameAsync(truncated, CancellationToken.None), Is.Null);
+	}
+
+	/// <summary>A reply the service would have to refuse is caught before it reaches the wire.</summary>
+	[Test]
+	public void A_reply_over_the_limit_is_refused_rather_than_written()
+	{
+		using var stream = new MemoryStream();
+
+		var huge = new string('a', Protocol.MaximumMessageBytes + 1);
+
+		Assert.ThrowsAsync<InvalidDataException>(
+			async () => await Protocol.WriteFrameAsync(stream, huge, CancellationToken.None));
+
+		Assert.That(stream.Length, Is.Zero, "bytes were written for a message that was refused");
 	}
 
 	[Test]

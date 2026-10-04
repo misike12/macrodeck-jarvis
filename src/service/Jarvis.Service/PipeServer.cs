@@ -355,17 +355,8 @@ private NamedPipeServerStream CreateServer() =>
 	/// Reads requests until the client disconnects. Each is answered on the same connection, so the plugin
 	/// can hold one pipe open for the life of its session rather than reconnecting per call.
 	/// </summary>
-	private async Task ServeAsync(NamedPipeServerStream server, CancellationToken cancellationToken)
+private async Task ServeAsync(NamedPipeServerStream server, CancellationToken cancellationToken)
 	{
-		// The writer is built first, so the two wrappers are not constructed around each other while a
-		// message is in flight. Fixed rather than incidental so the sequence is obvious.
-		await using var writer = new StreamWriter(server, Wire, 1024, leaveOpen: true)
-		{
-			AutoFlush = true,
-		};
-
-		using var reader = new StreamReader(server, Wire, detectEncodingFromByteOrderMarks: false, 1024, leaveOpen: true);
-
 		// An idle deadline per connection. Without one, a client that connects and then says nothing holds the
 		// only pipe instance for as long as it likes, and the plugin's own calls queue behind it until their
 		// timeouts. Reset on every request, so a busy client is never interrupted.
@@ -375,11 +366,22 @@ private NamedPipeServerStream CreateServer() =>
 
 		while (!idle.Token.IsCancellationRequested && server.IsConnected)
 		{
-			string? line;
+			string? request;
 
 			try
 			{
-				line = await reader.ReadLineAsync(idle.Token).ConfigureAwait(false);
+				request = await Protocol.ReadFrameAsync(server, idle.Token).ConfigureAwait(false);
+			}
+			catch (InvalidDataException exception)
+			{
+				// Nothing was read, so the body the peer is still sending has no framing left to
+				// resynchronise against. The caller is told why, and the connection ends.
+				_logger.Warning(exception.Message);
+
+				await TryReplyAsync(server, Protocol.Reply(false, exception.Message), cancellationToken)
+					.ConfigureAwait(false);
+
+				return;
 			}
 			catch (IOException exception)
 			{
@@ -394,31 +396,42 @@ private NamedPipeServerStream CreateServer() =>
 				return;
 			}
 
-			if (line is null)
+			if (request is null)
 			{
 				return;
 			}
 
-			if (line.Length == 0)
-			{
-				continue;
-			}
+var reply = Handle(request);
 
-			var reply = Handle(line);
-
-			try
+			if (!await TryReplyAsync(server, reply, cancellationToken).ConfigureAwait(false))
 			{
-				await writer.WriteLineAsync(reply.ToJsonString()).ConfigureAwait(false);
-			}
-			catch (IOException exception)
-			{
-				_logger.LogError("A reply could not be written.", exception);
 				return;
 			}
 
 			// No special case for shutdown here. The reply is written first and the stop is requested from
 			// inside Handle, so the plugin is answered before the service goes; the loop's next read then
 			// fails because the connection is going away, which is the correct outcome.
+		}
+	}
+
+	/// <summary>
+	/// Writes one reply, reporting a failed write as false rather than throwing. A client that has gone away
+	/// mid-answer is ordinary, and it should end the connection rather than surface as a fault in the service.
+	/// </summary>
+	private async Task<bool> TryReplyAsync(
+		NamedPipeServerStream server,
+		JsonObject reply,
+		CancellationToken cancellationToken)
+	{
+		try
+		{
+			await Protocol.WriteFrameAsync(server, reply.ToJsonString(), cancellationToken).ConfigureAwait(false);
+			return true;
+		}
+		catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+		{
+			_logger.LogError("A reply could not be written.", exception);
+			return false;
 		}
 	}
 
