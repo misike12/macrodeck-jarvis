@@ -227,9 +227,18 @@ public sealed class ProcessTracker : IDisposable
 	/// </summary>
 	private static void KillTree(int processId)
 	{
-		foreach (var child in ChildProcessIds(processId))
+		// The child walk is isolated, because a failure to enumerate it must not stop the parent from being
+		// killed. Leaving the parent alive is the one outcome this method cannot produce.
+		try
 		{
-			KillTree(child);
+			foreach (var child in ChildProcessIds(processId))
+			{
+				KillTree(child);
+			}
+		}
+		catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+		{
+			// Not being able to enumerate the children is not a reason to leave this process running.
 		}
 
 		try
@@ -271,7 +280,8 @@ public sealed class ProcessTracker : IDisposable
 						children.Add(candidate.Id);
 					}
 				}
-				catch (InvalidOperationException)
+catch (Exception exception) when (
+					exception is ArgumentException or InvalidOperationException)
 				{
 					continue;
 				}
@@ -294,7 +304,10 @@ public sealed class ProcessTracker : IDisposable
 
 	private static bool HasParent(int processId, int parentId)
 	{
-		using var process = Process.GetProcessById(processId);
+		// The parent is read from the toolhelp snapshot rather than from a Process handle. Opening the
+		// process first would throw for anything that exited between the snapshot and this call, and that
+		// exception escaped the walk and out of Kill, which is the one path that must not throw: a caller
+		// cancelling a tool call would get an exception instead of a terminated process.
 		using var parent = TryGetParent(processId);
 
 		return parent is not null && parent.Id == parentId;

@@ -281,7 +281,7 @@ public sealed class RuntimeDownloadTests
 		var manager = NewManager();
 		var reports = new List<DownloadProgress>();
 		var result = await manager.EnsureAsync(
-			asset, new Progress<DownloadProgress>(reports.Add), TestContext.CurrentContext.CancellationToken);
+			asset, new CollectingProgress<DownloadProgress>(reports.Add), TestContext.CurrentContext.CancellationToken);
 
 		Assert.That(result.Installed, Is.True, Describe(result));
 		Assert.That(reports, Is.Not.Empty);

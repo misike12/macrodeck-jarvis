@@ -32,7 +32,7 @@ public class RuntimeLiveDownloadTests
 			var reports = new List<DownloadProgress>();
 			var result = await manager.EnsureComponentAsync(
 				component,
-				new Progress<DownloadProgress>(reports.Add),
+				new CollectingProgress<DownloadProgress>(reports.Add),
 				cancellation.Token);
 
 			Assert.That(result.Installed, Is.True, $"{component}: {result.Failure} {result.Detail}");
