@@ -49,9 +49,15 @@ public static class JarvisSettingsStoreFields
 }
 
 /// <summary>
-/// Merges the three places settings can come from into one object. The config flow wins because it is
-/// the path a shipped plugin uses; the developer file and environment variables exist so a key can be
-/// present before any flow has been completed.
+/// Merges the host's configuration with the defaults into one immutable snapshot.
+/// <para>
+/// The host is the only place a setting comes from. There used to be a developer file loaded from beside the
+/// executable and two environment variables, and this comment used to describe all three as supported ways
+/// to supply a value. Neither of the other two could ever be reached, because the integration requires a
+/// configuration before the host will start it, so they only ever left a place for a credential to be
+/// written in plaintext. The injectable constructor below still accepts a settings object so tests can
+/// exercise a configured store without a real key.
+/// </para>
 /// </summary>
 public sealed class JarvisSettingsStore
 {
@@ -63,20 +69,23 @@ public sealed class JarvisSettingsStore
 
 	private JarvisSettings _current = new();
 
+	/// <summary>
+	/// The production constructor. Nothing is read from disk: the host's encrypted store is the only source,
+	/// so a plugin directory has no settings file to hold a key in.
+	/// </summary>
 	public JarvisSettingsStore(ILogger logger)
-		: this(logger, local: null)
+		: this(logger, LocalSettingsFile.Empty)
 	{
 	}
 
 	/// <summary>
-	/// Supplies the developer settings file directly rather than looking for one beside the executable.
-	/// Exists so a test can point at a real file without copying a credential into its own output
-	/// directory, where every other test would then read it and believe itself configured.
+	/// Supplies the settings directly. For tests, which need a configured store and must not depend on a file
+	/// that every other test in the assembly would then also read.
 	/// </summary>
 	public JarvisSettingsStore(ILogger logger, LocalSettingsFile? local)
 	{
 		_logger = logger.ForContext<JarvisSettingsStore>();
-		_local = local ?? LocalSettingsFile.Load(AppContext.BaseDirectory);
+		_local = local ?? LocalSettingsFile.Empty;
 	}
 
 	public JarvisSettings Current
@@ -178,9 +187,21 @@ public sealed class JarvisSettingsStore
 	/// <summary>Reads a value written during this reload.</summary>
 	private string Stored(string field) => _read.GetValueOrDefault(field) ?? string.Empty;
 
-	/// <summary>
-	/// Reads every configured value back from the host, falling back to the developer file and then the
-	/// environment.
+/// <summary>
+	/// Reads every configured value back from the host.
+	/// <para>
+	/// The host's encrypted secret store is the only source of a credential. There used to be two more: a
+	/// <c>jarvis.settings.json</c> beside the binary, and two <c>JARVIS_*_KEY</c> environment variables. Both
+	/// are gone, because neither could ever have been reached. This integration declares
+	/// <c>RequiresConfiguration</c>, so the host does not start it until a configuration exists, which means
+	/// the "get a key in before completing the flow" path those two offered did not exist. All they did was
+	/// leave a place for a key to be written down in plaintext, next to the plugin or in a script that starts
+	/// it.
+	/// </para>
+	/// <para>
+	/// The injectable overload below still accepts a settings object, because tests need to exercise a
+	/// configured store without putting a real key in a file.
+	/// </para>
 	/// </summary>
 	public async Task ReloadAsync(IIntegrationContext? context, CancellationToken cancellationToken)
 	{
@@ -229,9 +250,6 @@ public sealed class JarvisSettingsStore
 				_logger.Warning(exception, "Configuration could not be read; using local values.");
 			}
 		}
-
-		nvidiaKey = FirstNonEmpty(Environment.GetEnvironmentVariable("JARVIS_NVIDIA_API_KEY"), nvidiaKey);
-		picovoiceKey = FirstNonEmpty(Environment.GetEnvironmentVariable("JARVIS_PICOVOICE_KEY"), picovoiceKey);
 
 		// Read back against whatever is current, so a field the host does not carry keeps its default
 		// rather than being blanked.

@@ -63,12 +63,8 @@ VoiceService voice,
 		_conversation = conversation;
 		_voice = voice;
 		_memory = memory;
-		_bargeIn = bargeIn;
+_bargeIn = bargeIn;
 		_logger = logger.ForContext<AssistantSession>();
-
-		// Created once per session rather than per command: a job is a kernel object with a handle, and
-		// making one per command would leak handles for the life of the plugin.
-		_job = JobObject.TryCreate(logger);
 	}
 
 	public string LastOutput => _lastOutput;
@@ -76,8 +72,15 @@ VoiceService voice,
 	/// <summary>
 	/// The job every command is placed in. Exposed so the shell tool can contain the processes it starts;
 	/// the tool has no way to create a job of its own that outlives one call.
+	/// <para>
+	/// Created on first use rather than in the constructor. A job is a kernel object with a handle, and the
+	/// host constructs every integration and handler as part of <c>Build()</c> validation, so creating one
+	/// there meant a handle was opened during a configuration check on a graph that might be thrown away.
+	/// One per session rather than per command, because one per command would leak handles for the life of
+	/// the process.
+	/// </para>
 	/// </summary>
-	public JobObject? Job => _job;
+	public JobObject? Job => _job ??= JobObject.TryCreate(_logger);
 
 	public AssistantSnapshot StateSnapshot => _state.Current;
 

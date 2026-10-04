@@ -51,6 +51,22 @@ public sealed class MicrophoneMonitor : IDisposable
 		}
 	}
 
+	/// <summary>
+	/// Stops copying samples anywhere.
+	/// <para>
+	/// Needed because the monitor outlives any one configuration. Without it, switching the wake word off
+	/// left the tap attached, so the microphone kept filling a ring buffer nothing was reading: the user
+	/// turned a feature off and the recording did not stop.
+	/// </para>
+	/// </summary>
+	public void DetachTap()
+	{
+		lock (_gate)
+		{
+			_tap = null;
+		}
+	}
+
 	public MicrophoneMonitor(AssistantStateHolder state, ILogger logger)
 	{
 		_state = state;
@@ -217,7 +233,31 @@ public sealed class MicrophoneMonitor : IDisposable
 		}
 
 		_state.UpdateAmplitude(level);
+
+		// The wake word reads the level from here. Its offer method has always been documented as being
+		// called from this tick, and it was not: nothing ever raised it, so the detector received no audio at
+		// all and the wake word could not fire however it was configured.
+		//
+		// Handlers are invoked outside the lock and their exceptions swallowed. A subscriber is somebody
+		// else's recogniser, and this runs on a timer that also owns the amplitude the orb is showing.
+		foreach (var handler in LevelPublished?.GetInvocationList() ?? [])
+		{
+			try
+			{
+				((Action<double>)handler)(level);
+			}
+			catch (Exception exception) when (exception is not OutOfMemoryException)
+			{
+				_logger.Debug(exception, "A microphone level subscriber failed.");
+			}
+		}
 	}
+
+	/// <summary>
+	/// Raised on the publish tick with the smoothed microphone level, for anything that needs to make a
+	/// decision from loudness. Not the raw samples: a subscriber that wants audio takes the tap.
+	/// </summary>
+	public event Action<double>? LevelPublished;
 
 	public void Dispose()
 	{

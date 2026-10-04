@@ -38,7 +38,9 @@ public sealed class GlobalHotkey : IDisposable
 
 	private readonly ILogger _logger;
 	private readonly ManualResetEventSlim _ready = new(false);
-	private readonly Thread _pump;
+	private Thread? _pump;
+	private int _pumpThreadId;
+	private int _pumpStarted;
 
 	private HotkeyChord? _chord;
 	private int _registrationId;
@@ -47,8 +49,25 @@ public sealed class GlobalHotkey : IDisposable
 	public GlobalHotkey(ILogger logger)
 	{
 		_logger = logger.ForContext<GlobalHotkey>();
+	}
+
+	/// <summary>
+	/// Starts the message-pump thread, once.
+	/// <para>
+	/// Deliberately not in the constructor. The host constructs every integration and handler as part of
+	/// <c>Build()</c> validation, so a thread started there is a thread started during a configuration check
+	/// on a graph that may be discarded, and it belongs to an object nobody asked for.
+	/// </para>
+	/// </summary>
+	private void EnsurePump()
+	{
+		if (Interlocked.Exchange(ref _pumpStarted, 1) != 0)
+		{
+			return;
+		}
 
 		_pump = new Thread(Pump) { IsBackground = true, Name = "JARVIS hotkey" };
+		_pumpThreadId = _pump.ManagedThreadId;
 		_pump.Start();
 	}
 
@@ -67,6 +86,8 @@ public sealed class GlobalHotkey : IDisposable
 	public bool Register(HotkeyChord chord)
 	{
 		Unregister();
+
+		EnsurePump();
 
 		if (!_ready.Wait(TimeSpan.FromSeconds(5)))
 		{
@@ -167,9 +188,16 @@ public sealed class GlobalHotkey : IDisposable
 		_running = false;
 		Unregister();
 
-		// Waking the loop is what lets GetMessage return, so the thread exits promptly.
-		NativeMethods.PostThreadMessage((uint)Environment.CurrentManagedThreadId, 0, 0, 0);
-		_pump.Join(TimeSpan.FromSeconds(2));
+		// Nothing to wake or join if the pump was never started, which is the normal case for a plugin whose
+		// hotkey was never configured.
+		if (_pump is { } pump)
+		{
+			// Posted to the pump's own thread, not to whichever thread happens to be disposing. The old code
+			// used the current thread's id, so the wake went nowhere and the join waited out its full two
+			// seconds on every shutdown.
+			NativeMethods.PostThreadMessage((uint)_pumpThreadId, 0, 0, 0);
+			pump.Join(TimeSpan.FromSeconds(2));
+		}
 
 		_ready.Dispose();
 		GC.SuppressFinalize(this);

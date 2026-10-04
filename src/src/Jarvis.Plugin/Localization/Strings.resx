@@ -553,6 +553,20 @@
   <data name="Runtime.Issue.Action" xml:space="preserve">
     <value>Try again</value>
   </data>
+  <data name="Runtime.Issue.Microphone.Title" xml:space="preserve">
+    <value>JARVIS cannot hear anything</value>
+  </data>
+  <data name="Runtime.Issue.Microphone.Description" xml:space="preserve">
+    <value>The microphone could not be opened, so the orb will not react to speech and the wake word cannot work. {reason}</value>
+    <comment>[reason] technical reason reported by the audio device.</comment>
+  </data>
+  <data name="Runtime.Issue.Hotkey.Title" xml:space="preserve">
+    <value>The JARVIS push-to-talk key is not registered</value>
+  </data>
+  <data name="Runtime.Issue.Hotkey.Description" xml:space="preserve">
+    <value>Another program is using that key combination, so pressing it will not start a turn. {reason}</value>
+    <comment>[reason] technical reason the registration was refused.</comment>
+  </data>
   <data name="Runtime.Issue.Detail" xml:space="preserve">
     <value>{reason} {purpose} {detail}</value>
     <comment>[reason][purpose][detail] reason, purpose, and technical detail.</comment>

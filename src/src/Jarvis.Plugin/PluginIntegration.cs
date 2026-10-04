@@ -35,7 +35,29 @@ private readonly RuntimeManager _runtime;
 	private readonly WakeWordDetector _wakeWord;
 	private readonly WhisperTranscriber _transcriber;
 	private readonly ServiceAvailability _serviceAvailability;
-	private IUiResourceRegistry? _resources;
+	/// <summary>
+	/// The host's UI resource registry, written by InitializeAsync and read by every session.
+	/// <para>
+	/// Volatile because those are different threads and there is no lock between them: the host runs up to
+	/// 32 invocations concurrently, and a session created while a reconnect is establishing can otherwise
+	/// read a stale reference and build a session against the previous registry.
+	/// </para>
+	/// </summary>
+	private volatile IUiResourceRegistry? _resources;
+
+	/// <summary>
+	/// Why the microphone could not be opened, or null when it could. Held rather than logged and forgotten
+	/// so it can become an issue the user can see and retry, which a log line in a viewer they may not have
+	/// open is not.
+	/// </summary>
+	private string? _microphoneFailure;
+
+	/// <summary>Why the global hotkey could not be registered, or null when it could.</summary>
+	private string? _hotkeyFailure;
+
+	private const string MicrophoneIssueId = "microphone-unavailable";
+
+	private const string HotkeyIssueId = "hotkey-unavailable";
 
 	public PluginIntegration(
 		ILogger logger,
@@ -104,15 +126,84 @@ WhisperTranscriber transcriber,
 	/// Download problems surface here rather than as a failed action. The host polls this, so the manager
 	/// holds the state and the integration only forwards it.
 	/// </summary>
-	public Task<IReadOnlyList<IntegrationIssue>> GetIssuesAsync(CancellationToken cancellationToken = default) =>
-		_runtime.GetIssuesAsync(cancellationToken);
+public async Task<IReadOnlyList<IntegrationIssue>> GetIssuesAsync(CancellationToken cancellationToken = default)
+	{
+		var issues = new List<IntegrationIssue>(await _runtime.GetIssuesAsync(cancellationToken).ConfigureAwait(false));
 
-	public Task<IssueResolution> ResolveIssueAsync(string issueId, CancellationToken cancellationToken = default) =>
-		_runtime.ResolveIssueAsync(issueId, cancellationToken);
+		// The two standing conditions. Both used to be a log line and nothing else, so a microphone that
+		// would not open looked exactly like a microphone that was not needed: the orb simply sat still and
+		// the log said why to whoever happened to be reading it.
+		if (_microphoneFailure is { } microphone)
+		{
+			issues.Add(new IntegrationIssue
+			{
+				Id = MicrophoneIssueId,
+				Title = Strings.Runtime.Issue.Microphone.Title(),
+				Description = Strings.Runtime.Issue.Microphone.Description(microphone),
+				ActionLabel = Strings.Runtime.Issue.Action(),
+				Severity = IntegrationIssueSeverity.Warning,
+			});
+		}
+
+		if (_hotkeyFailure is { } hotkey)
+		{
+			issues.Add(new IntegrationIssue
+			{
+				Id = HotkeyIssueId,
+				Title = Strings.Runtime.Issue.Hotkey.Title(),
+				Description = Strings.Runtime.Issue.Hotkey.Description(hotkey),
+				ActionLabel = Strings.Runtime.Issue.Action(),
+				Severity = IntegrationIssueSeverity.Warning,
+			});
+		}
+
+		return issues;
+	}
+
+	public async Task<IssueResolution> ResolveIssueAsync(string issueId, CancellationToken cancellationToken = default)
+	{
+		switch (issueId)
+		{
+			case MicrophoneIssueId:
+			{
+				var settings = _settings.Current;
+
+				if (_microphone.Start(settings.MicrophoneId, settings.MicrophoneName))
+				{
+					_microphoneFailure = null;
+					return IssueResolution.Ok();
+				}
+
+				return IssueResolution.Failed(Strings.Runtime.IssueStillFailing());
+			}
+
+			case HotkeyIssueId:
+				// The same path initialization takes, rather than a second implementation of it, so a retry
+				// cannot succeed under different rules than the attempt that failed.
+				RegisterHotkey(_settings.Current);
+
+				return _hotkeyFailure is null
+					? IssueResolution.Ok()
+					: IssueResolution.Failed(Strings.Runtime.IssueStillFailing());
+
+			default:
+				return await _runtime.ResolveIssueAsync(issueId, cancellationToken).ConfigureAwait(false);
+		}
+	}
 
 	public IConfigFlow CreateConfigFlow() => new JarvisConfigFlow();
 
 	public bool AllowsMultipleConfigurations => false;
+
+	/// <summary>
+	/// Stated rather than inherited. The interface default is true, which happens to be correct, but three
+	/// separate places in this codebase used to describe ways to supply a key "before any flow has been
+	/// completed". While the host will not start an unconfigured integration, none of those ways is
+	/// reachable, so they described a capability that could not be used.
+	/// </summary>
+#pragma warning disable CA1822 // An interface implementation cannot be static, whatever it reads.
+	public bool RequiresConfiguration => true;
+#pragma warning restore CA1822
 
 	/// <summary>
 	/// Runs on every session establishment, not once at process start, so it must be safe to repeat.
@@ -141,12 +232,22 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 		{
 			if (_microphone.Start(settings.MicrophoneId, settings.MicrophoneName))
 			{
+				_microphoneFailure = null;
 				_logger.Information("Microphone is live on {Device}.", _microphone.ActiveDeviceName);
 			}
 			else
 			{
-				_logger.Warning("No microphone: the orb will not react to audio. {Error}", _microphone.LastError);
+				_microphoneFailure = _microphone.LastError ?? "no reason was reported";
+				_logger.Warning("No microphone: the orb will not react to audio. {Error}", _microphoneFailure);
 			}
+		}
+		else
+		{
+			// The stop belongs here, not only in ShutdownAsync. This method runs again on every reconnect and
+			// on a configuration change, so without it a user who turned the setting off kept an open,
+			// recording microphone and a live tap, which is the opposite of what they asked for.
+			_microphone.Stop();
+			_microphoneFailure = null;
 		}
 
 		RegisterHotkey(settings);
@@ -164,26 +265,35 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 	}
 
 	/// <summary>
-	/// Binds the global hotkey. Registration can legitimately fail because another program owns the chord,
-	/// so the failure becomes an issue the user can act on rather than a hotkey that silently does nothing.
+	/// Binds the global hotkey, and unbinds whatever was bound before.
+	/// <para>
+	/// Unregistering first is what makes this converge. The parse-failure path used to return before
+	/// unregistering, so clearing the chord left the previous one registered with the operating system and
+	/// a hotkey the user had removed from their settings still started turns.
+	/// </para>
 	/// </summary>
 	private void RegisterHotkey(JarvisSettings settings)
 	{
+		_hotkey.Pressed -= OnHotkeyPressed;
+		_hotkey.Unregister();
+
 		if (HotkeyChord.Parse(settings.PushToTalkHotkey) is not { } chord)
 		{
+			_hotkeyFailure = null;
 			_logger.Debug("No global hotkey is configured.");
 			return;
 		}
 
-		_hotkey.Pressed -= OnHotkeyPressed;
 		_hotkey.Pressed += OnHotkeyPressed;
 
 		if (_hotkey.Register(chord))
 		{
+			_hotkeyFailure = null;
 			return;
 		}
 
-		_logger.Warning("The global hotkey {Chord} is not available. {Reason}", chord, _hotkey.LastError);
+		_hotkeyFailure = _hotkey.LastError ?? "no reason was reported";
+		_logger.Warning("The global hotkey {Chord} is not available. {Reason}", chord, _hotkeyFailure);
 	}
 
 	/// <summary>
@@ -214,42 +324,92 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 	{
 		_wakeWord.Word = settings.WakeWord;
 		_wakeWord.Sensitivity = settings.WakeWordSensitivity;
-		_wakeWord.Enabled = settings.WakeWordEngineEnabled && settings.MicrophoneAlwaysOn;
 
+		// Detached before anything is decided, so every path below leaves the same teardown as the last one
+		// ran. Leaving a tap attached and a closure capturing the previous settings is how a wake word keeps
+		// working after it has been switched off.
+		_wakeWord.Detected -= OnWakeWordDetected;
+		_microphone.LevelPublished -= OnMicrophoneLevel;
+		_microphone.DetachTap();
+		_wakeWord.Recognizer = null;
+		_wakeWord.Enabled = false;
+
+		if (!settings.WakeWordEngineEnabled || !settings.MicrophoneAlwaysOn)
+		{
+			return;
+		}
+
+		// Assigned unconditionally rather than only on the enabled path, and it reads the current settings
+		// from the field rather than capturing the argument. A closure over a parameter holds the settings
+		// from the initialization that created it, so a later configuration change was recognised with the
+		// old language and sensitivity.
+		_wakeWord.Recognizer = RecognizeWakeWordAsync;
+		_wakeWord.Enabled = true;
+		_wakeWord.Detected += OnWakeWordDetected;
+
+		// The feed itself. Everything above configures a detector that waits to be given levels, and without
+		// this line it waits for the rest of its life: the tap keeps the audio and the detector never sees it.
+		_microphone.LevelPublished -= OnMicrophoneLevel;
+		_microphone.LevelPublished += OnMicrophoneLevel;
+
+		_microphone.AttachTap(_wakeWord.Buffer);
+	}
+
+	/// <summary>
+	/// Feeds one published level to the wake word. Fire and forget on purpose: the detector's own method is
+	/// async and runs a speech recogniser, and the publish tick is a 50 ms timer that also owns the
+	/// amplitude the orb is drawing.
+	/// </summary>
+	private void OnMicrophoneLevel(double level)
+	{
 		if (!_wakeWord.Enabled)
 		{
 			return;
 		}
 
-		_wakeWord.Recognizer = async (samples, token) =>
+		_ = Task.Run(async () =>
 		{
-			if (!_transcriber.IsAvailable)
-			{
-				// The microphone is left open and nothing else happens. Failing here would be noise: the
-				// wake word simply cannot work without a recogniser, and that is already an issue.
-				return null;
-			}
-
-			var wav = UtteranceAudio.WriteWav(samples, Audio.MicrophoneMonitor.SampleRate);
-
 			try
 			{
-				var result = await _transcriber
-					.TranscribeAsync(wav, settings.SttLanguage, token)
-					.ConfigureAwait(false);
-
-				return result.Ok ? result.Text : null;
+				await _wakeWord.OfferAsync(level, CancellationToken.None).ConfigureAwait(false);
 			}
-			finally
+			catch (OperationCanceledException)
 			{
-				UtteranceAudio.Delete(wav);
+				// Shutting down.
 			}
-		};
+			catch (Exception exception) when (exception is not OutOfMemoryException)
+			{
+				_logger.Debug(exception, "A wake word check failed.");
+			}
+		});
+	}
 
-		_wakeWord.Detected -= OnWakeWordDetected;
-		_wakeWord.Detected += OnWakeWordDetected;
+	/// <summary>
+	/// The recogniser the wake word detector calls, resolved against the settings current when the audio
+	/// arrives rather than the ones current when the closure was made.
+	/// </summary>
+	private async Task<string?> RecognizeWakeWordAsync(float[] samples, CancellationToken token)
+	{
+		if (!_transcriber.IsAvailable)
+		{
+			// The microphone is left open and nothing else happens. Failing here would be noise: the
+			// wake word simply cannot work without a recogniser, and that is already an issue.
+			return null;
+		}
 
-		_microphone.AttachTap(_wakeWord.Buffer);
+		var language = _settings.Current.SttLanguage;
+		var wav = UtteranceAudio.WriteWav(samples, Audio.MicrophoneMonitor.SampleRate);
+
+		try
+		{
+			var result = await _transcriber.TranscribeAsync(wav, language, token).ConfigureAwait(false);
+
+			return result.Ok ? result.Text : null;
+		}
+		finally
+		{
+			UtteranceAudio.Delete(wav);
+		}
 	}
 
 	/// <summary>A wake word starts a turn exactly as a button press does.</summary>
@@ -318,9 +478,23 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 
 	public Task ShutdownAsync()
 	{
+		// Everything detached, not just the microphone stopped. Between this and the next InitializeAsync the
+		// plugin is still live, so a hotkey left registered would start a full voice turn with no session, on
+		// CancellationToken.None, holding a concurrency slot and the microphone for its whole length.
+		_hotkey.Pressed -= OnHotkeyPressed;
+		_hotkey.Unregister();
+
+		_wakeWord.Detected -= OnWakeWordDetected;
+		_wakeWord.Recognizer = null;
+		_wakeWord.Enabled = false;
+
+		_microphone.LevelPublished -= OnMicrophoneLevel;
+		_microphone.DetachTap();
 		_microphone.Stop();
+
 		_session.Cancel(false);
 		_state.Reset();
+
 		return Task.CompletedTask;
 	}
 
@@ -336,8 +510,16 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 			"transcript" => VariableReading.Of(snapshot.Transcript),
 			"reply" => VariableReading.Of(snapshot.Reply),
 			"amplitude" => VariableReading.Of(snapshot.Amplitude, 0, 1, 0.01),
-			"download-percent" => VariableReading.Of(download.Active ? download.Percent : 0d, 0, 100, 1),
-			"download-label" => VariableReading.Of(Describe(download)),
+
+			// Unavailable rather than zero or an empty label. A widget bound to these cannot tell "nothing is
+			// downloading" from "the download is at zero percent", and a progress bar that reads 0 forever
+			// after a finished download looks like a download that never started.
+			"download-percent" => download.Active
+				? VariableReading.Of(download.Percent, 0, 100, 1)
+				: VariableReading.Unavailable,
+			"download-label" => download.Active
+				? VariableReading.Of(Describe(download))
+				: VariableReading.Unavailable,
 			_ => VariableReading.Unavailable,
 		};
 
