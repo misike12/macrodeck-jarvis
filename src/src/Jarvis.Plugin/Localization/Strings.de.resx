@@ -28,6 +28,41 @@
     <comment>Wird gezeigt, wenn der Modus-Parameter fehlt oder kein Text ist.</comment>
     <value>Wähle, wie JARVIS diese Runde ausführen soll.</value>
   </data>
+  <data name="Actions.CheckModels.Provider.Unknown" xml:space="preserve">
+    <comment>[string] provider: der Wert, der keine der angebotenen Optionen ist.</comment>
+    <value>'{provider}' kann diese Schaltfläche nicht prüfen.</value>
+  </data>
+  <data name="Actions.CheckModels.ReportLine" xml:space="preserve">
+    <comment>[string] model: der Modellname. [string] verdict: das lokalisierte Ergebnis dazu.</comment>
+    <value>{model}: {verdict}</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.Reachable" xml:space="preserve">
+    <value>erreichbar</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.NotConfigured" xml:space="preserve">
+    <value>keine Zugangsdaten konfiguriert</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.Unauthorized" xml:space="preserve">
+    <value>der Anbieter hat den Schlüssel abgelehnt</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.RateLimited" xml:space="preserve">
+    <value>zu viele Anfragen</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.Unreachable" xml:space="preserve">
+    <value>nicht erreichbar</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.Timeout" xml:space="preserve">
+    <value>keine Antwort rechtzeitig</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.NotFound" xml:space="preserve">
+    <value>wird vom Anbieter nicht angeboten</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.Rejected" xml:space="preserve">
+    <value>vom Anbieter abgelehnt</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.Failed" xml:space="preserve">
+    <value>fehlgeschlagen</value>
+  </data>
   <data name="Actions.Activate.Mode.Unknown" xml:space="preserve">
     <comment>[string] mode: der Wert, der keine der angebotenen Optionen ist.</comment>
     <value>'{mode}' ist kein Modus, das diese Schaltfläche anbietet.</value>

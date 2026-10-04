@@ -35,6 +35,41 @@
     <comment>Shown when the mode parameter is absent or is not text.</comment>
     <value>Choose how JARVIS should run this turn.</value>
   </data>
+  <data name="Actions.CheckModels.Provider.Unknown" xml:space="preserve">
+    <comment>[string] provider: the value that was not one of the offered choices.</comment>
+    <value>'{provider}' is not something this button can check.</value>
+  </data>
+  <data name="Actions.CheckModels.ReportLine" xml:space="preserve">
+    <comment>[string] model: the model name. [string] verdict: the localized outcome for it.</comment>
+    <value>{model}: {verdict}</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.Reachable" xml:space="preserve">
+    <value>reachable</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.NotConfigured" xml:space="preserve">
+    <value>no credentials configured</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.Unauthorized" xml:space="preserve">
+    <value>the provider rejected the key</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.RateLimited" xml:space="preserve">
+    <value>rate limited</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.Unreachable" xml:space="preserve">
+    <value>unreachable</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.Timeout" xml:space="preserve">
+    <value>no answer in time</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.NotFound" xml:space="preserve">
+    <value>not offered by the provider</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.Rejected" xml:space="preserve">
+    <value>declined by the provider</value>
+  </data>
+  <data name="Actions.CheckModels.Verdict.Failed" xml:space="preserve">
+    <value>failed</value>
+  </data>
   <data name="Actions.Activate.Mode.Unknown" xml:space="preserve">
     <comment>[string] mode: the value that was not one of the offered choices.</comment>
     <value>'{mode}' is not a mode this button offers.</value>

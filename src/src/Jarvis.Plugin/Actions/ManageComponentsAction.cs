@@ -80,9 +80,14 @@ public sealed class ManageComponentsAction(RuntimeManager runtime) : IActionDefi
 
 			if (result.Installed)
 			{
-				return result.AlreadyPresent
-					? ActionResult.Success()
-					: ActionResult.Accepted(Strings.Runtime.Installed(component));
+// The install already finished, the pinned hash was verified and the program was probed and found
+			// runnable. That is confirmed, so it is Success: Accepted is for work the provider genuinely
+			// cannot confirm, and using it here reported a finished install as unverified.
+			//
+			// The bare overload, because Success's one argument is the state to be in next, not a message.
+			_logger.Information("Installed {Component}.", component);
+
+			return ActionResult.Success();
 			}
 
 			// The manager has already turned this into an issue the user can retry from, so the action only

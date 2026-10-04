@@ -178,9 +178,11 @@ public sealed class ListeningPipeline : IDisposable
 
 		lock (_gate)
 		{
-			if (_listenCts is not null)
+if (_listenCts is not null)
 			{
-				return ActionResult.Accepted(Strings.Errors.AlreadyRunning());
+				// A refusal, not an accepted request: nothing was taken by anything, and the caller can tell
+				// the difference between "queued behind your other turn" and "already speaking".
+				return ActionResult.Failed(ActionErrorCodes.Unavailable, Strings.Errors.AlreadyRunning());
 			}
 
 			cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -238,9 +240,12 @@ public sealed class ListeningPipeline : IDisposable
 
 			return await _session.SayAsync(transcription.Text, cts.Token).ConfigureAwait(false);
 		}
-		catch (OperationCanceledException)
+catch (OperationCanceledException)
 		{
-			return ActionResult.Success();
+			// Not a success. Either the caller pressed cancel, the host gave up on the invocation, or the
+			// utterance budget ran out, and in all three nothing was said. Reporting success would tell the
+			// host a press completed when the user heard silence.
+			return ActionResult.Failed(ActionErrorCodes.Timeout, Strings.Errors.TurnCancelled());
 		}
 		finally
 		{

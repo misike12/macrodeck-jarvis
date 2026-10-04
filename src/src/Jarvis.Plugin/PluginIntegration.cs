@@ -68,7 +68,7 @@ private readonly RuntimeManager _runtime;
 			new CancelAction(session),
 			new ToggleAction(session, listening),
 			new SayAction(session),
-			new CheckModelsAction(chat, settings),
+			new CheckModelsAction(chat, settings, logger),
 			new ManageComponentsAction(runtime),
 			new ConfirmAction(session, logger),
 		];
