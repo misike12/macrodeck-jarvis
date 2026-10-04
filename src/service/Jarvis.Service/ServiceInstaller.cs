@@ -159,6 +159,14 @@ var start = startType.Equals("Automatic", StringComparison.OrdinalIgnoreCase)
 			}
 
 			Console.WriteLine($"Updated the existing {Program.ServiceDisplayName} registration.");
+
+			// The description is set here too, because returning early would leave an existing registration
+			// without one. It was not being set at all: the create below failed with ERROR_SERVICE_EXISTS on
+			// every reinstall, so the install reported failure and never reached the -Start step, even though
+			// the configuration it cared about had just been applied successfully.
+			SetDescription(name, description);
+
+			return Success;
 		}
 
 		// Each option name is its own argument, with the value as the argument after it. sc.exe says so
@@ -185,15 +193,24 @@ var start = startType.Equals("Automatic", StringComparison.OrdinalIgnoreCase)
 
 		// The description is what a user sees in the Services list, so it is set after the fact. A failure
 		// here is not worth failing the install over.
+		SetDescription(name, description);
+
+		return Success;
+	}
+
+	/// <summary>
+	/// Sets the description shown in the Services list. Best effort, because a description is cosmetic and the
+	/// registration itself matters far more.
+	/// </summary>
+	private static void SetDescription(string name, string description)
+	{
 		var described = Run("sc.exe", ["description", name, description]);
 
 		if (described.ExitCode != 0)
 		{
-			Console.WriteLine("The service was created, but its description could not be set.");
+			Console.WriteLine("The service description could not be set.");
 			Console.WriteLine(described.Output.TrimEnd());
 		}
-
-		return Success;
 	}
 
 	/// <summary>Runs a program and captures everything it said, which is the point of using it.</summary>
