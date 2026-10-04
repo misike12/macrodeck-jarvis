@@ -56,22 +56,52 @@ public static class ActionParameters
 		}
 	}
 
-	public static bool ReadFlag(IReadOnlyDictionary<string, object> parameters, string name)
+	/// <summary>
+	/// Reads a flag, or refuses it.
+	/// <para>
+	/// A parameter declared as a boolean arrives as whatever the host has stored, and the host does not
+	/// coerce the wire type. The old reader mapped "not a bool, not a parseable bool" to false, so a string
+	/// <c>"yes"</c> or a number silently became the opposite of what the caller sent and the action reported
+	/// that it had done that.
+	/// </para>
+	/// </summary>
+	public static bool TryReadFlag(
+		IReadOnlyDictionary<string, object> parameters,
+		string name,
+		out bool value,
+		out string? rejected)
 	{
-		return parameters.GetValueOrDefault(name) switch
+		value = false;
+		rejected = null;
+
+		switch (parameters.GetValueOrDefault(name))
 		{
-			bool flag => flag,
-			string text => bool.TryParse(text, out var parsed) && parsed,
-			_ => false,
-		};
+			case null:
+				return true;
+
+			case bool flag:
+				value = flag;
+				return true;
+
+			case string text when bool.TryParse(text, out var parsed):
+				value = parsed;
+				return true;
+
+			default:
+				rejected = parameters.GetValueOrDefault(name)?.ToString() ?? string.Empty;
+				return false;
+		}
 	}
 
-	public static string? ReadText(IReadOnlyDictionary<string, object> parameters, string name)
-	{
-		var raw = parameters.GetValueOrDefault(name);
-		var text = raw?.ToString();
-		return string.IsNullOrWhiteSpace(text) ? null : text;
-	}
+	/// <summary>
+	/// Reads a text parameter.
+	/// <para>
+	/// Only a string. The old version called <c>ToString()</c> on whatever arrived, so a numeric parameter
+	/// came back as its digits and the model was told its own number was text.
+	/// </para>
+	/// </summary>
+	public static string? ReadText(IReadOnlyDictionary<string, object> parameters, string name) =>
+		parameters.GetValueOrDefault(name) is string text && !string.IsNullOrWhiteSpace(text) ? text : null;
 }
 
 public sealed class ActivateAction(AssistantSession session, ListeningPipeline listening) : IActionDefinition, IStateProviderActionDefinition
@@ -96,8 +126,6 @@ public sealed class ActivateAction(AssistantSession session, ListeningPipeline l
 			label: Strings.Actions.Activate.Prompt.Label(),
 			description: Strings.Actions.Activate.Prompt.Description()),
 	];
-
-	public MacroDeckPlatform Platforms => MacroDeckPlatform.Windows;
 
 	public IActionExecutor CreateExecutor() => new Executor(listening);
 
@@ -148,8 +176,6 @@ public sealed class CancelAction(AssistantSession session) : IActionDefinition, 
 			description: Strings.Actions.Cancel.KillRunningCommand.Description()),
 	];
 
-	public MacroDeckPlatform Platforms => MacroDeckPlatform.Windows;
-
 	public IActionExecutor CreateExecutor() => new Executor(session);
 
 	public Task<ActionStateSnapshot?> GetActionStateAsync(
@@ -163,7 +189,14 @@ public sealed class CancelAction(AssistantSession session) : IActionDefinition, 
 	{
 		public Task<ActionResult> ExecuteAsync(ActionExecutionContext context)
 		{
-			var kill = ActionParameters.ReadFlag(context.Parameters, ActionParameters.KillRunningCommand);
+			if (!ActionParameters.TryReadFlag(
+				context.Parameters, ActionParameters.KillRunningCommand, out var kill, out var rejected))
+			{
+				return Task.FromResult(ActionResult.Failed(
+					ActionErrorCodes.InvalidParameter,
+					Strings.Errors.UnknownFlag(ActionParameters.KillRunningCommand, rejected)));
+			}
+
 			return Task.FromResult(session.Cancel(kill));
 		}
 	}
@@ -188,8 +221,6 @@ public sealed class ToggleAction(AssistantSession session, ListeningPipeline lis
 			defaultValue: "one-shot",
 			required: true),
 	];
-
-	public MacroDeckPlatform Platforms => MacroDeckPlatform.Windows;
 
 	public IActionExecutor CreateExecutor() => new Executor(session, listening);
 
@@ -276,8 +307,6 @@ public sealed class SayAction(AssistantSession session) : IActionDefinition
 			description: Strings.Actions.Say.Prompt.Description(),
 			required: true),
 	];
-
-	public MacroDeckPlatform Platforms => MacroDeckPlatform.Windows;
 
 	public IActionExecutor CreateExecutor() => new Executor(session);
 

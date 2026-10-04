@@ -39,8 +39,6 @@ public sealed class CheckModelsAction(ChatClient chat, JarvisSettingsStore setti
 			required: true),
 	];
 
-	public MacroDeckPlatform Platforms => MacroDeckPlatform.Windows;
-
 	public IActionExecutor CreateExecutor() => new Executor(chat, settings, Logger);
 
 private sealed class Executor(ChatClient chat, JarvisSettingsStore settings, ILogger logger) : IActionExecutor

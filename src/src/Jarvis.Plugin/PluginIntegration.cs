@@ -216,6 +216,13 @@ public async Task<IReadOnlyList<IntegrationIssue>> GetIssuesAsync(CancellationTo
 private async Task InitializeCoreAsync(IIntegrationContext context, CancellationToken cancellationToken)
 	{
 		_resources = context.UiResources;
+
+		// Rebuilt per connection rather than per widget, so the asset cache inside it is the process-wide one
+		// it is meant to be.
+		_orbProvider = context.UiResources is { } registry
+			? new OrbUiProvider(_state, registry, _logger)
+			: null;
+
 		await _settings.ReloadAsync(context, cancellationToken).ConfigureAwait(false);
 
 		var settings = _settings.Current;
@@ -476,7 +483,7 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 		}
 	}
 
-	public Task ShutdownAsync()
+	public async Task ShutdownAsync()
 	{
 		// Everything detached, not just the microphone stopped. Between this and the next InitializeAsync the
 		// plugin is still live, so a hotkey left registered would start a full voice turn with no session, on
@@ -495,7 +502,27 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 		_session.Cancel(false);
 		_state.Reset();
 
-		return Task.CompletedTask;
+		_orbProvider = null;
+
+		// The comment on this type claimed widget types "are withdrawn when the integration stops", and nothing
+		// withdrew them. The host holds the registration until the provider says otherwise, so a stopped
+		// integration left a widget type a user could still put on a deck, pointing at a plugin that was gone.
+		if (_widgetTypeContext is { } widgetTypes)
+		{
+			// Bounded here because the interface hands us no token. A host that has already gone away would
+			// otherwise leave this awaiting a round trip that never completes, which is the shutdown hanging.
+					using var unregister = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+			try
+			{
+				await widgetTypes.UnregisterWidgetTypeAsync(
+					OrbWidgetTypeProvider.OrbTypeId, unregister.Token).ConfigureAwait(false);
+			}
+			catch (Exception exception) when (exception is not OutOfMemoryException)
+			{
+				_logger.Warning(exception, "The orb widget type could not be withdrawn.");
+			}
+		}
 	}
 
 	public ValueTask<VariableReading> ReadAsync(string localId, CancellationToken cancellationToken = default)
@@ -541,15 +568,37 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 	/// Widget types register after the integration initializes and before any other provider hook, and
 	/// are withdrawn when the integration stops.
 	/// </summary>
-	public Task InitializeAsync(IWidgetTypeProviderContext context, CancellationToken cancellationToken = default) =>
-		_widgetTypes.InitializeAsync(context, cancellationToken);
+	public async Task InitializeAsync(IWidgetTypeProviderContext context, CancellationToken cancellationToken = default)
+	{
+		_widgetTypeContext = context;
+
+		await _widgetTypes.InitializeAsync(context, cancellationToken).ConfigureAwait(false);
+	}
 
 	public IReadOnlyList<WidgetTypeDescriptor> GetWidgetTypes() => _widgetTypes.GetWidgetTypes();
 
 	public IReadOnlyList<UiSurfaceDeclaration> Surfaces => OrbUiProvider.DeclaredSurfaces;
 
+	/// <summary>
+	/// The orb provider, and with it the asset cache, built once per connection rather than once per widget.
+	/// <para>
+	/// It used to be constructed inside <c>CreateSessionAsync</c>, so every widget got its own
+	/// <c>OrbAssetCache</c> whose entire purpose is to be process-wide. Opening a second orb re-encoded every
+	/// GIF, and because each re-encode registered under the same resource name the host accumulated duplicate
+	/// registrations for the same resource.
+	/// </para>
+	/// </summary>
+	private OrbUiProvider? _orbProvider;
+
+	/// <summary>
+	/// The widget type registration, held so it can be withdrawn. It is handed to the host once and the host
+	/// keeps it until the provider says otherwise, so without this a stopped integration left a widget type
+	/// the user could still add to a deck.
+	/// </summary>
+	private IWidgetTypeProviderContext? _widgetTypeContext;
+
 	public Task<IUiSession?> CreateSessionAsync(UiSessionRequest request, CancellationToken cancellationToken) =>
-		_resources is { } registry
-			? new OrbUiProvider(_state, registry, _logger).CreateSessionAsync(request, cancellationToken)
+		_orbProvider is { } provider
+			? provider.CreateSessionAsync(request, cancellationToken)
 			: Task.FromResult<IUiSession?>(null);
 }

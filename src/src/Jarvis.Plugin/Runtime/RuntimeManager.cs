@@ -288,10 +288,16 @@ public sealed class RuntimeManager : IIntegrationIssueProvider
 		{
 			if (!_failures.Remove(issueId, out failure) || failure is null)
 			{
-				return Task.FromResult(IssueResolution.Ok());
+				// Reported as a failure rather than a success. An id that was never reported is a stale widget
+				// or a plugin that has been restarted, and answering "resolved" tells the host the condition is
+				// gone when nothing was ever checked.
+				return Task.FromResult(IssueResolution.Failed(Strings.Runtime.Issue.UnknownIssue()));
 			}
 		}
 
+		// The asset goes in the message template, not in a structured property. Properties reach the live log
+		// viewer but are not written to the log file, so the persisted record was "Retrying after the user
+		// asked." with the one thing that identifies the retry missing.
 		_logger.Information("Retrying {Asset} after the user asked.", issueId);
 		return RetryAsync(failure.Asset, cancellationToken);
 	}

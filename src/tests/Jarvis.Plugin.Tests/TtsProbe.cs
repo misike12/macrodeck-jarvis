@@ -24,7 +24,7 @@ public class TtsProbe
 			.CreateLogger();
 
 		var synth = new WindowsSynthesizer(sink);
-		var voices = synth.InstalledVoices();
+		var voices = synth.InstalledVoicesAsync(CancellationToken.None).GetAwaiter().GetResult();
 
 		TestContext.Out.WriteLine($"voices = {voices.Length}: {string.Join(" | ", voices)}");
 		Assert.That(voices, Is.Not.Empty, "Windows reported no speech voices.");
@@ -115,7 +115,7 @@ public class TtsProbe
 			.CreateLogger();
 
 		var synth = new WindowsSynthesizer(sink);
-		var voices = synth.InstalledVoices();
+		var voices = synth.InstalledVoicesAsync(CancellationToken.None).GetAwaiter().GetResult();
 		var wav = Path.Combine(Path.GetTempPath(), $"jarvis-stop-{Guid.CreateVersion7():N}.wav");
 
 		await synth.SynthesizeAsync(

@@ -38,8 +38,6 @@ public sealed class ManageComponentsAction(RuntimeManager runtime) : IActionDefi
 			required: true),
 	];
 
-	public MacroDeckPlatform Platforms => MacroDeckPlatform.Windows;
-
 	public IActionExecutor CreateExecutor() => new Executor(runtime);
 
 	/// <summary>A component is named by what it does, not by the folder it lands in.</summary>

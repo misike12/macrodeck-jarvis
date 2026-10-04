@@ -23,9 +23,19 @@ internal sealed class OrbUiSession : IUiSession
 	/// </summary>
 	private static readonly TimeSpan SweepInterval = TimeSpan.FromMilliseconds(40);
 
-	private readonly OrbWidgetData _data;
+private readonly OrbWidgetData _data;
 	private readonly OrbAssetCache _assets;
-	private readonly CancellationToken _cancellationToken;
+
+	/// <summary>
+	/// The session's own cancellation, not the invocation's.
+	/// <para>
+	/// The token handed to <c>CreateSessionAsync</c> is scoped to that one <c>ui.create</c> call, and a widget
+	/// session outlives it by hours. Once the invocation completed the host cancelled it, so every later
+	/// asset fetch threw, the failure was swallowed, the entry was evicted and the orb silently froze on its
+	/// last frame at Debug level, the moment the user next spoke.
+	/// </para>
+	/// </summary>
+	private readonly CancellationTokenSource _lifetime = new();
 	private readonly UiState<AssistantState> _orbState;
 	private readonly UiState<UiResource?> _core;
 	private readonly UiState<double> _sweep;
@@ -35,15 +45,13 @@ internal sealed class OrbUiSession : IUiSession
 	private readonly IDisposable _subscription;
 	private readonly Timer _timer;
 
-	public OrbUiSession(
+public OrbUiSession(
 		OrbWidgetData data,
 		AssistantStateHolder state,
-		OrbAssetCache assets,
-		CancellationToken cancellationToken)
+		OrbAssetCache assets)
 	{
 		_data = data;
 		_assets = assets;
-		_cancellationToken = cancellationToken;
 
 		_orbState = new UiState<AssistantState>(AssistantState.Idle);
 		_core = new UiState<UiResource?>(null);
@@ -90,7 +98,7 @@ var target = snapshot.State;
 		// The measured amplitude is passed through, so a voice actually moves the orb. It is read from the
 		// snapshot rather than fetched from the meter here, because the snapshot already carries the value
 		// the deadband decided was worth publishing.
-		_ = _assets.GetAsync(target, palette, snapshot.Amplitude, _data.Preset, _cancellationToken).ContinueWith(
+		_ = _assets.GetAsync(target, palette, snapshot.Amplitude, _data.Preset, _lifetime.Token).ContinueWith(
 			task =>
 			{
 				if (task.Status != TaskStatus.RanToCompletion || task.Result is not { } resource)
@@ -117,11 +125,17 @@ var target = snapshot.State;
 		Changed?.Invoke(this, EventArgs.Empty);
 	}
 
-	public ValueTask DisposeAsync()
+public ValueTask DisposeAsync()
 	{
-		_timer.Dispose();
+		// Cancelled before anything is torn down, so an asset fetch in flight stops rather than completing
+		// against a registry this session is already detaching from.
+		_lifetime.Cancel();
+
+_timer.Dispose();
 		_subscription.Dispose();
 		_view.Dispose();
+		_lifetime.Dispose();
+
 		return ValueTask.CompletedTask;
 	}
 }

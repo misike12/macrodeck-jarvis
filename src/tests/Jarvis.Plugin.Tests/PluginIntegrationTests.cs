@@ -127,12 +127,21 @@ var outcome = await harness.Actions.GetActionStateAsync(
 		}
 	}
 
+/// <summary>
+	/// No action declares a platform.
+	/// <para>
+	/// All seven used to set <c>MacroDeckPlatform.Windows</c>, which the analyzer flagged as inert: gating is
+	/// the manifest's <c>entrypoints</c> job, and a per-action platform narrowed nothing the host was not
+	/// already refusing to load. The property is left at its default so there is one place that decides which
+	/// platforms this plugin runs on.
+	/// </para>
+	/// </summary>
 	[Test]
-	public void Every_action_declares_the_windows_platform_only()
+	public void No_action_declares_a_platform_and_leaves_gating_to_the_manifest()
 	{
 		foreach (var action in Actions())
 		{
-			Assert.That(action.Platforms, Is.EqualTo(MacroDeckPlatform.Windows));
+			Assert.That(action.Platforms, Is.EqualTo(MacroDeckPlatform.All), action.Id);
 		}
 	}
 

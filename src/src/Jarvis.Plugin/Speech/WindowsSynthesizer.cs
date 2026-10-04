@@ -18,15 +18,24 @@ public sealed class WindowsSynthesizer(ILogger logger)
 {
 	private readonly ILogger _logger = logger.ForContext<WindowsSynthesizer>();
 
-	public string[] InstalledVoices()
+	/// <summary>
+	/// The voices Windows can speak with.
+	/// <para>
+	/// Async because it shells out to PowerShell. This used to block on that call with
+	/// <c>GetAwaiter().GetResult()</c>, which was safe only because nothing called it. Anything that reaches
+	/// it from an executor would hold a concurrency slot for the length of a process launch.
+	/// </para>
+	/// </summary>
+	public async Task<string[]> InstalledVoicesAsync(CancellationToken cancellationToken)
 	{
 		try
 		{
-			var json = RunProbe(
+			var json = await RunProbeAsync(
 				"Add-Type -AssemblyName System.Speech; " +
 				"$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; " +
 				"$s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name };" +
-				"$s.Dispose()");
+				"$s.Dispose()",
+				cancellationToken).ConfigureAwait(false);
 
 			return json.Where(line => line.Length > 0).ToArray();
 		}
@@ -111,14 +120,17 @@ public sealed class WindowsSynthesizer(ILogger logger)
 		}
 	}
 
-	private string[] RunProbe(string script)
+	private async Task<string[]> RunProbeAsync(string script, CancellationToken cancellationToken)
 	{
 		var scriptPath = Path.Combine(Path.GetTempPath(), $"jarvis-voices-{Guid.CreateVersion7():N}.ps1");
 
 		try
 		{
-			File.WriteAllText(scriptPath, script, new UTF8Encoding(false));
-			var output = RunAsync(scriptPath, [], CancellationToken.None).GetAwaiter().GetResult();
+			await File.WriteAllTextAsync(scriptPath, script, new UTF8Encoding(false), cancellationToken)
+				.ConfigureAwait(false);
+
+			var output = await RunAsync(scriptPath, [], cancellationToken).ConfigureAwait(false);
+
 			return output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 		}
 		finally

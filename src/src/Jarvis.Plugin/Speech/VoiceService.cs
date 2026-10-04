@@ -40,7 +40,8 @@ public sealed class VoiceService(
 		}
 	}
 
-	public string[] AvailableVoices() => _synthesizer.InstalledVoices();
+	public Task<string[]> AvailableVoicesAsync(CancellationToken cancellationToken = default) =>
+		_synthesizer.InstalledVoicesAsync(cancellationToken);
 
 	/// <summary>
 	/// Renders and plays, then returns when the clip has finished. Cancellation stops mid-word because

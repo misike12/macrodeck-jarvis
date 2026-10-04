@@ -574,6 +574,13 @@
   <data name="Runtime.IssueStillFailing" xml:space="preserve">
     <value>Still unavailable. JARVIS will keep using the built-in fallback.</value>
   </data>
+  <data name="Runtime.Issue.UnknownIssue" xml:space="preserve">
+    <value>That problem is no longer showing, so there is nothing to retry.</value>
+  </data>
+  <data name="Errors.UnknownFlag" xml:space="preserve">
+    <value>{name} has to be true or false. '{value}' is not either.</value>
+    <comment>[name][value] the parameter name and the value that was refused.</comment>
+  </data>
 
   <data name="Orb.Config.Preset" xml:space="preserve">
     <value>Shape</value>

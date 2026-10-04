@@ -52,7 +52,7 @@ public sealed class OrbUiProvider(
 		}
 
 		return Task.FromResult<IUiSession?>(
-			new OrbUiSession(OrbWidgetData.Parse(data), _state, _assets, cancellationToken));
+			new OrbUiSession(OrbWidgetData.Parse(data), _state, _assets));
 	}
 
 	/// <summary>

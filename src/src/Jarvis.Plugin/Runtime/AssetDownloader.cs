@@ -72,8 +72,6 @@ public sealed record AssetInstallResult
 /// </summary>
 public sealed class AssetDownloader(HttpClient http, ILogger logger)
 {
-	private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(30);
-
 	private readonly HttpClient _http = http;
 	private readonly ILogger _logger = logger.ForContext<AssetDownloader>();
 
@@ -95,7 +93,12 @@ public sealed class AssetDownloader(HttpClient http, ILogger logger)
 
 			if (!fetched)
 			{
-				return AssetInstallResult.Failed(AssetFailure.Unreachable, asset.Url);
+				// The URL goes to the log and not into the result. The result reaches an IntegrationIssue, whose
+				// description is shown to the user, and a full download URL in one is an internal detail with
+				// nothing a reader can do about it.
+				_logger.Warning("{Asset} could not be fetched from {Url}.", asset.Id, asset.Url);
+
+				return AssetInstallResult.Failed(AssetFailure.Unreachable, "the download did not complete.");
 			}
 
 			var actual = await AssetDigest.OfFileAsync(partial, cancellationToken).ConfigureAwait(false);

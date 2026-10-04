@@ -35,8 +35,6 @@ public sealed class ConfirmAction(AssistantSession session, ILogger logger)
 			description: Strings.Actions.Confirm.Approve.Description()),
 	];
 
-	public MacroDeckPlatform Platforms => MacroDeckPlatform.Windows;
-
 	public IActionExecutor CreateExecutor() => new Executor(session, _logger);
 
 	public TimeSpan StatePollInterval => TimeSpan.FromSeconds(1);
@@ -60,7 +58,13 @@ private sealed class Executor(AssistantSession session, ILogger logger) : IActio
 				return Task.FromResult(ActionResult.Success());
 			}
 
-			var approve = ActionParameters.ReadFlag(context.Parameters, ApproveParameter);
+if (!ActionParameters.TryReadFlag(context.Parameters, ApproveParameter, out var approve, out var rejected))
+			{
+				return Task.FromResult(ActionResult.Failed(
+					ActionErrorCodes.InvalidParameter,
+					Strings.Errors.UnknownFlag(ApproveParameter, rejected)));
+			}
+
 			session.ResolveConfirmation(approve);
 
 			// Success, with no argument. The string overload is not a message parameter: it is the state id

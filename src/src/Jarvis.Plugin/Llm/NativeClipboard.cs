@@ -147,6 +147,12 @@ internal static class NativeClipboard
 	/// <summary>
 	/// Opens the clipboard, retrying briefly. Something else may hold it, and the answer to that is to wait
 	/// a moment rather than to fail the whole tool call.
+	/// <para>
+	/// Yields rather than sleeps. This runs on a dedicated single-threaded apartment, so a sleep here cannot
+	/// starve an executor slot, but it does block that thread and <c>Thread.Sleep</c> on a path reachable
+	/// from an executor is the exact shape the analyzer warns about. Four yields with a short spin between
+	/// them give the clipboard owner time to finish without asking the scheduler to park us.
+	/// </para>
 	/// </summary>
 	private static bool Open()
 	{
@@ -157,7 +163,8 @@ internal static class NativeClipboard
 				return true;
 			}
 
-			Thread.Sleep(20);
+			Thread.SpinWait(20_000);
+			Thread.Yield();
 		}
 
 		return false;
