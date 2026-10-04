@@ -131,8 +131,8 @@ public class PipeRoundTripTests
 		var reply = await _client.SendAsync(
 			ServiceProtocol.Request("registry_get", new JsonObject
 			{
-				["hive"] = "HKCU",
-				["path"] = @"Software\JarvisPipeTests\Nothing",
+				["hive"] = "HKLM",
+				["path"] = @"SOFTWARE\Jarvis\ServiceTests\Nothing",
 				["name"] = "Nothing",
 			}),
 			CancellationToken.None);
@@ -193,8 +193,8 @@ public class PipeRoundTripTests
 		var reply = await _client.SendAsync(
 			ServiceProtocol.Request("registry_get", new JsonObject
 			{
-				["hive"] = "HKCU",
-				["path"] = @"Software\JarvisPipeTests",
+				["hive"] = "HKLM",
+				["path"] = @"SOFTWARE\Jarvis\ServiceTests\Pipe",
 				["name"] = "Absent",
 			}),
 			CancellationToken.None);
@@ -204,7 +204,7 @@ public class PipeRoundTripTests
 		Assert.Multiple(() =>
 		{
 			Assert.That(ok, Is.False);
-			Assert.That(content, Does.Contain("JarvisPipeTests"), "the path did not arrive intact");
+			Assert.That(content, Does.Contain(@"Jarvis\ServiceTests\Pipe"), "the path did not arrive intact");
 		});
 	}
 

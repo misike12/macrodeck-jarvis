@@ -114,7 +114,8 @@ public static class RegistryTools
 		public ToolDefinition Definition => new()
 		{
 			Name = Name,
-			Description = "Reads one registry value. Use HKCU for your own settings and HKLM for machine-wide ones.",
+			Description = "Reads one registry value as the signed-in user. This cannot read HKLM, because an "
+				+ "unelevated plugin cannot: use registry_elevated for the one HKLM key the service allows.",
 			Parameters = new JsonObject
 			{
 				["type"] = "object",
@@ -213,8 +214,9 @@ public static class RegistryTools
 		public ToolDefinition Definition => new()
 		{
 			Name = Name,
-			Description = "Creates or changes one registry value. Writing under HKLM needs an elevated "
-				+ "process, which a plugin does not have.",
+			Description = "Creates or changes one registry value as the signed-in user. Writing under HKLM needs an "
+				+ "elevated process, which a plugin does not have: use registry_elevated for the one HKLM key "
+				+ "the service allows.",
 			Parameters = new JsonObject
 			{
 				["type"] = "object",

@@ -190,9 +190,16 @@ public sealed class ElevatedOperations
 			return Protocol.Reply(false, "That key path is not allowed.");
 		}
 
+		var deletingSubtree = arguments["deleteKey"]?.GetValue<bool>() == true;
+
+		if (deletingSubtree && !IsSafeSubtree(path))
+		{
+			return Protocol.Reply(false, "That whole key cannot be deleted. Remove the values under it instead.");
+		}
+
 		try
 		{
-			if (arguments["deleteKey"]?.GetValue<bool>() == true)
+			if (deletingSubtree)
 			{
 				RegistryKey.OpenBaseKey(hive, view).DeleteSubKeyTree(path, throwOnMissingSubKey: false);
 				return Protocol.Reply(true, $"Deleted {path} and anything under it.");
@@ -241,49 +248,9 @@ public sealed class ElevatedOperations
 	/// denylist still catches the ones that would break the machine rather than the user's settings.
 	/// </para>
 	/// </summary>
-	private static bool IsSafePath(string path)
-	{
-		if (path.Length > 512 || path.Contains("..", StringComparison.Ordinal))
-		{
-			return false;
-		}
+	private static bool IsSafePath(string path) => RegistryGuard.IsWritable(path);
 
-		// Control characters in a key name are how a caller tries to smuggle one path past a log or a
-		// console.
-		foreach (var character in path)
-		{
-			if (char.IsControl(character))
-			{
-				return false;
-			}
-		}
-
-		string[] forbidden =
-		[
-			@"\SAM",
-			@"\SAM\SAM",
-			@"\SECURITY",
-			@"\SYSTEM\CurrentControlSet\Services\Schedule",
-			@"\Microsoft\Windows NT\CurrentVersion\Svchost",
-			@"\Microsoft\Windows NT\CurrentVersion\Winlogon",
-			@"\Microsoft\Windows NT\CurrentVersion\Windows",
-			@"\Microsoft\Windows NT\CurrentVersion\Shell",
-			@"\Microsoft\Windows NT\CurrentVersion\Image File Execution Options",
-			@"\Microsoft\Windows Defender",
-			@"\Boot",
-			@"\EFI",
-		];
-
-		foreach (var blocked in forbidden)
-		{
-			if (path.StartsWith(blocked, StringComparison.OrdinalIgnoreCase))
-			{
-				return false;
-			}
-		}
-
-		return true;
-	}
+	private static bool IsSafeSubtree(string path) => RegistryGuard.IsSubtreeDeletable(path);
 
 	private static bool IsSafeName(string name)
 	{
@@ -312,29 +279,25 @@ public sealed class ElevatedOperations
 
 		switch (Text(arguments, "hive").ToUpperInvariant())
 		{
-			case "HKCU":
-			case "HKEY_CURRENT_USER":
-				hive = RegistryHive.CurrentUser;
-				return true;
-
 			case "HKLM":
 			case "HKEY_LOCAL_MACHINE":
 				hive = RegistryHive.LocalMachine;
 				return true;
 
+			case "HKCU":
+			case "HKEY_CURRENT_USER":
 			case "HKU":
 			case "HKEY_USERS":
-				hive = RegistryHive.Users;
-				return true;
-
 			case "HKCC":
 			case "HKEY_CURRENT_CONFIG":
-				hive = RegistryHive.CurrentConfig;
-				return true;
+				hive = default;
+				failure = "This service only writes HKLM. The other hives belong to the signed-in user, and "
+					+ "HKCU here would have meant LocalSystem's own hive rather than the caller's.";
+				return false;
 
 			default:
 				hive = default;
-				failure = "'hive' must be HKCU, HKLM, HKU or HKCC.";
+				failure = "'hive' must be HKLM.";
 				return false;
 		}
 	}

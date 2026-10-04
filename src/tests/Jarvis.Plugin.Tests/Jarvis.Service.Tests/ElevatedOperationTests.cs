@@ -74,14 +74,18 @@ public class ElevatedOperationTests
 	/// <summary>
 	/// Control characters are how a request tries to smuggle one thing past a log line or a console. They are
 	/// refused rather than stripped, because stripping would change the path the caller asked for.
+	/// <para>
+	/// The paths sit under the allowed root on purpose. Anywhere else they would be refused by the allowlist,
+	/// and the test would pass without ever reaching the control character check.
+	/// </para>
 	/// </summary>
-	[TestCase("Software\\Contoso\nInjected")]
-	[TestCase("Software\\Contoso\rInjected")]
-	[TestCase("Software\\Contoso\0Injected")]
-	[TestCase("Software\\Contoso\tInjected")]
+	[TestCase("SOFTWARE\\Jarvis\\Contoso\nInjected")]
+	[TestCase("SOFTWARE\\Jarvis\\Contoso\rInjected")]
+	[TestCase("SOFTWARE\\Jarvis\\Contoso\0Injected")]
+	[TestCase("SOFTWARE\\Jarvis\\Contoso\tInjected")]
 	public void Control_characters_in_a_path_are_refused(string path)
 	{
-		var outcome = ElevatedOperations.RegistryGet(new JsonObject { ["hive"] = "HKCU", ["path"] = path });
+		var outcome = ElevatedOperations.RegistryGet(new JsonObject { ["hive"] = "HKLM", ["path"] = path });
 
 		Assert.That(outcome["ok"]!.GetValue<bool>(), Is.False, $"'{path}' was allowed");
 	}
@@ -91,8 +95,8 @@ public class ElevatedOperationTests
 	{
 		var outcome = ElevatedOperations.RegistrySet(new JsonObject
 		{
-			["hive"] = "HKCU",
-			["path"] = @"Software\JarvisServiceTests",
+			["hive"] = "HKLM",
+			["path"] = @"SOFTWARE\Jarvis\ServiceTests",
 			["name"] = "Bad\nName",
 			["value"] = "x",
 		});
@@ -105,11 +109,35 @@ public class ElevatedOperationTests
 	{
 		var outcome = ElevatedOperations.RegistryGet(new JsonObject
 		{
-			["hive"] = "HKCU",
-			["path"] = @"Software\..\..\..\SAM",
+			["hive"] = "HKLM",
+			["path"] = @"SOFTWARE\Jarvis\..\..\..\SAM",
 		});
 
 		Assert.That(outcome["ok"]!.GetValue<bool>(), Is.False);
+	}
+
+	/// <summary>
+	/// Only HKLM belongs to the service. The plugin runs as the signed-in user, so it can reach that user's own
+	/// hive itself; the service accepting HKCU would have silently written LocalSystem's hive under a name
+	/// that reads as the caller's.
+	/// </summary>
+	[TestCase("HKCU", "HKEY_CURRENT_USER")]
+	[TestCase("HKU", "HKEY_USERS")]
+	[TestCase("HKCC", "HKEY_CURRENT_CONFIG")]
+	public void A_hive_that_is_not_HKLM_is_refused(string hive, string longForm)
+	{
+		var outcome = ElevatedOperations.RegistryGet(new JsonObject
+		{
+			["hive"] = hive,
+			["path"] = @"SOFTWARE\Jarvis\ServiceTests",
+		});
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(outcome["ok"]!.GetValue<bool>(), Is.False, $"'{hive}' was allowed");
+			Assert.That(outcome["content"]!.GetValue<string>(), Does.Contain("only writes HKLM"), hive);
+			Assert.That(longForm, Is.Not.Empty);
+		});
 	}
 
 	[TestCase("HKXX")]
@@ -130,25 +158,98 @@ public class ElevatedOperationTests
 
 	/// <summary>
 	/// Both spellings have to work, because regedit shows the long form and a model is as likely to copy
-	/// that as the abbreviation. Reaching the registry at all is the pass condition.
+	/// that as the abbreviation. Reaching the registry at all is the pass condition, which is why the
+	/// assertion is that the answer names the key rather than that it merely failed.
 	/// </summary>
-	[TestCase("HKCU", "HKEY_CURRENT_USER")]
-	[TestCase("HKLM", "HKEY_LOCAL_MACHINE")]
-	[TestCase("HKLM", "hklm")]
-	public void Both_spellings_of_a_hive_are_accepted(string hive, string longForm)
+	[TestCase("HKLM")]
+	[TestCase("hklm")]
+	[TestCase("HKEY_LOCAL_MACHINE")]
+	[TestCase("hkey_local_machine")]
+	public void Both_spellings_of_the_hive_are_accepted(string hive)
 	{
 		var outcome = ElevatedOperations.RegistryGet(new JsonObject
 		{
 			["hive"] = hive,
-			["path"] = @"Software\JarvisServiceTests\Nothing",
+			["path"] = @"SOFTWARE\Jarvis\ServiceTests\Nothing",
 			["name"] = "Nothing",
 		});
 
-		Assert.Multiple(() =>
-		{
-			Assert.That(outcome["content"]!.GetValue<string>(), Does.Not.Contain("must be HKCU"), hive);
-			Assert.That(longForm, Is.Not.Empty);
-		});
+		Assert.That(outcome["content"]!.GetValue<string>(), Does.Contain(@"Jarvis\ServiceTests\Nothing"), hive);
+	}
+
+	/// <summary>
+	/// The allowlist, which is the whole of what bounds the damage if the plugin process is compromised.
+	/// </summary>
+	/// <remarks>
+	/// A sibling whose name merely starts with an allowed root has to be refused. That single case is why
+	/// matching is on segment boundaries rather than a string comparison.
+	/// </remarks>
+	[TestCase(@"SOFTWARE\Jarvis", true)]
+	[TestCase(@"SOFTWARE\Jarvis\Settings", true)]
+	[TestCase(@"SOFTWARE\Jarvis\Settings\Deep\Value", true)]
+	[TestCase(@"SOFTWARE\JarvisEvil", false)]
+	[TestCase(@"SOFTWARE\Jarvis2\Settings", false)]
+	[TestCase(@"SOFTWARE\Jarv", false)]
+	[TestCase(@"SOFTWARE", false)]
+	[TestCase(@"SYSTEM\CurrentControlSet\Services\Evil\Start", false)]
+	[TestCase(@"SYSTEM\CurrentControlSet\Control\Session Manager\BootExecute", false)]
+	[TestCase(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", false)]
+	[TestCase(@"SOFTWARE\Classes\CLSID\{0}\LocalServer32", false)]
+	public void Only_the_allowed_roots_are_writable(string path, bool expected)
+	{
+		Assert.That(RegistryGuard.IsWritable(path), Is.EqualTo(expected), path);
+	}
+
+	/// <summary>
+	/// Every spelling the registry treats as the same key has to reach the same verdict. A denylist keyed on
+	/// <c>StartsWith</c> was bypassed by all of these while still reading as protected.
+	/// </summary>
+	[TestCase(@"\SOFTWARE\Jarvis\Settings")]
+	[TestCase(@"  \SOFTWARE\Jarvis\Settings")]
+	[TestCase(@".\SOFTWARE\Jarvis\Settings")]
+	[TestCase(@"SOFTWARE\\Jarvis\\Settings")]
+	[TestCase(@"SOFTWARE\.\Jarvis\.\Settings")]
+	[TestCase(@"\.\SOFTWARE\Jarvis\.\Settings")]
+	[TestCase("SOFTWARE\\Jarvis \\Settings")]
+	[TestCase(@"SOFTWARE\Jarvis\Settings\")]
+	public void A_path_that_resolves_to_an_allowed_root_is_still_writable(string path)
+	{
+		Assert.That(RegistryGuard.TryNormalize(path, out var normalized), Is.True, path);
+		Assert.That(RegistryGuard.IsWritable(path), Is.True, path);
+		Assert.That(normalized, Is.EqualTo(@"SOFTWARE\Jarvis\Settings"), path);
+	}
+
+	/// <summary>The same spellings applied to a key that is not allowed stay refused.</summary>
+	[TestCase(@"\SYSTEM\CurrentControlSet\Services\Schedule")]
+	[TestCase(@"  \SYSTEM\CurrentControlSet\Services\Schedule")]
+	[TestCase(@".\SYSTEM\CurrentControlSet\Services\Schedule")]
+	[TestCase(@"SYSTEM\.\CurrentControlSet\Services\Schedule")]
+	[TestCase(@"SYSTEM//CurrentControlSet\\Services\Schedule")]
+	public void A_denied_path_stays_denied_however_it_is_spelled(string path)
+	{
+		Assert.That(RegistryGuard.IsWritable(path), Is.False, path);
+	}
+
+	[TestCase(@"SOFTWARE\Jarvis\..\Windows")]
+	[TestCase(@"..\SOFTWARE\Jarvis")]
+	[TestCase(@"SOFTWARE\Jarvis\..\..\SAM")]
+	public void Traversal_out_of_an_allowed_root_is_refused(string path)
+	{
+		Assert.That(RegistryGuard.TryNormalize(path, out _), Is.False, path);
+		Assert.That(RegistryGuard.IsWritable(path), Is.False, path);
+	}
+
+	/// <summary>
+	/// Deleting a subtree under an allowed root is allowed, because that is a real cleanup. Deleting the root
+	/// itself is not, because it takes every key beneath it rather than the one that was named.
+	/// </summary>
+	[TestCase(@"SOFTWARE\Jarvis", false)]
+	[TestCase(@"\.\SOFTWARE\Jarvis\", false)]
+	[TestCase(@"SOFTWARE\Jarvis\Settings", true)]
+	[TestCase(@"SOFTWARE\Jarvis\Settings\Deep", true)]
+	public void A_subtree_delete_may_not_remove_an_allowed_root(string path, bool expected)
+	{
+		Assert.That(RegistryGuard.IsSubtreeDeletable(path), Is.EqualTo(expected), path);
 	}
 
 	/// <summary>
@@ -160,8 +261,8 @@ public class ElevatedOperationTests
 	{
 		var outcome = ElevatedOperations.RegistryDelete(new JsonObject
 		{
-			["hive"] = "HKCU",
-			["path"] = @"Software\JarvisServiceTests",
+			["hive"] = "HKLM",
+			["path"] = @"SOFTWARE\Jarvis\ServiceTests",
 		});
 
 		Assert.Multiple(() =>
@@ -178,14 +279,15 @@ public class ElevatedOperationTests
 	{
 		var outcome = ElevatedOperations.RegistrySet(new JsonObject
 		{
-			["hive"] = "HKCU",
-			["path"] = @"Software\JarvisServiceTests",
+			["hive"] = "HKLM",
+			["path"] = @"SOFTWARE\Jarvis\ServiceTests",
 			["name"] = "Number",
 			["kind"] = kind,
 			["value"] = value,
 		});
 
 		Assert.That(outcome["ok"]!.GetValue<bool>(), Is.False, $"{kind} accepted '{value}'");
+		Assert.That(outcome["content"]!.GetValue<string>(), Does.Contain("needs a number"), kind);
 	}
 
 	/// <summary>A value too large for its type must be refused, not wrapped round.</summary>
@@ -194,14 +296,21 @@ public class ElevatedOperationTests
 	{
 		var outcome = ElevatedOperations.RegistrySet(new JsonObject
 		{
-			["hive"] = "HKCU",
-			["path"] = @"Software\JarvisServiceTests",
+			["hive"] = "HKLM",
+			["path"] = @"SOFTWARE\Jarvis\ServiceTests",
 			["name"] = "TooBig",
 			["kind"] = "dword",
 			["value"] = 4_294_967_296L,
 		});
 
-		Assert.That(outcome["ok"]!.GetValue<bool>(), Is.False);
+		Assert.Multiple(() =>
+		{
+			Assert.That(outcome["ok"]!.GetValue<bool>(), Is.False);
+
+			// The reason matters, not the outcome: unprivileged, the write would fail too, so ok alone
+			// cannot tell a refused value from a refused caller.
+			Assert.That(outcome["content"]!.GetValue<string>(), Does.Contain("does not fit a dword"));
+		});
 	}
 
 	[Test]
@@ -209,14 +318,18 @@ public class ElevatedOperationTests
 	{
 		var outcome = ElevatedOperations.RegistrySet(new JsonObject
 		{
-			["hive"] = "HKCU",
-			["path"] = @"Software\JarvisServiceTests",
+			["hive"] = "HKLM",
+			["path"] = @"SOFTWARE\Jarvis\ServiceTests",
 			["name"] = "Bad",
 			["kind"] = "colour",
 			["value"] = "red",
 		});
 
-		Assert.That(outcome["ok"]!.GetValue<bool>(), Is.False);
+		Assert.Multiple(() =>
+		{
+			Assert.That(outcome["ok"]!.GetValue<bool>(), Is.False);
+			Assert.That(outcome["content"]!.GetValue<string>(), Does.Contain("is not a registry value type"));
+		});
 	}
 
 	[Test]

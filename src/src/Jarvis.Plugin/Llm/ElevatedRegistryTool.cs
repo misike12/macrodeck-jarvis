@@ -37,7 +37,9 @@ public sealed class ElevatedRegistryTool : ITool
 	{
 		Name = Name,
 		Description = "Reads or changes a registry value under HKLM, which needs administrator rights and is "
-			+ "done by the JARVIS service. Use registry_get and registry_set for your own settings under HKCU.",
+			+ "done by the JARVIS service. Only HKLM\\SOFTWARE\\Jarvis and keys below it can be reached; any "
+			+ "other key is refused by the service. Use registry_get and registry_set for your own settings "
+			+ "under HKCU.",
 		Parameters = new JsonObject
 		{
 			["type"] = "object",
