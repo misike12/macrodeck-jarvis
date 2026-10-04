@@ -66,11 +66,11 @@ private readonly RuntimeManager _runtime;
 		[
 			new ActivateAction(session, listening),
 			new CancelAction(session),
-			new ToggleAction(session),
+			new ToggleAction(session, listening),
 			new SayAction(session),
 			new CheckModelsAction(chat, settings),
 			new ManageComponentsAction(runtime),
-			new ConfirmAction(session),
+			new ConfirmAction(session, logger),
 		];
 
 		Variables =

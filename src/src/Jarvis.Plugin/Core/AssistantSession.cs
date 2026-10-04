@@ -12,7 +12,6 @@ public enum ActivateMode
 {
 	OneShot,
 	Conversation,
-	WaitForWakeWord,
 }
 
 /// <summary>
@@ -93,40 +92,7 @@ VoiceService voice,
 		}
 	}
 
-	public ActionResult Activate(ActivateMode mode, string? prompt, bool waitForWakeWord, int timeoutSeconds)
-	{
-		lock (_turnGate)
-		{
-			if (_turnCts is not null)
-			{
-				return ActionResult.Accepted(Strings.Errors.AlreadyRunning());
-			}
-		}
-
-		var settings = _settings.Current;
-
-		if (!settings.HasLlmCredentials)
-		{
-			return ActionResult.Failed(ActionErrorCodes.NotConfigured, Strings.Errors.NoModelConfigured());
-		}
-
-		var effectiveMode = waitForWakeWord ? ActivateMode.WaitForWakeWord : mode;
-
-		_state.Transition(
-			effectiveMode == ActivateMode.WaitForWakeWord
-				? AssistantState.Listening
-				: AssistantState.Thinking,
-			statusLine: effectiveMode.ToString(),
-			transcript: prompt ?? string.Empty,
-			reply: string.Empty,
-			amplitude: 0);
-
-		BeginTurn();
-
-		return ActionResult.Success();
-	}
-
-	public ActionResult Cancel(bool killRunningCommand)
+public ActionResult Cancel(bool killRunningCommand)
 	{
 		var settings = _settings.Current;
 		var depth = killRunningCommand || settings.CancelDepth == CancelDepth.StopRunningCommand
@@ -145,12 +111,7 @@ VoiceService voice,
 		return ActionResult.Success();
 	}
 
-	public ActionResult Toggle(ActivateMode mode)
-	{
-		return IsRunning ? Cancel(false) : Activate(mode, null, false, _settings.Current.ConversationTimeoutSeconds);
-	}
-
-	public async Task<ActionResult> SayAsync(string prompt, CancellationToken cancellationToken)
+public async Task<ActionResult> SayAsync(string prompt, CancellationToken cancellationToken)
 	{
 		if (string.IsNullOrWhiteSpace(prompt))
 		{
@@ -169,8 +130,10 @@ VoiceService voice,
 			return ActionResult.Failed(ActionErrorCodes.NotConfigured, Strings.Errors.NoModelConfigured());
 		}
 
-		BeginTurn();
+BeginTurn(cancellationToken);
 
+		// The turn token, which is linked to the caller's. Reading it back rather than using the caller's
+		// directly is what lets a cancel press stop the turn as well as the host.
 		var token = CurrentToken ?? cancellationToken;
 		_state.Transition(AssistantState.Thinking, statusLine: "text", transcript: prompt, reply: string.Empty, amplitude: 0);
 
@@ -222,10 +185,12 @@ ChatMessage[] history;
 			_state.Transition(AssistantState.Idle, reply: result.Reply);
 			return ActionResult.Success();
 		}
-		catch (OperationCanceledException)
+catch (OperationCanceledException)
 		{
+			// Not a success. The turn was asked to stop and produced no answer, and a host that released the
+			// slot would record that as a completed press.
 			_state.Reset();
-			return ActionResult.Success();
+			return ActionResult.Failed(ActionErrorCodes.Timeout, Strings.Errors.TurnCancelled());
 		}
 		finally
 		{
@@ -402,13 +367,37 @@ public PendingConfirmation? PendingConfirmation { get; private set; }
 		}
 	}
 
-	public void BeginTurn()
+/// <summary>
+	/// Starts a turn.
+	/// <para>
+	/// <paramref name="request"/> is the token of whatever asked for the turn, and the turn token is linked
+	/// to it. That link is the only reason the host's thirty-second capability bound can stop a turn: an
+	/// unlinked source cannot be cancelled from outside, so a press the host gave up on would keep
+	/// answering, still holding one of thirty-two concurrency slots.
+	/// </para>
+	/// </summary>
+	public void BeginTurn(CancellationToken? request = null)
 	{
+		CancellationTokenSource? previous;
+
 		lock (_turnGate)
 		{
-			_turnCts?.Dispose();
-			_turnCts = new CancellationTokenSource();
+			previous = _turnCts;
+
+			_turnCts = request is { } requested && requested.CanBeCanceled
+				? CancellationTokenSource.CreateLinkedTokenSource(requested)
+				: new CancellationTokenSource();
+
 			_turnMarker = Guid.CreateVersion7();
+		}
+
+		// Cancelled before disposal. Disposing a source that still has waiters on it leaves them holding a
+		// token that can never be signalled again, so a turn replaced by a racing second press would hang
+		// rather than stop.
+		if (previous is not null)
+		{
+			previous.Cancel();
+			previous.Dispose();
 		}
 	}
 

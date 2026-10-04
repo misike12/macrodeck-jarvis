@@ -24,17 +24,21 @@
   <data name="Actions.Activate.Prompt.Description" xml:space="preserve">
     <value>Wenn ausgefüllt, wird nicht zugehört, sondern diese Frage direkt beantwortet.</value>
   </data>
-  <data name="Actions.Activate.WaitForWakeWord.Label" xml:space="preserve">
-    <value>Auf Aktivierungswort warten</value>
+  <data name="Actions.Activate.Mode.Required" xml:space="preserve">
+    <comment>Wird gezeigt, wenn der Modus-Parameter fehlt oder kein Text ist.</comment>
+    <value>Wähle, wie JARVIS diese Runde ausführen soll.</value>
   </data>
-  <data name="Actions.Activate.WaitForWakeWord.Description" xml:space="preserve">
-    <value>Erst hören, wenn das Aktivierungswort erkannt wird.</value>
+  <data name="Actions.Activate.Mode.Unknown" xml:space="preserve">
+    <comment>[string] mode: der Wert, der keine der angebotenen Optionen ist.</comment>
+    <value>'{mode}' ist kein Modus, das diese Schaltfläche anbietet.</value>
   </data>
-  <data name="Actions.Activate.TimeoutSeconds.Label" xml:space="preserve">
-    <value>Zeitlimit (Sekunden)</value>
+  <data name="Actions.Toggle.Mode.Required" xml:space="preserve">
+    <comment>Wird gezeigt, wenn der Modus-Parameter fehlt oder kein Text ist.</comment>
+    <value>Wähle, wie JARVIS diese Runde ausführen soll.</value>
   </data>
-  <data name="Actions.Activate.TimeoutSeconds.Description" xml:space="preserve">
-    <value>Wie lange auf Sprache gewartet wird, bevor aufgegeben wird.</value>
+  <data name="Actions.Toggle.Mode.Unknown" xml:space="preserve">
+    <comment>[string] mode: der Wert, der keine der angebotenen Optionen ist.</comment>
+    <value>'{mode}' ist kein Modus, das diese Schaltfläche anbietet.</value>
   </data>
 
   <data name="Actions.Cancel.Name" xml:space="preserve">
@@ -145,9 +149,6 @@
   </data>
   <data name="Parameter.Mode.Conversation.Label" xml:space="preserve">
     <value>Gespräch</value>
-  </data>
-  <data name="Parameter.Mode.WaitForWakeWord.Label" xml:space="preserve">
-    <value>Auf Aktivierungswort warten</value>
   </data>
 
   <data name="States.Idle" xml:space="preserve">
@@ -427,6 +428,10 @@
   </data>
   <data name="Errors.AlreadyRunning" xml:space="preserve">
     <value>Läuft bereits.</value>
+  </data>
+  <data name="Errors.TurnCancelled" xml:space="preserve">
+    <comment>Wird gezeigt, wenn eine Antwort abgebrochen wurde, bevor JARVIS etwas gesagt hat.</comment>
+    <value>Das wurde abgebrochen, bevor JARVIS geantwortet hat.</value>
   </data>
   <data name="Errors.NothingToCancel" xml:space="preserve">
     <value>Es gibt nichts abzubrechen.</value>

@@ -147,7 +147,7 @@ private static IEnumerable<IActionDefinition> Actions() =>
 	[
 		new ActivateAction(null!, null!),
 		new CancelAction(null!),
-		new ToggleAction(null!),
+		new ToggleAction(null!, null!),
 	];
 
 	private static string[] CatalogKeys() =>

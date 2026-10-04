@@ -280,7 +280,7 @@ public class SafetyGateTests
 		var pending = registry.InvokeAsync(Call(tool.Name), CancellationToken.None);
 		await WaitForConfirmationAsync(session);
 
-		var action = new ConfirmAction(session).CreateExecutor();
+		var action = new ConfirmAction(session, RuntimeTestLog.Logger).CreateExecutor();
 		var result = await action.ExecuteAsync(new ActionExecutionContext
 		{
 			Parameters = new Dictionary<string, object> { ["approve"] = true },
@@ -303,7 +303,7 @@ public class SafetyGateTests
 	{
 		var (session, _) = Build(new JarvisSettings(), out _);
 
-		var action = new ConfirmAction(session).CreateExecutor();
+		var action = new ConfirmAction(session, RuntimeTestLog.Logger).CreateExecutor();
 		var result = await action.ExecuteAsync(new ActionExecutionContext
 		{
 			Parameters = new Dictionary<string, object> { ["approve"] = true },

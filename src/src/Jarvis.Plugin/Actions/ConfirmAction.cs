@@ -2,6 +2,7 @@ using Jarvis.Plugin.Core;
 using MacroDeck.Localization;
 using MacroDeck.Sdk;
 using MacroDeck.Sdk.Actions;
+using Serilog;
 
 namespace Jarvis.Plugin.Actions;
 
@@ -13,9 +14,12 @@ namespace Jarvis.Plugin.Actions;
 /// waiting state, and this button is how the user says yes or no.
 /// </para>
 /// </summary>
-public sealed class ConfirmAction(AssistantSession session) : IActionDefinition, IStateProviderActionDefinition
+public sealed class ConfirmAction(AssistantSession session, ILogger logger)
+	: IActionDefinition, IStateProviderActionDefinition
 {
 	private const string ApproveParameter = "approve";
+
+	private readonly ILogger _logger = logger.ForContext<ConfirmAction>();
 
 	public string Id => "jarvis-confirm";
 
@@ -33,7 +37,7 @@ public sealed class ConfirmAction(AssistantSession session) : IActionDefinition,
 
 	public MacroDeckPlatform Platforms => MacroDeckPlatform.Windows;
 
-	public IActionExecutor CreateExecutor() => new Executor(session);
+	public IActionExecutor CreateExecutor() => new Executor(session, _logger);
 
 	public TimeSpan StatePollInterval => TimeSpan.FromSeconds(1);
 
@@ -44,8 +48,10 @@ public sealed class ConfirmAction(AssistantSession session) : IActionDefinition,
 		return Task.FromResult<ActionStateSnapshot?>(AssistantStateReader.Read(session));
 	}
 
-	private sealed class Executor(AssistantSession session) : IActionExecutor
+private sealed class Executor(AssistantSession session, ILogger logger) : IActionExecutor
 	{
+		private readonly ILogger _logger = logger.ForContext<ConfirmAction.Executor>();
+
 		public Task<ActionResult> ExecuteAsync(ActionExecutionContext context)
 		{
 			// Nothing waiting is a legitimate no-op: the button can sit on a deck and be pressed at any time.
@@ -57,13 +63,16 @@ public sealed class ConfirmAction(AssistantSession session) : IActionDefinition,
 			var approve = ActionParameters.ReadFlag(context.Parameters, ApproveParameter);
 			session.ResolveConfirmation(approve);
 
-			// ActionResult.Success takes a plain string, so the localized sentence is rendered through the
-			// reader's language here rather than passed as a reference.
-			var message = approve
-				? Strings.Actions.Confirm.Approved(pending.ToolName).ToString()
-				: Strings.Actions.Confirm.Refused(pending.ToolName).ToString();
+			// Success, with no argument. The string overload is not a message parameter: it is the state id
+			// the result expects to be in next, so passing the sentence told the host to expect a state
+			// called "Approved run_shell.", which does not exist. The outcome is already visible through the
+			// button state, so the sentence is logged rather than forced into a slot meant for an id.
+			_logger.Information(
+				"{Decision} {Tool}.",
+				approve ? "Approved" : "Refused",
+				pending.ToolName);
 
-			return Task.FromResult(ActionResult.Success(message));
+			return Task.FromResult(ActionResult.Success());
 		}
 	}
 }

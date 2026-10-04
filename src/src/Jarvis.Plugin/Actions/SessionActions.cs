@@ -10,8 +10,6 @@ public static class ActionParameters
 {
 	public const string Mode = "mode";
 	public const string Prompt = "prompt";
-	public const string WaitForWakeWord = "wait-for-wake-word";
-	public const string TimeoutSeconds = "timeout-seconds";
 	public const string KillRunningCommand = "kill-running-command";
 	public const string Text = "text";
 
@@ -19,22 +17,43 @@ public static class ActionParameters
 	[
 		new() { Value = "one-shot", Label = Strings.Parameter.Mode.OneShot.Label() },
 		new() { Value = "conversation", Label = Strings.Parameter.Mode.Conversation.Label() },
-		new() { Value = "wait-for-wake-word", Label = Strings.Parameter.Mode.WaitForWakeWord.Label() },
 	];
 
-	public static ActivateMode ReadMode(IReadOnlyDictionary<string, object> parameters)
+	/// <summary>
+	/// Reads the mode, or refuses it.
+	/// <para>
+	/// The parameter is declared as a choice, but the host sends whatever is stored and nothing coerces
+	/// the wire type, so an unrecognised value has to be a failure rather than a silent default. Defaulting
+	/// an unknown mode to one-shot would run the wrong kind of turn while reporting that it was asked for.
+	/// </para>
+	/// </summary>
+	public static bool TryReadMode(
+		IReadOnlyDictionary<string, object> parameters,
+		out ActivateMode mode,
+		out string? rejected)
 	{
+		mode = ActivateMode.OneShot;
+		rejected = null;
+
 		if (parameters.GetValueOrDefault(Mode) is not string text)
 		{
-			return ActivateMode.OneShot;
+			return false;
 		}
 
-		return text switch
+		switch (text)
 		{
-			"conversation" => ActivateMode.Conversation,
-			"wait-for-wake-word" => ActivateMode.WaitForWakeWord,
-			_ => ActivateMode.OneShot,
-		};
+			case "one-shot":
+				mode = ActivateMode.OneShot;
+				return true;
+
+			case "conversation":
+				mode = ActivateMode.Conversation;
+				return true;
+
+			default:
+				rejected = text;
+				return false;
+		}
 	}
 
 	public static bool ReadFlag(IReadOnlyDictionary<string, object> parameters, string name)
@@ -44,19 +63,6 @@ public static class ActionParameters
 			bool flag => flag,
 			string text => bool.TryParse(text, out var parsed) && parsed,
 			_ => false,
-		};
-	}
-
-	public static int ReadSeconds(IReadOnlyDictionary<string, object> parameters, string name, int fallback)
-	{
-		var raw = parameters.GetValueOrDefault(name);
-		return raw switch
-		{
-			double number => (int)Math.Clamp(number, 1, 600),
-			int integer => Math.Clamp(integer, 1, 600),
-			string text when int.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
-				=> Math.Clamp(parsed, 1, 600),
-			_ => fallback,
 		};
 	}
 
@@ -89,22 +95,11 @@ public sealed class ActivateAction(AssistantSession session, ListeningPipeline l
 			ActionParameters.Prompt,
 			label: Strings.Actions.Activate.Prompt.Label(),
 			description: Strings.Actions.Activate.Prompt.Description()),
-		ActionParameter.Toggle(
-			ActionParameters.WaitForWakeWord,
-			label: Strings.Actions.Activate.WaitForWakeWord.Label(),
-			description: Strings.Actions.Activate.WaitForWakeWord.Description()),
-		ActionParameter.Number(
-			ActionParameters.TimeoutSeconds,
-			label: Strings.Actions.Activate.TimeoutSeconds.Label(),
-			description: Strings.Actions.Activate.TimeoutSeconds.Description(),
-			min: 1,
-			max: 600,
-			defaultValue: 20),
 	];
 
 	public MacroDeckPlatform Platforms => MacroDeckPlatform.Windows;
 
-	public IActionExecutor CreateExecutor() => new Executor(session, listening);
+	public IActionExecutor CreateExecutor() => new Executor(listening);
 
 	public Task<ActionStateSnapshot?> GetActionStateAsync(
 		IReadOnlyDictionary<string, object?> parameters,
@@ -113,23 +108,23 @@ public sealed class ActivateAction(AssistantSession session, ListeningPipeline l
 		return Task.FromResult<ActionStateSnapshot?>(AssistantStateReader.Read(session));
 	}
 
-	private sealed class Executor(AssistantSession session, ListeningPipeline listening) : IActionExecutor
+	private sealed class Executor(ListeningPipeline listening) : IActionExecutor
 	{
 		public Task<ActionResult> ExecuteAsync(ActionExecutionContext context)
 		{
-			var mode = ActionParameters.ReadMode(context.Parameters);
-			var prompt = ActionParameters.ReadText(context.Parameters, ActionParameters.Prompt);
-			var waitForWakeWord = ActionParameters.ReadFlag(context.Parameters, ActionParameters.WaitForWakeWord);
-			var timeout = ActionParameters.ReadSeconds(context.Parameters, ActionParameters.TimeoutSeconds, 20);
-
-			if (waitForWakeWord || mode == ActivateMode.WaitForWakeWord)
+			if (!ActionParameters.TryReadMode(context.Parameters, out _, out var rejected))
 			{
-				return Task.FromResult(session.Activate(mode, prompt, waitForWakeWord, timeout));
+				return Task.FromResult(ActionResult.Failed(
+					ActionErrorCodes.InvalidParameter,
+					rejected is null
+						? Strings.Actions.Activate.Mode.Required()
+						: Strings.Actions.Activate.Mode.Unknown(rejected)));
 			}
 
-			// A press is a request to *speak*, not merely to think, so it routes through the voice loop. A
-			// prompt supplied to the button skips the microphone, which is what keeps a text-mode press
-			// working on a machine with no microphone at all.
+			var prompt = ActionParameters.ReadText(context.Parameters, ActionParameters.Prompt);
+
+			// Every press goes through the voice loop. It used to be split: a wait-for-wake-word press took a
+			// path that opened no microphone, started no turn and reported success anyway.
 			return listening.ListenAndAnswerAsync(prompt, context.CancellationToken);
 		}
 	}
@@ -172,7 +167,8 @@ public sealed class CancelAction(AssistantSession session) : IActionDefinition, 
 	}
 }
 
-public sealed class ToggleAction(AssistantSession session) : IActionDefinition, IStateProviderActionDefinition
+public sealed class ToggleAction(AssistantSession session, ListeningPipeline listening)
+	: IActionDefinition, IStateProviderActionDefinition
 {
 	public string Id => "jarvis-toggle";
 
@@ -193,7 +189,7 @@ public sealed class ToggleAction(AssistantSession session) : IActionDefinition, 
 
 	public MacroDeckPlatform Platforms => MacroDeckPlatform.Windows;
 
-	public IActionExecutor CreateExecutor() => new Executor(session);
+	public IActionExecutor CreateExecutor() => new Executor(session, listening);
 
 	public Task<ActionStateSnapshot?> GetActionStateAsync(
 		IReadOnlyDictionary<string, object?> parameters,
@@ -202,12 +198,27 @@ public sealed class ToggleAction(AssistantSession session) : IActionDefinition, 
 		return Task.FromResult<ActionStateSnapshot?>(AssistantStateReader.Read(session));
 	}
 
-	private sealed class Executor(AssistantSession session) : IActionExecutor
+	private sealed class Executor(AssistantSession session, ListeningPipeline listening) : IActionExecutor
 	{
 		public Task<ActionResult> ExecuteAsync(ActionExecutionContext context)
 		{
-			var mode = ActionParameters.ReadMode(context.Parameters);
-			return Task.FromResult(session.Toggle(mode));
+			if (!ActionParameters.TryReadMode(context.Parameters, out _, out var rejected))
+			{
+				return Task.FromResult(ActionResult.Failed(
+					ActionErrorCodes.InvalidParameter,
+					rejected is null
+						? Strings.Actions.Toggle.Mode.Required()
+						: Strings.Actions.Toggle.Mode.Unknown(rejected)));
+			}
+
+			// A toggle that was not running has to start a real turn, so it goes through the same voice loop
+			// as the activate button rather than a path that only marked the session as running.
+			if (!session.IsRunning)
+			{
+				return listening.ListenAndAnswerAsync(null, context.CancellationToken);
+			}
+
+			return Task.FromResult(session.Cancel(false));
 		}
 	}
 }

@@ -31,17 +31,21 @@
   <data name="Actions.Activate.Prompt.Description" xml:space="preserve">
     <value>Optional. Runs this text as the turn instead of listening.</value>
   </data>
-  <data name="Actions.Activate.WaitForWakeWord.Label" xml:space="preserve">
-    <value>Wait for wake word</value>
+  <data name="Actions.Activate.Mode.Required" xml:space="preserve">
+    <comment>Shown when the mode parameter is absent or is not text.</comment>
+    <value>Choose how JARVIS should run this turn.</value>
   </data>
-  <data name="Actions.Activate.WaitForWakeWord.Description" xml:space="preserve">
-    <value>Open the microphone but wait until the wake word is spoken.</value>
+  <data name="Actions.Activate.Mode.Unknown" xml:space="preserve">
+    <comment>[string] mode: the value that was not one of the offered choices.</comment>
+    <value>'{mode}' is not a mode this button offers.</value>
   </data>
-  <data name="Actions.Activate.TimeoutSeconds.Label" xml:space="preserve">
-    <value>Conversation timeout (seconds)</value>
+  <data name="Actions.Toggle.Mode.Required" xml:space="preserve">
+    <comment>Shown when the mode parameter is absent or is not text.</comment>
+    <value>Choose how JARVIS should run this turn.</value>
   </data>
-  <data name="Actions.Activate.TimeoutSeconds.Description" xml:space="preserve">
-    <value>How long a conversation stays open while nothing is said.</value>
+  <data name="Actions.Toggle.Mode.Unknown" xml:space="preserve">
+    <comment>[string] mode: the value that was not one of the offered choices.</comment>
+    <value>'{mode}' is not a mode this button offers.</value>
   </data>
 
   <data name="Actions.Cancel.Name" xml:space="preserve">
@@ -157,9 +161,6 @@
   </data>
   <data name="Parameter.Mode.Conversation.Label" xml:space="preserve">
     <value>Conversation</value>
-  </data>
-  <data name="Parameter.Mode.WaitForWakeWord.Label" xml:space="preserve">
-    <value>Wait for wake word</value>
   </data>
 
   <data name="States.Idle" xml:space="preserve">
@@ -431,6 +432,10 @@
   </data>
   <data name="Errors.AlreadyRunning" xml:space="preserve">
     <value>JARVIS is already running.</value>
+  </data>
+  <data name="Errors.TurnCancelled" xml:space="preserve">
+    <comment>Shown when a turn was stopped before it produced an answer, by a cancel press or by the host giving up on it.</comment>
+    <value>That was cancelled before JARVIS answered.</value>
   </data>
   <data name="Errors.NothingToCancel" xml:space="preserve">
     <value>JARVIS is not running.</value>
