@@ -3,10 +3,16 @@
   <assemblyIdentity version="1.0.0.0" name="Jarvis.Service" />
 
   <!--
-    The highest level this binary actually needs. The service performs registry work under HKLM and
-    creates scheduled tasks, both of which are administrator operations, and asking for less would make
-    those fail at runtime rather than at install time. The level is deliberately not highestAvailable: a
-    tray icon started from a normal desktop should look like a normal desktop application.
+    asInvoker is correct here, and it is not a leftover.
+
+    This manifest describes what Windows should do when a person starts the binary. Started by the service
+    control manager, Windows supplies the LocalSystem token and this file is not consulted at all: the SCM
+    does not honour requestedExecutionLevel, so nothing here can elevate or de-elevate the service. Started
+    from a desktop, asInvoker is also correct, because tray mode is meant to run as the signed-in user.
+
+    Changing this to requireAdministrator would therefore not give the service any rights it does not
+    already have, and would turn every tray launch into a UAC prompt for no benefit. The registry work the
+    service does is authorised by which account the SCM runs it as, not by this element.
   -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>

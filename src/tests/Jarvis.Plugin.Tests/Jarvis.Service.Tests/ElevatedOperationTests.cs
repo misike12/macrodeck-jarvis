@@ -363,21 +363,60 @@ public class ElevatedOperationTests
 	}
 
 	/// <summary>
-	/// An operation this build does not have must be named, so a newer plugin learns the service is older
-	/// instead of retrying an operation that will never succeed.
+	/// An operation this build does not have is refused as unreadable rather than half-recognised.
+	/// <para>
+	/// The service used to list six names it had no code path for, so they parsed as valid requests and were
+	/// then refused by the dispatcher. That is a different answer from the one an operation nobody has ever
+	/// implemented deserves, and it is the answer that matters: a plugin should learn the service is not the
+	/// build it expected.
+	/// </para>
 	/// </summary>
-	[Test]
-	public void An_operation_this_build_lacks_is_named_in_the_answer()
+	[TestCase("scheduled_task_create")]
+	[TestCase("scheduled_task_list")]
+	[TestCase("settings_get")]
+	public void An_operation_that_does_not_exist_is_refused_as_unreadable(string operation)
 	{
 		using var pipe = new PipeServer(NullLogger.Instance, UniquePipeName());
 
-		var reply = pipe.Handle(Protocol.Request("scheduled_task_create").ToJsonString());
+		var reply = pipe.Handle(Protocol.Request(operation).ToJsonString());
 
 		Assert.Multiple(() =>
 		{
 			Assert.That(reply["ok"]!.GetValue<bool>(), Is.False);
-			Assert.That(reply["content"]!.GetValue<string>(), Does.Contain("scheduled_task_create"));
+			Assert.That(reply["content"]!.GetValue<string>(), Does.Contain("not understood"));
 		});
+	}
+
+	/// <summary>
+	/// Every name the service declares must be one the dispatcher actually handles.
+	/// <para>
+	/// This is the check that stops the declared list drifting back into describing an interface that does
+	/// not exist. It reads the two lists the plugin and the service each keep, because the plugin cannot
+	/// reference the service assembly, and the two have to agree exactly or a caller builds a request the
+	/// other side will not accept.
+	/// </para>
+	/// </summary>
+	[Test]
+	public void The_two_sides_declare_exactly_the_same_operations()
+	{
+		Assert.That(
+			Jarvis.Plugin.Core.ServiceProtocol.Operations.Order(StringComparer.Ordinal),
+			Is.EqualTo(Protocol.Operations.Order(StringComparer.Ordinal)));
+	}
+
+	[Test]
+	public void Every_declared_operation_is_implemented()
+	{
+		using var pipe = new PipeServer(NullLogger.Instance, UniquePipeName());
+
+		var unimplemented = Protocol.Operations
+			.Where(operation => pipe
+				.Handle(Protocol.Request(operation).ToJsonString())["content"]!
+				.GetValue<string>()
+				.Contains("is not something this service does", StringComparison.Ordinal))
+			.ToArray();
+
+		Assert.That(unimplemented, Is.Empty, "declared but not implemented");
 	}
 
 	[Test]

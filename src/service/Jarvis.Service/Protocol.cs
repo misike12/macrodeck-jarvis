@@ -38,12 +38,26 @@ public static class Protocol
 	/// <summary>
 	/// A pipe name carrying a caller-chosen suffix.
 	/// <para>
-	/// Used only by tests, which need a listener on a name of its own: the service allows unlimited instances on
-	/// one name, so a listener left behind by an earlier test would silently accept the next test's connection.
+	/// Used only by tests, which need a listener on a name of its own: the service allows one instance per
+	/// name, so a listener left behind by an earlier test would make the next test's connection fail with an
+	/// access-denied that reads like a permissions fault.
 	/// </para>
 	/// </summary>
 	public static string PipeNameForSuffix(string suffix) => $"{PipeName}-{suffix}";
 
+	/// <summary>
+	/// Every operation this build implements, and nothing else.
+	/// <para>
+	/// It used to list six more that no code path handled, including four <c>scheduled_task_*</c> names and a
+	/// settings pair. Those were accepted as valid requests and then refused by the dispatcher, so a caller
+	/// got "this service does not do that" for something the service had never claimed to do. An operation
+	/// that is not in this list is refused earlier, as unreadable, which is what it is.
+	/// </para>
+	/// <para>
+	/// The plugin keeps its own copy, because it cannot reference this assembly. A test asserts the two are
+	/// identical so they cannot drift.
+	/// </para>
+	/// </summary>
 	public static readonly string[] Operations =
 	[
 		"ping",
@@ -51,12 +65,6 @@ public static class Protocol
 		"registry_get",
 		"registry_set",
 		"registry_delete",
-		"scheduled_task_create",
-		"scheduled_task_list",
-		"scheduled_task_delete",
-		"scheduled_task_run",
-		"settings_get",
-		"settings_set",
 		"shutdown",
 	];
 
