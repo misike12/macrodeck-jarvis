@@ -30,7 +30,7 @@ Everything runs as the signed-in user except the optional service. See
 | Check | Command | Result |
 | --- | --- | --- |
 | Build | `dotnet build -c Release` | 0 warnings, 0 errors |
-| Tests | `dotnet test` | **542 passed**, 0 failed |
+| Tests | `dotnet test` | **554 passed**, 0 failed |
 | Manifest validation | `macrodeck-plugin validate --artifact ... --level Publication` | 0 errors, 0 warnings |
 | Conformance, project | `src/conformance.md` | conformant |
 | Conformance, artifact | `src/artifact-conformance.md` | conformant, and it carries MDC0104 through MDC0107 |
@@ -136,6 +136,24 @@ file is claimed as fixed unless it is.
 - The manifest declared no `ai` block, and the release was uploaded by hand with a personal access token.
   Both are fixed: cutting a tag now produces a registered build through OIDC.
 - The README was the unmodified template for a different project. It has been rewritten.
+
+## Found after the audit
+
+Both of these were found by running the built plugin on this machine, not by reading it. They are recorded
+because `planfix.md` does not contain them, and a reader of that file would otherwise take it as complete.
+
+- **The orb was blank for a user who had not finished configuring the plugin.** `OrbAssetCache` listed the
+  seven states that mean the assistant is working and left out `Unavailable`, which is the state the plugin
+  is in from load until an API key is saved. It answered "nothing to draw", so the core image was never
+  assigned and the widget rendered empty, with no error anywhere to explain it. `OrbFrameRenderer` already
+  handled the state, so only the guard was wrong. The regression test enumerates `AssistantState` rather
+  than listing states again, so this cannot recur the same way.
+- **The orb's glow modifier was never drawn.** Its `Fill` was set on the wrapper element rather than on the
+  shape, so the glow layer resolved to a node with no fill and drew nothing. The core was rendering; the
+  halo around it was simply absent in every state.
+
+Neither was reachable by a test that ran the code the way a user does, which is the same weakness in both
+cases: the audit exercised units and never the assembled view.
 
 ## Known limitations
 
