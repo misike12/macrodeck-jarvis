@@ -403,6 +403,7 @@ public sealed class JarvisSettingsStore
 		}
 
 		_logger.Debug("Settings reloaded. LLM {Provider}, model {Model}.", next.Llm, next.LlmModel);
+		_logger.Debug("Microphone configured as id {Id} name {Name}.", next.MicrophoneId, next.MicrophoneName);
 	}
 
 	/// <summary>

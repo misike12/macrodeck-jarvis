@@ -202,7 +202,7 @@ public async Task<IReadOnlyList<IntegrationIssue>> GetIssuesAsync(CancellationTo
 		}
 	}
 
-	public IConfigFlow CreateConfigFlow() => new JarvisConfigFlow();
+	public IConfigFlow CreateConfigFlow() => new JarvisConfigFlow(_logger);
 
 	public bool AllowsMultipleConfigurations => false;
 

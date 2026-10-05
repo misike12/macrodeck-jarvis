@@ -2,6 +2,7 @@ using Jarvis.Plugin.Core;
 using MacroDeck.Localization;
 using MacroDeck.Sdk.Actions;
 using MacroDeck.Sdk.ConfigFlow;
+using Serilog;
 
 namespace Jarvis.Plugin;
 
@@ -12,7 +13,7 @@ namespace Jarvis.Plugin;
 /// its encrypted secret store rather than beside an ordinary setting.
 /// </para>
 /// </summary>
-internal sealed class JarvisConfigFlow : IConfigFlow
+internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 {
 	private const string ProviderStepId = "provider";
 	private const string KeysStepId = "keys";
@@ -36,7 +37,7 @@ internal sealed class JarvisConfigFlow : IConfigFlow
 			ProviderStepId => ProviderSubmitted(input),
 			KeysStepId => KeysSubmitted(input),
 			ModelsStepId => ConfigFlowResult.Step(VoiceStep()),
-			VoiceStepId => ConfigFlowResult.Step(BehaviourStep()),
+			VoiceStepId => VoiceSubmitted(input),
 			BehaviourStepId => Complete(),
 			_ => ConfigFlowResult.Error(ProviderStep(), Strings.ConfigFlow.UnknownStep()),
 		};
@@ -66,6 +67,18 @@ internal sealed class JarvisConfigFlow : IConfigFlow
 	private static ConfigFlowResult KeysSubmitted(IReadOnlyDictionary<string, object?> input)
 	{
 		return ConfigFlowResult.Step(ModelsStep());
+	}
+
+	private ConfigFlowResult VoiceSubmitted(IReadOnlyDictionary<string, object?> input)
+	{
+		// Reported rather than validated: the host owns persistence, so this is the only place that can
+		// show what the host actually sent for a choice. An endpoint id that arrives mangled or empty
+		// here explains a dropdown that never sticks.
+		logger.Information(
+			"Voice step submitted with microphone id {Microphone}.",
+			Read(input, JarvisSettingsStoreFields.MicrophoneIdField));
+
+		return ConfigFlowResult.Step(BehaviourStep());
 	}
 
 	/// <summary>
