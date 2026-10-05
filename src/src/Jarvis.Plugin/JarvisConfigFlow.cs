@@ -141,12 +141,12 @@ internal sealed class JarvisConfigFlow : IConfigFlow
 
 			JarvisFieldKind.Multiline => ActionParameter.MultilineText(field.Name, field.Label()),
 
-			JarvisFieldKind.Choice => ActionParameter.Choice(
-				field.Name,
-				field.Options ?? [],
-				field.Label(),
-				defaultValue: field.Default,
-				required: field.Required),
+		JarvisFieldKind.Choice => ActionParameter.Choice(
+			field.Name,
+			field.OptionsSource?.Invoke() ?? field.Options ?? [],
+			field.Label(),
+			defaultValue: field.Default,
+			required: field.Required),
 
 			// No bounds here: the parameter type carries no minimum or maximum, and the store already
 			// clamps a number into range when it reads it back. Declaring a bound that nothing enforced

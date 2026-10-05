@@ -316,7 +316,14 @@
     <value>Keep the microphone open</value>
   </data>
   <data name="ConfigFlow.Voice.MicrophoneId.Label" xml:space="preserve">
-    <value>Microphone identifier</value>
+    <value>Microphone</value>
+  </data>
+  <data name="ConfigFlow.Voice.MicrophoneDefault" xml:space="preserve">
+    <value>System default</value>
+  </data>
+  <data name="ConfigFlow.Voice.MicrophoneIsDefault" xml:space="preserve">
+    <value>{name} (default)</value>
+    <comment>[string] name: the device friendly name reported by Windows.</comment>
   </data>
   <data name="ConfigFlow.Voice.MicrophoneName.Label" xml:space="preserve">
     <value>Microphone name</value>

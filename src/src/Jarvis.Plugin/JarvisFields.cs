@@ -1,3 +1,4 @@
+using Jarvis.Plugin.Audio;
 using Jarvis.Plugin.Core;
 using MacroDeck.Localization;
 using MacroDeck.Sdk.Actions;
@@ -37,7 +38,8 @@ internal sealed record JarvisField(
 	string? OnlyWhenValue = null,
 	Func<LocalizedText>? Description = null,
 	double? Minimum = null,
-	double? Maximum = null);
+	double? Maximum = null,
+	Func<IReadOnlyList<ActionParameterOption>>? OptionsSource = null);
 
 /// <summary>
 /// Every setting JARVIS has, declared once.
@@ -153,8 +155,15 @@ internal static class JarvisFields
 			Minimum: 0.0, Maximum: 1.0, Advanced: true),
 		new(JarvisSettingsStoreFields.MicrophoneAlwaysOnField, JarvisFieldKind.Flag, VoiceStep,
 			() => Strings.ConfigFlow.Voice.MicrophoneAlwaysOn.Label(), Default: "true"),
-		new(JarvisSettingsStoreFields.MicrophoneIdField, JarvisFieldKind.Text, VoiceStep,
-			() => Strings.ConfigFlow.Voice.MicrophoneId.Label(), Advanced: true),
+		// Chosen from a list, not typed: endpoint ids look like "{0.0.1.00000000}.{…}" and nobody should
+		// have to paste one. The options are enumerated when the step is built, so a microphone plugged
+		// in after the flow was opened shows up as soon as the step renders again. An empty value means
+		// the system default, which is also what an untouched field reads back as.
+		new(JarvisSettingsStoreFields.MicrophoneIdField, JarvisFieldKind.Choice, VoiceStep,
+			() => Strings.ConfigFlow.Voice.MicrophoneId.Label(), Default: string.Empty,
+			OptionsSource: LiveMicrophoneOptions),
+		// Stays as the escape hatch: ids can change when a USB device moves ports, and a name substring
+		// still matches then. The store tries the chosen id first and this second.
 		new(JarvisSettingsStoreFields.MicrophoneNameField, JarvisFieldKind.Text, VoiceStep,
 			() => Strings.ConfigFlow.Voice.MicrophoneName.Label(), Advanced: true),
 		new(JarvisSettingsStoreFields.HotkeyField, JarvisFieldKind.Text, VoiceStep,
@@ -249,4 +258,33 @@ internal static class JarvisFields
 
 		return (inStep.Where(field => !field.Advanced).ToArray(), inStep.Where(field => field.Advanced).ToArray());
 	}
+
+	/// <summary>
+	/// The microphone dropdown options for the devices on this machine right now.
+	/// <para>
+	/// Takes the devices instead of enumerating them so tests can pass fakes: the enumeration itself is
+	/// NAudio against real hardware and has nothing worth asserting.
+	/// </para>
+	/// </summary>
+	internal static IReadOnlyList<ActionParameterOption> MicrophoneOptions(IReadOnlyList<AudioDevice> devices)
+	{
+		var options = new List<ActionParameterOption>(devices.Count + 1)
+		{
+			new() { Value = string.Empty, Label = Strings.ConfigFlow.Voice.MicrophoneDefault() },
+		};
+
+		foreach (var device in devices)
+		{
+			options.Add(new()
+			{
+				Value = device.Id,
+				Label = device.IsDefault ? Strings.ConfigFlow.Voice.MicrophoneIsDefault(device.Name) : device.Name,
+			});
+		}
+
+		return options;
+	}
+
+	private static IReadOnlyList<ActionParameterOption> LiveMicrophoneOptions() =>
+		MicrophoneOptions(AudioDeviceCatalog.CaptureDevices());
 }
