@@ -121,6 +121,64 @@ private static (OrbAssetCache Cache, RecordingResourceRegistry Registry, Sink Lo
 			"the glow setting changed the name of the asset but not one pixel of it");
 	}
 
+/// <summary>
+	/// A refused upload is retried through the gate, and then left alone for a while.
+	/// <para>
+	/// The host answers overlapping uploads with QUEUE_OVERFLOW, and a failure used to evict the cache entry
+	/// immediately, so the next state change rebuilt and re-uploaded at once and a full queue stayed full for
+	/// as long as the assistant kept changing state. Four hundred warnings in fourteen minutes, and a widget
+	/// that never drew.
+	/// </para>
+	/// </summary>
+	[Test]
+	public async Task A_refused_upload_does_not_retry_on_the_next_call()
+	{
+		var sink = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(new ListSink()).CreateLogger();
+		var registry = new RefusingRegistry();
+		var cache = new OrbAssetCache(registry, sink);
+
+		var first = await cache.GetAsync(
+			AssistantState.Idle, OrbPalette.Default, 0, OrbPreset.ArcReactor, CancellationToken.None);
+
+		var second = await cache.GetAsync(
+			AssistantState.Idle, OrbPalette.Default, 0, OrbPreset.ArcReactor, CancellationToken.None);
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(first, Is.Null);
+			Assert.That(second, Is.Null);
+			Assert.That(
+				registry.Attempts,
+				Is.EqualTo(3),
+				$"the refused upload was attempted {registry.Attempts} times; 3 is the bound, and a second call must add none");
+		});
+	}
+
+	private sealed class ListSink : Serilog.Core.ILogEventSink
+	{
+		public void Emit(Serilog.Events.LogEvent logEvent)
+		{
+		}
+	}
+
+	private sealed class RefusingRegistry : IUiResourceRegistry
+	{
+		public int Attempts { get; private set; }
+
+		public Task<UiResource> RegisterAsync(
+			string name,
+			ReadOnlyMemory<byte> content,
+			string mediaType,
+			CancellationToken cancellationToken = default)
+		{
+			Attempts++;
+			throw new InvalidOperationException("QUEUE_OVERFLOW");
+		}
+
+		public Task RemoveAsync(string name, CancellationToken cancellationToken = default) =>
+			Task.CompletedTask;
+	}
+
 	/// <summary>
 	/// A cancelled session must not leave a half-built asset behind, and must not throw into the
 	/// continuation that swallows it.

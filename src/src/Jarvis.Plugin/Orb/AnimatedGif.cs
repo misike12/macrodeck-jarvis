@@ -81,12 +81,25 @@ public sealed class AnimatedGif
 		output.WriteByte(0);
 		output.WriteByte(0);
 
-		for (var index = 0; index < PaletteSize; index++)
+for (var index = 0; index < PaletteSize; index++)
 		{
 			output.WriteByte(Palette[index * 3]);
-			output.WriteByte((Palette[(index * 3) + 1]));
+			output.WriteByte(Palette[(index * 3) + 1]);
 			output.WriteByte(Palette[(index * 3) + 2]);
 		}
+
+
+		// The looping extension. Without it a decoder is free to play the file once and stop, which is what
+		// happened: eighteen frames at eight hundredths each is a loop of about a second and a half, and the
+		// orb went still after exactly that, every time. Zero means forever.
+		output.WriteByte(0x21);
+		output.WriteByte(0xFF);
+		output.WriteByte(0x0B);
+		WriteAscii(output, "NETSCAPE2.0");
+		output.WriteByte(0x03);
+		output.WriteByte(0x01);
+		WriteShort(output, 0);
+		output.WriteByte(0x00);
 
 		for (var frame = 0; frame < _frames.Count; frame++)
 		{
@@ -102,6 +115,14 @@ public sealed class AnimatedGif
 
 	private static void WriteGraphicControlExtension(Stream stream, int delay)
 	{
+		// Packed field: reserved(3) | disposal(3) | user input(1) | transparent flag(1).
+		//
+		// Disposal is 2, restore to background. Each frame is transparent outside the orb, so leaving the
+		// previous frame in place would show it through wherever a ring had been and no longer was: the rings
+		// would trail and the loop would not return to its own first frame. Note that 0x09 is method 2, not
+		// 1. The method sits in bits 4-2, so 010 there plus the transparent flag is 0b00001001, while 0x05 is
+		// 001 there, do not dispose. Reading the byte as a whole number gets this wrong, which is how this was
+		// once "fixed" into the trailing it claims to cure.
 		stream.WriteByte(0x21);
 		stream.WriteByte(0xF9);
 		stream.WriteByte(0x04);

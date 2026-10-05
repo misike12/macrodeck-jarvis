@@ -48,8 +48,11 @@ public static class OrbFrameRenderer
 		var centre = Size / 2.0;
 
 		var shape = ShapeOf(preset);
-		var (coreRadius, glowStrength, _, ringAlpha) = ShapeFor(state, amplitude);
-		coreRadius *= shape.CoreScale;
+		var (_, glowStrength, _, ringAlpha) = ShapeFor(state, amplitude);
+
+		// Through the one helper, so the radius the tests assert on is the radius that is drawn. Duplicating
+		// the arithmetic here is how a test can pass while the picture ignores it.
+		var coreRadius = CoreRadiusFor(state, amplitude, preset, phase);
 
 		// The four settings the user can change, applied to the frame rather than to a layer above it.
 		//
@@ -154,22 +157,29 @@ public static class OrbFrameRenderer
 	/// and each preset differs on all of them, so any two are distinguishable at a glance and in a still
 	/// frame.
 	/// </summary>
-	private readonly record struct PresetShape(int Rings, double RingSpacing, double Segments, double SegmentsOffset, double CoreScale, double RingWeight);
+	private readonly record struct PresetShape(
+		int Rings,
+		double RingSpacing,
+		double Segments,
+		double SegmentsOffset,
+		double CoreScale,
+		double RingWeight,
+		double PulseDepth);
 
 	private static PresetShape ShapeOf(OrbPreset preset) => preset switch
 	{
 		// Three close rings around a small bright core, like a containment field.
-		OrbPreset.ArcReactor => new(3, 0.065, 6, 0.0, 1.00, 1.00),
+		OrbPreset.ArcReactor => new(3, 0.065, 6, 0.0, 1.00, 1.00, 0.020),
 
 		// Two wide rings, fewer segments, and a larger core: calmer and more open than a reactor.
-		OrbPreset.Halo => new(2, 0.115, 3, 1.1, 1.35, 1.70),
+		OrbPreset.Halo => new(2, 0.115, 3, 1.1, 1.35, 1.70, 0.025),
 
 		// One heavy ring and a small core: a heartbeat rather than a machine.
-		OrbPreset.Pulse => new(1, 0.190, 2, 0.4, 0.70, 2.60),
+		OrbPreset.Pulse => new(1, 0.190, 2, 0.4, 0.70, 2.60, 0.070),
 
 		// Custom is the arc reactor's geometry with a distinct segment offset, so it is visibly its own
 		// thing without inventing a fourth shape nobody asked for.
-		_ => new(4, 0.048, 8, 2.3, 0.90, 0.80),
+		_ => new(4, 0.048, 8, 2.3, 0.90, 0.80, 0.020),
 	};
 
 	/// <summary>
@@ -184,8 +194,23 @@ public static class OrbFrameRenderer
 	public static double CoreRadiusFor(
 		AssistantState state,
 		double amplitude,
-		OrbPreset preset = OrbPreset.ArcReactor) =>
-		ShapeFor(state, amplitude).CoreRadius * ShapeOf(preset).CoreScale;
+		OrbPreset preset = OrbPreset.ArcReactor,
+		double phase = 0) =>
+		ShapeFor(state, amplitude).CoreRadius * ShapeOf(preset).CoreScale * (1 + (ShapeOf(preset).PulseDepth * Math.Sin(phase)));
+
+	/// <summary>
+	/// How many times a ring's pattern repeats over one loop of the animation.
+	/// <para>
+	/// This has to be a whole number, or the loop does not close. The ring is drawn from the cosine of the
+	/// sweep times the segment count, so what matters is the sweep's advance over the animation: ringPhase
+	/// runs 0 to 2 pi, and unless the multiplier times the segment count is an integer, the last frame's ring
+	/// sits somewhere other than where the first frame's was and the loop jumps. The multiplier used to be
+	/// 1 plus 0.45 per ring, which is an integer product only for ring zero, so every other ring broke the
+	/// loop and the animation visibly restarted from the wrong position about once a second and a half.
+	/// </para>
+	/// </summary>
+	private static int LoopsFor(int ring, double segments) =>
+		Math.Max(1, (int)Math.Round((1.0 + (ring * 0.45)) * segments));
 
 	private static (double R, double G, double B, double A) Shade(
 		double distance,
@@ -233,7 +258,13 @@ public static class OrbFrameRenderer
 
 		for (var ring = 0; ring < rings; ring++)
 		{
-			var radius = (Size * 0.24) + (ring * Size * shape.RingSpacing);
+			// The spacing is compressed when more rings are asked for than the preset defines, so that the
+			// outermost one still lands inside the square. It used to be taken straight from the preset, which
+			// put ring five of an arc reactor at 0.565 of the width against a half width of 0.5: the last two
+			// rings were being drawn off the edge of the image and a count of six produced four rings and two
+			// that were simply not there. At the preset's own count the spacing is unchanged.
+			var spacing = shape.RingSpacing * shape.Rings / Math.Max(rings, shape.Rings);
+			var radius = (Size * 0.24) + (ring * Size * spacing);
 			var width = (1.1 + (ring * 0.25)) * shape.RingWeight * (Size / 96.0);
 			var band = Math.Abs(distance - radius);
 
@@ -242,9 +273,16 @@ public static class OrbFrameRenderer
 				continue;
 			}
 
-			var sweep = (ringPhase * (1.0 + (ring * 0.45))) + (angle * 2.0) - (ring * 1.1) + shape.SegmentsOffset;
+			var sweep = (ringPhase * LoopsFor(ring, shape.Segments) / shape.Segments) + (angle * 2.0) - (ring * 1.1) + shape.SegmentsOffset;
 			var segments = Math.Cos(sweep * shape.Segments) * 0.5 + 0.5;
-			var coverage = (1 - (band / width)) * segments * ringAlpha;
+
+			// The weight is doubled for the same reason the glow's was. A ring's peak coverage is its alpha, and
+			// the frame builder maps anything under half opacity to the transparent index, so a ring drawn at
+			// the idle weight of 0.5 came out at 127 of 255 and was discarded outright. Every ring in every
+			// state was being thrown away, which is also why the orb looked static: the rings are the only
+			// thing in the frame that depends on the phase, so with them gone all eighteen frames were
+			// identical and the animation had nothing to animate.
+			var coverage = (1 - (band / width)) * segments * ringAlpha * 2.0;
 
 			if (coverage <= 0.002)
 			{

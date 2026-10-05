@@ -99,6 +99,115 @@ private static SKColor[] DecodeFrameManaged(SKCodec codec, int frame)
 		return pixels;
 	}
 
+	/// <summary>
+	/// The file has to carry the looping extension with a count of zero.
+	/// <para>
+	/// Eighteen frames at eight hundredths of a second is a loop of about a second and a half, and the orb
+	/// went still after exactly that, every time. The extension was simply never written, and a file without it
+	/// is specified as playing once.
+	/// </para>
+	/// <para>
+	/// Asserted on the bytes rather than on what a decoder reports for them. SkiaSharp answers -1 for a count
+	/// of zero, which is its own encoding of "forever" and is not a value this file can be checked against
+	/// without depending on that choice. The bytes are the contract.
+	/// </para>
+	/// </summary>
+	[Test]
+	public void The_file_says_it_loops_forever()
+	{
+		var bytes = Encoded(3);
+
+		// 0x21 0xFF 0x0b "NETSCAPE2.0" 0x03 0x01 <count:2> 0x00, sitting between the palette and the first
+		// frame, which is where a reader looks for it. The signature is three bytes and the name eleven, so
+		// the sub-block size lands at at+14.
+		var signature = new byte[] { 0x21, 0xFF, 0x0B };
+		var at = IndexOf(bytes, signature);
+
+		Assert.That(at, Is.GreaterThanOrEqualTo(0), "the looping extension is absent, so the file plays once");
+
+		Assert.That(
+			System.Text.Encoding.ASCII.GetString(bytes, at + 3, 11),
+			Is.EqualTo("NETSCAPE2.0"),
+			"the extension is present but is not the looping one");
+
+		Assert.That(bytes[at + 14], Is.EqualTo(0x03), "the sub-block is the wrong size");
+		Assert.That(bytes[at + 15], Is.EqualTo(0x01), "the sub-block is not the loop count");
+		Assert.That(bytes[at + 16], Is.EqualTo(0), "the loop count is not zero, so the animation stops");
+		Assert.That(bytes[at + 17], Is.EqualTo(0), "the loop count is not zero, so the animation stops");
+	}
+
+	/// <summary>
+	/// Each frame has to be restored to the background before the next one is drawn.
+	/// <para>
+	/// With "do not dispose" a frame is composited on top of the previous one, and because these frames are
+	/// transparent outside the orb, anything a ring had covered and no longer did was left showing: the rings
+	/// left trails and the loop did not return to its own first frame.
+	/// </para>
+	/// </summary>
+	[Test]
+	public void Each_frame_is_restored_before_the_next()
+	{
+		var bytes = Encoded(3);
+
+		// The graphic control extension is nine bytes and ends on the image descriptor, so the pair is the anchor.
+		// Searching for either byte alone finds both inside compressed pixel data, and the four bytes between
+		// the packed field and the terminator are the delay and the transparent index, which are not fixed.
+		var at = IndexOf(
+			bytes,
+			new int?[] { 0x21, 0xF9, 0x04, null, null, null, null, 0x00, 0x2C });
+
+		Assert.That(
+			at,
+			Is.GreaterThanOrEqualTo(0),
+			$"no graphic control extension found; first bytes were {BitConverter.ToString(bytes, 0, 16)}");
+
+		var disposal = (bytes[at + 3] >> 2) & 0x07;
+
+		Assert.That(
+			disposal,
+			Is.EqualTo(2),
+			$"the disposal method is {disposal} at offset {at}, so the previous frame is left in place and the rings trail across the loop");
+	}
+
+	/// <summary>
+	/// Finds a byte pattern where null entries are wildcards.
+	/// </summary>
+	private static int IndexOf(byte[] haystack, int?[] needle)
+	{
+		for (var index = 0; index <= haystack.Length - needle.Length; index++)
+		{
+			var match = true;
+
+			for (var offset = 0; offset < needle.Length; offset++)
+			{
+				if (needle[offset] is int expected && haystack[index + offset] != expected)
+				{
+					match = false;
+					break;
+				}
+			}
+
+			if (match)
+			{
+				return index;
+			}
+		}
+
+		return -1;
+	}
+
+	private static int IndexOf(byte[] haystack, byte[] needle)
+	{
+		var wildcard = new int?[needle.Length];
+
+		for (var index = 0; index < needle.Length; index++)
+		{
+			wildcard[index] = needle[index];
+		}
+
+		return IndexOf(haystack, wildcard);
+	}
+
 	/// <summary>The bytes have to be a GIF a real decoder accepts, carrying every frame that was added.</summary>
 	[Test]
 	public void A_real_decoder_reads_back_every_frame()

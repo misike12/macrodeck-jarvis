@@ -178,6 +178,201 @@ previous = radius;
 		}
 	}
 
+	/// <summary>
+	/// The frames of one animation have to differ from each other.
+	/// <para>
+	/// The rings are the only thing in the frame that depends on the phase, so when they were being discarded
+	/// the orb was a still image: eighteen identical frames, a GIF that plays itself into a static ball, and
+	/// nothing in the suite noticed because every other test rendered a single frame. This is the one property
+	/// that cannot be checked on one frame.
+	/// </para>
+	/// </summary>
+	[Test]
+	public void Consecutive_frames_of_one_animation_differ()
+	{
+		foreach (var state in new[] { AssistantState.Idle, AssistantState.Speaking })
+		{
+			var frames = new[]
+			{
+				OrbFrameRenderer.Render(state, 0.0, OrbPalette.Default, 0.2),
+				OrbFrameRenderer.Render(state, Math.Tau / 18, OrbPalette.Default, 0.2),
+			};
+
+			Assert.That(
+				Difference(frames[0], frames[1]),
+				Is.GreaterThan(500),
+				$"{state} produced the same frame twice, so its animation is a still image");
+		}
+	}
+
+	/// <summary>
+	/// The rings have to be in the picture at all, not merely computed and then dropped.
+	/// <para>
+	/// A ring's peak coverage is its alpha, and the frame builder maps anything under half opacity to the
+	/// transparent index. At the idle weight of 0.5 a ring came out at 127 of 255 and was thrown away, so
+	/// the orb had no rings in any state and the setting that counts them did nothing.
+	/// </para>
+	/// </summary>
+	[Test]
+	public void The_rings_are_actually_drawn()
+	{
+		var frame = OrbFrameRenderer.Render(AssistantState.Idle, 0.0, OrbPalette.Default, 0.2);
+
+		// Counted rather than asserted on a colour, because the rings are drawn in the palette's ring colour
+		// which is near white and the core is dark, so a count of bright pixels outside the core is the thing
+		// that says the rings are there.
+		var centre = OrbFrameRenderer.Size / 2.0;
+		var ringPixels = 0;
+
+		for (var y = 0; y < OrbFrameRenderer.Size; y++)
+		{
+			for (var x = 0; x < OrbFrameRenderer.Size; x++)
+			{
+				var offset = ((y * OrbFrameRenderer.Size) + x) * 4;
+				var alpha = frame[offset + 3];
+
+				if (alpha < 128)
+				{
+					continue;
+				}
+
+				var distance = Math.Sqrt(((x - centre) * (x - centre)) + ((y - centre) * (y - centre)));
+
+				// Outside the core and inside the outermost ring, which is where a ring has to be to be a ring.
+				if (distance > OrbFrameRenderer.Size * 0.20 && distance < OrbFrameRenderer.Size * 0.46)
+				{
+					ringPixels++;
+				}
+			}
+		}
+
+		Assert.That(
+			ringPixels,
+			Is.GreaterThan(OrbFrameRenderer.Size * 4),
+			"no pixels were drawn in the band where the rings live, so the rings are still being discarded");
+	}
+
+	/// <summary>
+	/// Every ring the user asked for has to be inside the square.
+	/// <para>
+	/// The spacing used to come straight from the preset, so asking for more rings than the preset defines put
+	/// the outer ones past the half width and they were drawn off the edge: a count of six on an arc reactor
+	/// gave four rings and two that were not there at all.
+	/// </para>
+	/// </summary>
+	[TestCase(OrbPreset.ArcReactor, 6)]
+	[TestCase(OrbPreset.ArcReactor, 8)]
+	[TestCase(OrbPreset.Halo, 6)]
+	[TestCase(OrbPreset.Pulse, 4)]
+	public void Every_ring_the_user_asked_for_is_inside_the_square(OrbPreset preset, int ringCount)
+	{
+		var frame = OrbFrameRenderer.Render(
+			AssistantState.Idle, 0.0, OrbPalette.Default, 0.2, preset, ringCount);
+
+		var centre = OrbFrameRenderer.Size / 2.0;
+		var half = OrbFrameRenderer.Size / 2.0;
+		// Checked per ring at the radius that ring is meant to sit on, rather than by counting lit pixels in a
+		// band. A band count cannot tell a ring that is missing from one that is merely dim, and it passed
+		// while two of the six rings were being drawn off the edge of the image.
+		for (var ring = 0; ring < ringCount; ring++)
+		{
+			var spacing = 0.065 * 3 / Math.Max(ringCount, 3);
+			var expected = (OrbFrameRenderer.Size * 0.24) + (ring * OrbFrameRenderer.Size * spacing);
+
+			Assert.That(
+				expected,
+				Is.LessThan(half * 0.98),
+				$"ring {ring} of {ringCount} on {preset} sits at {expected:0} pixels against a half width of {half:0}, so it is off the edge");
+
+			var lit = 0;
+
+			for (var y = 0; y < OrbFrameRenderer.Size; y++)
+			{
+				for (var x = 0; x < OrbFrameRenderer.Size; x++)
+				{
+					var offset = ((y * OrbFrameRenderer.Size) + x) * 4;
+
+					if (frame[offset + 3] < 128)
+					{
+						continue;
+					}
+
+					var distance = Math.Sqrt(((x - centre) * (x - centre)) + ((y - centre) * (y - centre)));
+
+					if (Math.Abs(distance - expected) < OrbFrameRenderer.Size * 0.02)
+					{
+						lit++;
+					}
+				}
+			}
+
+			Assert.That(
+				lit,
+				Is.GreaterThan(0),
+				$"ring {ring} of {ringCount} on {preset} has nothing drawn on it, so it is not in the picture");
+		}
+	}
+
+	/// <summary>
+	/// The animation loops: the frame at a full turn is the frame at zero.
+	/// <para>
+	/// Each ring's pattern has to repeat a whole number of times over the loop, or the last frame sits
+	/// somewhere other than the first and the animation visibly restarts from the wrong position. This
+	/// compares rendered bytes rather than geometric reasoning, because the reasoning was done once before
+	/// and was wrong in a way that only showed on screen.
+	/// </para>
+	/// </summary>
+	[TestCase(AssistantState.Idle, OrbPreset.ArcReactor)]
+	[TestCase(AssistantState.Speaking, OrbPreset.ArcReactor)]
+	[TestCase(AssistantState.Idle, OrbPreset.Halo)]
+	[TestCase(AssistantState.Idle, OrbPreset.Pulse)]
+	public void The_animation_returns_to_its_first_frame(AssistantState state, OrbPreset preset)
+	{
+		var first = OrbFrameRenderer.Render(state, 0.0, OrbPalette.Default, 0.2, preset, 6);
+		var last = OrbFrameRenderer.Render(state, Math.Tau, OrbPalette.Default, 0.2, preset, 6);
+
+		Assert.That(
+			last,
+			Is.EqualTo(first),
+			"the frame after one full turn is not the first frame, so the loop jumps every time it restarts");
+	}
+
+	/// <summary>
+	/// The core breathes with the animation, or the orb is a still ball with spinning rings.
+	/// <para>
+	/// The core radius used to come from state and amplitude alone, which meant that at rest nothing in it
+	/// moved: voice made it answer and states made it change, but between the two it sat frozen while the
+	/// rings spun around it. Pulse is described as a heartbeat rather than a machine, and a heartbeat that
+	/// does not beat is a misnomer on every preset.
+	/// </para>
+	/// </summary>
+	[Test]
+	public void The_core_breathes_with_the_animation()
+	{
+		var still = OrbFrameRenderer.CoreRadiusFor(AssistantState.Idle, 0.2, OrbPreset.ArcReactor, 0.0);
+		var breathed = OrbFrameRenderer.CoreRadiusFor(AssistantState.Idle, 0.2, OrbPreset.ArcReactor, Math.PI / 2);
+
+		Assert.That(
+			Math.Abs(breathed - still),
+			Is.GreaterThan(0),
+			"the core radius ignores the phase, so the core never moves with time");
+	}
+
+	/// <summary>Pulse throbs; the others barely stir.</summary>
+	[Test]
+	public void Pulse_breathes_deeper_than_the_machine_presets()
+	{
+		var pulse = Math.Abs(
+			OrbFrameRenderer.CoreRadiusFor(AssistantState.Idle, 0.2, OrbPreset.Pulse, Math.PI / 2)
+				- OrbFrameRenderer.CoreRadiusFor(AssistantState.Idle, 0.2, OrbPreset.Pulse, 0.0));
+
+		var reactor = Math.Abs(
+			OrbFrameRenderer.CoreRadiusFor(AssistantState.Idle, 0.2, OrbPreset.ArcReactor, Math.PI / 2)
+				- OrbFrameRenderer.CoreRadiusFor(AssistantState.Idle, 0.2, OrbPreset.ArcReactor, 0.0));
+
+		Assert.That(pulse, Is.GreaterThan(reactor * 2), "Pulse breathes no deeper than the machines");
+	}
+
 	/// <summary>Amplitude outside the normal range must not throw or invert.</summary>
 	[TestCase(-5.0)]
 	[TestCase(0.0)]
