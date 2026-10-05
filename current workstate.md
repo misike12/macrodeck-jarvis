@@ -30,7 +30,7 @@ Everything runs as the signed-in user except the optional service. See
 | Check | Command | Result |
 | --- | --- | --- |
 | Build | `dotnet build -c Release` | 0 warnings, 0 errors |
-| Tests | `dotnet test` | **577 passed**, 0 failed |
+| Tests | `dotnet test` | **592 passed**, 0 failed |
 | Manifest validation | `macrodeck-plugin validate --artifact ... --level Publication` | 0 errors, 0 warnings |
 | Conformance, project | `src/conformance.md` | conformant |
 | Conformance, artifact | `src/artifact-conformance.md` | conformant, and it carries MDC0104 through MDC0107 |
