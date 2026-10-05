@@ -14,7 +14,7 @@ namespace Jarvis.Plugin;
 /// its encrypted secret store rather than beside an ordinary setting.
 /// </para>
 /// </summary>
-internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
+internal sealed class JarvisConfigFlow(ILogger logger, JarvisSettingsStore settings) : IConfigFlow
 {
 	private const string ProviderStepId = "provider";
 	private const string KeysStepId = "keys";
@@ -28,16 +28,8 @@ internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 			.Select(field => field.Name)
 			.ToHashSet(StringComparer.Ordinal);
 
-	/// <summary>
-	/// Everything the user has entered in this run. The flow instance lives for the run, so each submit
-	/// merges its step and the completion hands the whole set back: the values named in the completion
-	/// are what the host persists, and a multi-step flow that completes with none persists nothing.
-	/// </summary>
-	private readonly Dictionary<string, ConfigFlowValue> _collected = new(StringComparer.Ordinal);
-
 	public Task<ConfigFlowResult> StartAsync(IConfigFlowContext context, CancellationToken ct)
 	{
-		_collected.Clear();
 		return Task.FromResult(ConfigFlowResult.Step(ProviderStep()));
 	}
 
@@ -47,15 +39,13 @@ internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 		IConfigFlowContext context,
 		CancellationToken ct)
 	{
-		Merge(input);
-
 		var result = stepId switch
 		{
 			ProviderStepId => ProviderSubmitted(input),
 			KeysStepId => KeysSubmitted(input),
 			ModelsStepId => ConfigFlowResult.Step(VoiceStep()),
 			VoiceStepId => VoiceSubmitted(input),
-			BehaviourStepId => Complete(),
+			BehaviourStepId => Complete(input),
 			_ => ConfigFlowResult.Error(ProviderStep(), Strings.ConfigFlow.UnknownStep()),
 		};
 
@@ -63,13 +53,26 @@ internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 	}
 
 	/// <summary>
-	/// Folds one step's input into the run's collection. An empty secret means "unchanged": the host does
-	/// not echo a stored secret back into the form, so persisting an empty one would wipe the key the user
-	/// stored on an earlier run. Anything else is kept honestly, including an empty string, which is how a
-	/// choice for the system default arrives.
+	/// Turns the final step's input into the values handed back at completion.
+	/// <para>
+	/// The host already persists every form field a step submits, so this is not what makes the settings
+	/// stick; it exists so a value this plugin computes rather than collects has a way to reach the entry,
+	/// and so the secret classification is stated explicitly instead of inferred from a declared field type.
+	/// Deriving it from <c>input</c> rather than accumulating across steps is deliberate: input is
+	/// cumulative and the host rolls it back when the user goes Back, so a value the user retracted by
+	/// stepping back cannot be resurrected here.
+	/// </para>
+	/// <para>
+	/// An empty secret means "unchanged": the host does not echo a stored secret back into the form, so
+	/// persisting an empty one would wipe the key. Anything else is kept honestly, including an empty
+	/// string, which is how a choice for the system default arrives.
+	/// </para>
 	/// </summary>
-	internal void Merge(IReadOnlyDictionary<string, object?> input)
+	internal static IReadOnlyDictionary<string, ConfigFlowValue> ValuesFor(
+		IReadOnlyDictionary<string, object?> input)
 	{
+		var values = new Dictionary<string, ConfigFlowValue>(StringComparer.Ordinal);
+
 		foreach (var (key, value) in input)
 		{
 			if (value is null)
@@ -84,13 +87,15 @@ internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 				continue;
 			}
 
-			_collected[key] = SecretFields.Contains(key)
+			values[key] = SecretFields.Contains(key)
 				? ConfigFlowValue.Secret(text)
 				: ConfigFlowValue.Plain(text);
 		}
+
+		return values;
 	}
 
-	private static ConfigFlowResult ProviderSubmitted(IReadOnlyDictionary<string, object?> input)
+	private ConfigFlowResult ProviderSubmitted(IReadOnlyDictionary<string, object?> input)
 	{
 		var provider = Read(input, JarvisSettingsStoreFields.LlmProviderField);
 
@@ -109,7 +114,7 @@ internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 		return ConfigFlowResult.Step(KeysStep());
 	}
 
-	private static ConfigFlowResult KeysSubmitted(IReadOnlyDictionary<string, object?> input)
+	private ConfigFlowResult KeysSubmitted(IReadOnlyDictionary<string, object?> input)
 	{
 		return ConfigFlowResult.Step(ModelsStep());
 	}
@@ -127,43 +132,46 @@ internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 	}
 
 	/// <summary>
-	/// Ends the flow, handing back everything the run collected.
+	/// Ends the flow, handing back the final step's input.
 	/// <para>
-	/// The values named here are what the host persists. This used to return no dictionary on the theory
-	/// that the host persists each step's fields as the flow runs, which holds for single-step flows only:
-	/// a multi-step completion with no values persisted nothing, so every plain setting silently reverted
-	/// to its default on every setup while the secrets (which take the secret store path) survived. The
-	/// empty-secret wipe the old comment feared cannot happen because the merge already drops one.
+	/// The values are not what makes the settings stick, and this comment previously said the opposite: the
+	/// host accumulates and persists every form field itself (ConfigFlowManager merges each submit into the
+	/// entry's value map), so a multi-step completion with no dictionary persisted everything all the same.
+	/// Reading the host's own database is what settled it: a completed setup had written every field,
+	/// including the ones a dictionary would have added. What genuinely did not survive a re-opened form
+	/// was nothing at all, because the host's setup UI drops its stored prefill after the first step.
 	/// </para>
 	/// </summary>
-	private ConfigFlowResult Complete()
+	private ConfigFlowResult Complete(IReadOnlyDictionary<string, object?> input)
 	{
-		return ConfigFlowResult.Complete(
-			"JARVIS",
-			new Dictionary<string, ConfigFlowValue>(_collected, StringComparer.Ordinal));
+		var values = ValuesFor(input);
+
+		logger.Information("Flow completed, handing back {Count} values.", values.Count);
+
+		return ConfigFlowResult.Complete("JARVIS", values);
 	}
 
-	private static ConfigFlowStep ProviderStep() => Step(
+	private ConfigFlowStep ProviderStep() => Step(
 		JarvisFields.ProviderStep,
 		Strings.ConfigFlow.Provider.Title(),
 		Strings.ConfigFlow.Provider.Description());
 
-	private static ConfigFlowStep KeysStep() => Step(
+	private ConfigFlowStep KeysStep() => Step(
 		JarvisFields.KeysStep,
 		Strings.ConfigFlow.Keys.Title(),
 		Strings.ConfigFlow.Keys.Description());
 
-	private static ConfigFlowStep ModelsStep() => Step(
+	private ConfigFlowStep ModelsStep() => Step(
 		JarvisFields.ModelsStep,
 		Strings.ConfigFlow.Models.Title(),
 		Strings.ConfigFlow.Models.Description());
 
-	private static ConfigFlowStep VoiceStep() => Step(
+	private ConfigFlowStep VoiceStep() => Step(
 		JarvisFields.VoiceStep,
 		Strings.ConfigFlow.Voice.Title(),
 		Strings.ConfigFlow.Voice.Description());
 
-	private static ConfigFlowStep BehaviourStep() => Step(
+	private ConfigFlowStep BehaviourStep() => Step(
 		JarvisFields.BehaviourStep,
 		Strings.ConfigFlow.Behaviour.Title(),
 		Strings.ConfigFlow.Behaviour.Description());
@@ -176,7 +184,7 @@ internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 	/// but invisible: the code that consumed them was reading a default, permanently, and nothing said so.
 	/// </para>
 	/// </summary>
-	private static ConfigFlowStep Step(string stepId, LocalizedText title, LocalizedText description)
+	private ConfigFlowStep Step(string stepId, LocalizedText title, LocalizedText description)
 	{
 		var (fields, advanced) = JarvisFields.ForStep(stepId);
 
@@ -185,12 +193,35 @@ internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 			StepId = stepId,
 			Title = title,
 			Description = description,
-			Fields = [.. fields.Select(ToParameter)],
-			AdvancedFields = [.. advanced.Select(ToParameter)],
+			Fields = [.. fields.Select(field => ToParameter(field, DefaultFor(field)))],
+			AdvancedFields = [.. advanced.Select(field => ToParameter(field, DefaultFor(field)))],
 		};
 	}
 
-	private static ActionParameter ToParameter(JarvisField field)
+/// <summary>
+	/// What the field should show before the user touches it: the value the host has stored, and the
+	/// declared default only when it has none.
+	/// <para>
+	/// The host's setup UI prefills a re-opened form from the stored entry, then throws that prefill away on
+	/// every step after the first and rebuilds the form from the declared defaults. So the declared default
+	/// is the only thing standing between the user and a form that claims their microphone, model and
+	/// persona were never chosen, when all of them are stored and in use. Seeding it from the store makes
+	/// the form tell the truth either way.
+	/// </para>
+	/// </summary>
+	private string DefaultFor(JarvisField field)
+	{
+		var stored = settings.StoredValue(field.Name);
+
+		if (!string.IsNullOrEmpty(stored))
+		{
+			return stored;
+		}
+
+		return field.Kind is JarvisFieldKind.Flag ? field.Default ?? "true" : field.Default ?? string.Empty;
+	}
+
+	private static ActionParameter ToParameter(JarvisField field, string defaultValue)
 	{
 		var parameter = field.Kind switch
 		{
@@ -201,12 +232,12 @@ internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 
 			JarvisFieldKind.Multiline => ActionParameter.MultilineText(field.Name, field.Label()),
 
-		JarvisFieldKind.Choice => ActionParameter.Choice(
-			field.Name,
-			field.OptionsSource?.Invoke() ?? field.Options ?? [],
-			field.Label(),
-			defaultValue: field.Default,
-			required: field.Required),
+			JarvisFieldKind.Choice => ActionParameter.Choice(
+				field.Name,
+				field.OptionsSource?.Invoke() ?? field.Options ?? [],
+				field.Label(),
+				defaultValue: defaultValue,
+				required: field.Required),
 
 			// No bounds here: the parameter type carries no minimum or maximum, and the store already
 			// clamps a number into range when it reads it back. Declaring a bound that nothing enforced
@@ -223,14 +254,14 @@ internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 				field.Name,
 				YesNo(),
 				field.Label(),
-				defaultValue: field.Default ?? "true",
+				defaultValue: defaultValue,
 				required: field.Required),
 
 			_ => ActionParameter.Text(
 				field.Name,
 				field.Label(),
 				placeholder: field.Default,
-				defaultValue: field.Default,
+				defaultValue: defaultValue,
 				required: field.Required),
 		};
 

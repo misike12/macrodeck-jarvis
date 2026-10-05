@@ -202,7 +202,10 @@ public async Task<IReadOnlyList<IntegrationIssue>> GetIssuesAsync(CancellationTo
 		}
 	}
 
-	public IConfigFlow CreateConfigFlow() => new JarvisConfigFlow(_logger);
+	// The store is handed over so a re-opened setup form can show what is actually configured. The host
+	// prefills the first step from the stored entry and then discards that prefill, rebuilding each later
+	// step from the declared defaults, so without this the form contradicts the running configuration.
+	public IConfigFlow CreateConfigFlow() => new JarvisConfigFlow(_logger, _settings);
 
 	public bool AllowsMultipleConfigurations => false;
 
@@ -410,8 +413,19 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 	{
 		if (!_transcriber.IsAvailable)
 		{
-			// The microphone is left open and nothing else happens. Failing here would be noise: the
-			// wake word simply cannot work without a recogniser, and that is already an issue.
+			// Said once, then never again: this is reached on every recognition attempt, and a wake word
+			// that cannot work because no recogniser is installed is otherwise completely silent. Reported
+			// rather than thrown because the microphone is legitimately open and the rest of the plugin is
+			// healthy; it just cannot hear a word.
+			if (!_wakeWordWithoutRecognizerReported)
+			{
+				_wakeWordWithoutRecognizerReported = true;
+				_logger.Warning(
+					"The wake word cannot work: no speech recognition runtime is installed, so nothing can be transcribed. "
+					+ "Speech to text is set to {Provider}.",
+					_settings.Current.SpeechToText);
+			}
+
 			return null;
 		}
 
@@ -429,6 +443,9 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 			UtteranceAudio.Delete(wav);
 		}
 	}
+
+	/// <summary>Whether the missing-recognizer warning has already been reported, so it is said once.</summary>
+	private bool _wakeWordWithoutRecognizerReported;
 
 	/// <summary>A wake word starts a turn exactly as a button press does.</summary>
 	private void OnWakeWordDetected() => StartListeningTurn();

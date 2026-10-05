@@ -186,23 +186,35 @@ public sealed class WakeWordDetector : IDisposable
 				return;
 			}
 
-			if (await Recognizer(samples, cancellationToken).ConfigureAwait(false) is { } text
-				&& Mentions(text, Word))
-			{
-				_logger.Information("Wake word '{Word}' heard in: {Text}", Word, text);
-				_nextAllowed = DateTimeOffset.UtcNow + Cooldown;
-				Detected?.Invoke();
-			}
-		}
-		catch (OperationCanceledException)
+var heard = await Recognizer(samples, cancellationToken).ConfigureAwait(false);
+
+		if (heard is { } text && Mentions(text, Word))
 		{
-			throw;
+			_logger.Information("Wake word '{Word}' heard in: {Text}", Word, text);
+			_nextAllowed = DateTimeOffset.UtcNow + Cooldown;
+			Detected?.Invoke();
 		}
-		catch (Exception exception) when (exception is not OutOfMemoryException)
+		else
 		{
-			// A failed check is not worth interrupting anything for; the wake word is a convenience.
-			_logger.Debug(exception, "A wake word check failed.");
+			// Reported because the alternative is a wake word that silently never fires: a threshold crossed
+			// and a recognition ran, so neither the trigger nor the recogniser is at fault, and without this
+			// line there is nothing at all in the log to tell a missed word from a broken detector.
+			_logger.Information(
+				"Wake word check ran but did not match. Heard {Text} against {Word}.",
+				heard ?? "(nothing)",
+				Word);
 		}
+	}
+	catch (OperationCanceledException)
+	{
+		throw;
+	}
+	catch (Exception exception) when (exception is not OutOfMemoryException)
+	{
+		// A failed check is not worth interrupting anything for; the wake word is a convenience. Reported at
+		// information level for the same reason as the miss above: it is the only sign the check ever ran.
+		_logger.Information(exception, "A wake word check failed.");
+	}
 		finally
 		{
 			Interlocked.Exchange(ref _busy, 0);

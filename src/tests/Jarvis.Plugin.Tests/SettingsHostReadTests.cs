@@ -187,10 +187,53 @@ private const long WindowMs = 1000;
 			new StubIntegrationContext(new RateLimitedConfig(entries, burst: 0)),
 			CancellationToken.None);
 
-		Assert.Multiple(() =>
+Assert.Multiple(() =>
 		{
 			Assert.That(store.Current.LlmModel, Is.EqualTo("kept-from-before"));
 			Assert.That(store.Current.WakeWord, Is.EqualTo("Computer"));
+		});
+	}
+
+	/// <summary>
+	/// The regression behind "only the secrets save".
+	/// <para>
+	/// The reload cleared its read dictionary before reading anything and published the results only after
+	/// the credentials had been read, so a refusal anywhere in the run cost every plain setting while the
+	/// secrets already sitting in a local survived. The user saw a working API key and thirty settings
+	/// that reverted to their defaults, on every configuration, and concluded the flow was not saving.
+	/// A second reload must carry the plain settings forward untouched.
+	/// </para>
+	/// </summary>
+	[Test]
+	public async Task A_failed_reload_keeps_the_plain_settings_that_a_previous_one_read()
+	{
+		var entries = new[] { new ConfigEntrySnapshot(Guid.NewGuid(), "JARVIS") };
+		var store = NewStore();
+
+		// An unlimited first reload, so there is a known good set of values to protect.
+		await store.ReloadAsync(
+			new StubIntegrationContext(new RateLimitedConfig(entries, burst: int.MaxValue)),
+			CancellationToken.None);
+
+		var readOnce = store.Current;
+
+		Assert.That(readOnce.MicrophoneName, Is.EqualTo("microphoneName"), "the first reload read nothing");
+
+		// A host that now refuses every call must not undo what the first reload established.
+		await store.ReloadAsync(
+			new StubIntegrationContext(new RateLimitedConfig(entries, burst: 0)),
+			CancellationToken.None);
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(
+				store.Current.MicrophoneName,
+				Is.EqualTo(readOnce.MicrophoneName),
+				"a failed reload wiped a plain setting, which is the bug that made only secrets appear to save");
+			Assert.That(
+				store.Current.NvidiaApiKey,
+				Is.EqualTo(readOnce.NvidiaApiKey),
+				"a failed reload lost the credential that had already been read");
 		});
 	}
 }

@@ -2,8 +2,8 @@
 
 Suite version: `1.2.0`  
 Plugin: `com.misike12.jarvis` `1.1.1`  
-Conformant: **yes**  
-Passed: 34 - Failed: 0 - Skipped: 15
+Conformant: **no**  
+Passed: 32 - Failed: 1 - Skipped: 16
 
 | Id | Title | Category | Requirement | Outcome | Detail |
 |---|---|---|---|---|---|
@@ -41,11 +41,11 @@ Passed: 34 - Failed: 0 - Skipped: 15
 | MDC0501 | An invocation receives exactly one reply, never more | TimeoutAndCancellation | Required | PASS |  |
 | MDC0502 | A deadline that elapses produces TIMEOUT, and nothing arrives afterward | TimeoutAndCancellation | Recommended | SKIP | No declared action ran long enough, under a 300 ms deadline, to observe deadline enforcement. |
 | MDC0503 | Cancelling an unknown or already-answered correlation produces no message at all | TimeoutAndCancellation | Required | PASS |  |
-| MDC0504 | Cancelling an in-flight invocation produces exactly one cancelled reply | TimeoutAndCancellation | Recommended | PASS |  |
+| MDC0504 | Cancelling an in-flight invocation produces exactly one cancelled reply | TimeoutAndCancellation | Recommended | SKIP | No declared action stayed in flight long enough to be cancelled before it completed on its own. |
 | MDC0505 | A burst beyond MaxConcurrentInvocations never exceeds the reported in-flight bound, and every invocation completes | TimeoutAndCancellation | Recommended | PASS |  |
 | MDC0601 | After a non-fatal disconnect, the subject reconnects and becomes ready again | DisconnectAndReconnect | Required | PASS |  |
 | MDC0602 | Reconnecting inside the resume window presents resumeSessionId and resumes with the same session id | DisconnectAndReconnect | Required | PASS |  |
-| MDC0603 | A reconnect outside the resume window opens a fresh session and the subject becomes ready again after re-initializing | DisconnectAndReconnect | Required | PASS |  |
+| MDC0603 | A reconnect outside the resume window opens a fresh session and the subject becomes ready again after re-initializing | DisconnectAndReconnect | Required | FAIL | Expected: Every integration re-initializes without error after a non-resumed reconnect.<br>Actual: 1 new Error-level log event(s) appeared after reconnecting - a non-idempotent InitializeAsync that throws on a second call produces exactly this symptom. |
 | MDC0604 | A close of SupervisorShutdown (4004) stops a managed subject but leaves a self-registering one running | DisconnectAndReconnect | Required | PASS |  |
 | MDC0701 | /_macrodeck/health answers before any session exists; /_macrodeck/ready does not until one does | HealthEndpoint | Required | PASS |  |
 | MDC0702 | /_macrodeck/info and /_macrodeck/diagnostics agree with what the host itself observed about this session | HealthEndpoint | Required | PASS |  |

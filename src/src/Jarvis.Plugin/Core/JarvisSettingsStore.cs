@@ -160,8 +160,24 @@ public sealed class JarvisSettingsStore
 	/// <summary>Reads a value written during this reload.</summary>
 	private string Stored(string field) => _read.GetValueOrDefault(field) ?? string.Empty;
 
-	/// <summary>The host refuses a plugin that calls back too often, so a run of reads is spaced out.</summary>
-	private static readonly TimeSpan HostCallSpacing = TimeSpan.FromMilliseconds(60);
+	/// <summary>
+	/// The value the host last reported for a field, or null when it has none.
+	/// <para>
+	/// Read by the setup flow to seed each field's declared default. The host's setup UI prefills a re-opened
+	/// form from the stored entry but discards that prefill on every step after the first, so the form is
+	/// rebuilt from the declared defaults instead: without this, a re-opened flow shows a microphone nobody
+	/// chose and a model nobody picked, and the user is told their settings did not save when they did.
+	/// </para>
+	/// </summary>
+	public string? StoredValue(string field) => _read.GetValueOrDefault(field);
+
+	/// <summary>
+	/// The host refuses a plugin that calls back too often, so a run of reads is spaced out. Comfortably
+	/// above the host's 100 ms per-token refill, because the run has to survive being interrupted rather
+	/// than merely not be the sole cause of a refusal: at 60 ms this loop demanded more than the host
+	/// refills, drained the bucket, and every reload ended in a rate-limit failure.
+	/// </summary>
+	private static readonly TimeSpan HostCallSpacing = TimeSpan.FromMilliseconds(150);
 
 	/// <summary>First wait after a refused call, doubled on each further attempt up to <see cref="HostMaxRetryDelay"/>.</summary>
 	private static readonly TimeSpan HostRetryDelay = TimeSpan.FromMilliseconds(120);
@@ -240,6 +256,38 @@ public sealed class JarvisSettingsStore
 	}
 
 /// <summary>
+	/// Reads one secret, keeping the previous value if the host refuses or cannot answer.
+	/// <para>
+	/// Its own error handling, unlike the plain fields. A credential that cannot be read this time must
+	/// not disturb the settings that were read successfully, so a failure here returns the value already
+	/// in hand rather than propagating into the block that publishes them.
+	/// </para>
+	/// </summary>
+	private async Task<string> ReadSecretAsync(
+		IIntegrationConfig config,
+		Guid entryId,
+		string field,
+		string previous,
+		long budgetExpiresAt,
+		CancellationToken cancellationToken)
+	{
+		try
+		{
+			return FirstNonEmpty(
+				await ReadFromHostAsync(
+					() => config.GetSecretAsync(entryId, field, cancellationToken),
+					budgetExpiresAt,
+					cancellationToken).ConfigureAwait(false),
+				previous);
+		}
+		catch (HostInvocationException exception)
+		{
+			_logger.Warning(exception, "Secret {Field} could not be read; keeping the previous value.", field);
+			return previous;
+		}
+	}
+
+/// <summary>
 	/// Reads every configured value back from the host.
 	/// <para>
 	/// The host's encrypted secret store is the only source of a credential. There used to be two more: a
@@ -255,17 +303,17 @@ public sealed class JarvisSettingsStore
 	/// configured store without putting a real key in a file.
 	/// </para>
 	/// </summary>
-	public async Task ReloadAsync(IIntegrationContext? context, CancellationToken cancellationToken)
+public async Task ReloadAsync(IIntegrationContext? context, CancellationToken cancellationToken)
 	{
-		var nvidiaKey = _local.NvidiaApiKey ?? string.Empty;
-		var nvidiaBaseUrl = _local.NvidiaBaseUrl ?? JarvisSettings.DefaultNvidiaBaseUrl;
-		var selfHostedUrl = _local.SelfHostedBaseUrl ?? string.Empty;
-		var selfHostedToken = _local.SelfHostedToken ?? string.Empty;
-		var picovoiceKey = _local.PicovoiceAccessKey ?? string.Empty;
-
-		// Everything the setup flow writes. It used to read back six of thirty, so almost every setting a
-		// user chose was silently discarded and the assistant ran on defaults while appearing configured.
-		_read.Clear();
+		// Seeded from the previous snapshot rather than from empty. A reload that fails part way through has
+		// to leave the last known values standing; clearing first meant a failure cost every plain setting
+		// at once, while the secrets already read into their locals survived, which is precisely the shape of
+		// the bug this replaced: the API keys worked and nothing else did.
+		var nvidiaKey = FirstNonEmpty(_local.NvidiaApiKey, _current.NvidiaApiKey);
+		var nvidiaBaseUrl = FirstNonEmpty(_local.NvidiaBaseUrl, _current.NvidiaBaseUrl, JarvisSettings.DefaultNvidiaBaseUrl);
+		var selfHostedUrl = FirstNonEmpty(_local.SelfHostedBaseUrl, _current.SelfHostedBaseUrl);
+		var selfHostedToken = FirstNonEmpty(_local.SelfHostedToken, _current.SelfHostedToken);
+		var picovoiceKey = FirstNonEmpty(_local.PicovoiceAccessKey, _current.PicovoiceAccessKey);
 
 		if (context is not null)
 		{
@@ -276,13 +324,17 @@ public sealed class JarvisSettingsStore
 				var entries = await ReadFromHostAsync(
 					() => context.Config.GetEntriesAsync(cancellationToken), budgetExpiresAt, cancellationToken).ConfigureAwait(false);
 
+				// Counted because a second entry would split the world in two: the UI and the read-back
+				// could each be looking at a different one, which looks exactly like "nothing saves".
+				_logger.Information("Configuration holds {Count} entries.", entries.Count);
+
 				var entry = entries is { Count: > 0 } ? entries[0] : (ConfigEntrySnapshot?)null;
 
 				if (entry is { } configured)
 				{
-					// Collected into a local dictionary and only published once every field has arrived. A
-					// burst that trips the host's rate limit half way through used to leave _read partly
-					// filled, so some fields read back as empty rather than as "not answered".
+					// Collected into a local dictionary and published only once every field has arrived, so a
+					// burst that trips the host's rate limit half way through leaves the previous values in
+					// place instead of a half-filled set that reads as "not answered".
 					var read = new Dictionary<string, string>(StringComparer.Ordinal);
 
 					foreach (var field in StringFields)
@@ -293,31 +345,24 @@ public sealed class JarvisSettingsStore
 							cancellationToken).ConfigureAwait(false) ?? string.Empty;
 					}
 
-					nvidiaKey = FirstNonEmpty(
-						await ReadFromHostAsync(
-							() => context.Config.GetSecretAsync(
-								configured.Id, JarvisSettingsStoreFields.NvidiaKeyEntryField, cancellationToken),
-							budgetExpiresAt,
-							cancellationToken).ConfigureAwait(false),
-						nvidiaKey);
-
-					picovoiceKey = FirstNonEmpty(
-						await ReadFromHostAsync(
-							() => context.Config.GetSecretAsync(
-								configured.Id, JarvisSettingsStoreFields.PicovoiceKeyField, cancellationToken),
-							budgetExpiresAt,
-							cancellationToken).ConfigureAwait(false),
-						picovoiceKey);
-
-					selfHostedToken = FirstNonEmpty(
-						await ReadFromHostAsync(
-							() => context.Config.GetSecretAsync(
-								configured.Id, JarvisSettingsStoreFields.SelfHostedTokenField, cancellationToken),
-							budgetExpiresAt,
-							cancellationToken).ConfigureAwait(false),
-						selfHostedToken);
-
+					// Published before the credentials are read, not after. A refused secret read must not be
+					// able to cost the plain values, which is what made a working API key the only setting
+					// that ever survived a rate-limited reload.
 					_read = read;
+
+					var config = context.Config;
+
+					nvidiaKey = await ReadSecretAsync(
+						config, configured.Id, JarvisSettingsStoreFields.NvidiaKeyEntryField, nvidiaKey, budgetExpiresAt, cancellationToken)
+						.ConfigureAwait(false);
+
+					picovoiceKey = await ReadSecretAsync(
+						config, configured.Id, JarvisSettingsStoreFields.PicovoiceKeyField, picovoiceKey, budgetExpiresAt, cancellationToken)
+						.ConfigureAwait(false);
+
+					selfHostedToken = await ReadSecretAsync(
+						config, configured.Id, JarvisSettingsStoreFields.SelfHostedTokenField, selfHostedToken, budgetExpiresAt, cancellationToken)
+						.ConfigureAwait(false);
 				}
 			}
 			catch (HostInvocationException exception)

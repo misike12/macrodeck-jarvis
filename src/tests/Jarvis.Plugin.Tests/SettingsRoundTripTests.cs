@@ -52,24 +52,32 @@ public class SettingsRoundTripTests
 	}
 
 	/// <summary>
-	/// The completion hands back every value the run collected.
+	/// The completion hands back the final step's input rather than a set accumulated across steps.
 	/// <para>
-	/// This used to assert the opposite: no values dictionary, on the theory that the host persists each
-	/// step as a multi-step flow runs. That holds for single-step flows only, so the assertion enshrined
-	/// the "nothing saves" bug. The credential wipe it feared (an empty secret overwriting a stored key)
-	/// is covered behaviorally instead: the merge drops an untouched secret before it can reach the
-	/// dictionary. See <see cref="ConfigFlowPersistenceTests"/>.
+	/// This asserted the opposite for a while, on the theory that a multi-step completion with no values
+	/// persisted nothing. Reading the host source and then its database disproved that: the host merges
+	/// every submitted form field itself, and a completed setup had written every field to the entry.
+	/// Accumulating across steps was also worse than useless, because input is cumulative and the host
+	/// rolls it back when the user steps back, so a retracted value would be written straight back over it.
 	/// </para>
 	/// </summary>
 	[Test]
-	public void Completing_the_flow_returns_the_collected_values()
+	public void Completing_the_flow_hands_back_the_last_steps_input()
 	{
 		var source = System.IO.File.ReadAllText(FlowPath());
 
-		Assert.That(
-			source,
-			Does.Match(@"ConfigFlowResult\.Complete\([^)]*,"),
-			"Complete carries no values dictionary, so a multi-step setup persists nothing");
+		Assert.Multiple(() =>
+		{
+			Assert.That(
+				source,
+				Does.Match(@"ConfigFlowResult\.Complete\([^)]*,"),
+				"the completion hands back no values, so a value the plugin computes has no way to persist");
+
+			Assert.That(
+				source,
+				Does.Not.Contain("_collected"),
+				"the flow accumulates across steps, which can resurrect a value the user retracted by stepping back");
+		});
 	}
 
 	/// <summary>
