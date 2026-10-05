@@ -14,7 +14,27 @@ internal static class Samples
 	internal static readonly float[] FiveMore = [5, 6, 7, 8, 9];
 	internal static readonly float[] Two = [1, 2];
 	internal static readonly float[] LastThreeOfSix = [4, 5, 6];
-	internal static readonly float[] LastFourOfNine = [6, 7, 8, 9];
+internal static readonly float[] LastFourOfNine = [6, 7, 8, 9];
+
+	/// <summary>
+	/// One second of a voice-like signal, loud enough to be recognised.
+	/// <para>
+	/// Not silence: an utterance is trimmed to the part above the speech floor before it is recognised, so a
+	/// buffer of zeros is correctly rejected as nothing to hear and a test using one would wait forever for a
+	/// recognition that can never happen.
+	/// </para>
+	/// </summary>
+	internal static float[] Speech(int sampleRate = 48_000)
+	{
+		var samples = new float[sampleRate];
+
+		for (var index = 0; index < samples.Length; index++)
+		{
+			samples[index] = (float)(0.4 * Math.Sin(2 * Math.PI * 220 * index / sampleRate));
+		}
+
+		return samples;
+	}
 }
 
 [TestFixture]
@@ -71,7 +91,7 @@ buffer.Append(Samples.Six);
 	[TestCase("Jarvis!", true)]
 	[TestCase("hey jarvis", true)]
 	[TestCase("jarvis, what time is it", true)]
-	[TestCase("jarvisz", true)]
+[TestCase("jarvisz", true)]
 	[TestCase("jarves", true)]
 	[TestCase("", false)]
 	[TestCase(null, false)]
@@ -80,6 +100,60 @@ buffer.Append(Samples.Six);
 	public void The_word_is_matched_loosely_but_not_vaguely(string? heard, bool expected)
 	{
 		Assert.That(WakeWordDetector.Mentions(heard!, "jarvis"), Is.EqualTo(expected), $"'{heard}'");
+	}
+
+	/// <summary>
+	/// What the recogniser actually returned when the user said the word, taken from the host log.
+	/// <para>
+	/// Every one of these is the word heard correctly and mangled by a small model transcribing a single
+	/// word out of seconds of room tone. A fifth-of-the-word tolerance allowed one edit and rejected all of
+	/// them, which is why the wake word was reported as doing nothing while the log filled with the word
+	/// itself, misspelled. They are the cases that have to work.
+	/// </para>
+	/// </summary>
+	[TestCase("And jardomies.")]
+	[TestCase("jardomies")]
+	[TestCase("jarvez")]
+	[TestCase("jarivs")]
+	[TestCase("Jarvez.")]
+	public void A_word_the_recogniser_mangled_is_still_the_word(string heard)
+	{
+		Assert.That(WakeWordDetector.Mentions(heard, "jarvis"), Is.True, $"'{heard}'");
+	}
+
+	/// <summary>
+	/// The transcripts the log showed that are not a mangled spelling of the word.
+	/// <para>
+	/// These are what the recogniser returned when the microphone had nothing usable in it: the room was
+	/// silent, or a keyboard was being hit. "[BLANK_AUDIO]" and "(keyboard clicking)" are the recogniser
+	/// describing its own input, so they must not match, and neither must an unrelated word.
+	/// </para>
+	/// </summary>
+	[TestCase("[BLANK_AUDIO]")]
+	[TestCase("(keyboard clicking)")]
+	[TestCase("what is the weather")]
+	[TestCase("good evening to you all")]
+	public void Something_that_is_not_the_word_is_still_refused(string heard)
+	{
+		Assert.That(WakeWordDetector.Mentions(heard, "jarvis"), Is.False, $"'{heard}'");
+	}
+
+	/// <summary>
+	/// A word the recogniser returned instead of the one spoken, which is not a near-miss and must not match.
+	/// <para>
+	/// The user said "jarvis" and the log recorded "Paris". Loosening the matcher until that matched would
+	/// mean accepting any short phrase, which fires the wake word at ordinary speech. This is a failure of
+	/// what the recogniser heard, not of how the two are compared, so it is pinned here to stop the
+	/// tolerance being widened to accommodate it: the fix belongs in the audio handed to the recogniser.
+	/// </para>
+	/// </summary>
+	[Test]
+	public void A_different_word_the_recogniser_invented_is_not_the_wake_word()
+	{
+		Assert.That(
+			WakeWordDetector.Mentions("Paris", "jarvis"),
+			Is.False,
+			"the recogniser heard a different word, and matching it would fire on unrelated speech");
 	}
 
 	[Test]
@@ -121,7 +195,7 @@ buffer.Append(Samples.Six);
 			Word = "jarvis",
 		};
 
-		detector.Buffer.Append(new float[48_000]);
+		detector.Buffer.Append(Samples.Speech());
 		var checks = 0;
 		detector.Recognizer = (_, _) =>
 		{
@@ -132,7 +206,12 @@ buffer.Append(Samples.Six);
 		var fired = 0;
 		detector.Detected += () => fired++;
 
+// An utterance is speech followed by a pause, not a single loud sample: the check runs when the voice
+		// stops, because that is the first moment the whole word is in the buffer to be recognised. The pause
+		// has to outlast a real utterance, since anything shorter is treated as a noise spike.
 		await detector.OfferAsync(0.9, TestContext.CurrentContext.CancellationToken);
+		await Task.Delay(200, TestContext.CurrentContext.CancellationToken);
+		await detector.OfferAsync(0.0, TestContext.CurrentContext.CancellationToken);
 
 		Assert.Multiple(() =>
 		{
@@ -154,7 +233,7 @@ buffer.Append(Samples.Six);
 			Sensitivity = 0.2,
 		};
 
-		detector.Buffer.Append(new float[48_000]);
+		detector.Buffer.Append(Samples.Speech());
 
 var concurrent = 0;
 		var peak = 0;
@@ -176,12 +255,16 @@ var concurrent = 0;
 			return null;
 		};
 
-		// The first offer is started and not awaited. OfferAsync awaits the recogniser, the recogniser is
-		// waiting for the gate, and the gate is opened only after the loop, so awaiting the first offer
-		// here would be a deadlock rather than a test.
-		var first = detector.OfferAsync(0.9, TestContext.CurrentContext.CancellationToken);
+		// Speech, then the pause that ends it: the second call is the one that starts the recognition. It is
+		// started and not awaited, because OfferAsync awaits the recogniser, the recogniser is waiting for
+		// the gate, and the gate is opened only after the loop, so awaiting it here would deadlock.
+		await detector.OfferAsync(0.9, TestContext.CurrentContext.CancellationToken);
+		await Task.Delay(200, TestContext.CurrentContext.CancellationToken);
+		var first = detector.OfferAsync(0.0, TestContext.CurrentContext.CancellationToken);
 		await started.Task;
 
+		// More speech while that check is still running, with no pause to end it: one continuous utterance
+		// must not start a second recognition.
 		for (var tick = 1; tick < 10; tick++)
 		{
 			await detector.OfferAsync(0.9, TestContext.CurrentContext.CancellationToken);

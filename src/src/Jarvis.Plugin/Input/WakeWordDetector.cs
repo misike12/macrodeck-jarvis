@@ -127,9 +127,33 @@ public sealed class WakeWordDetector : IDisposable
 	/// </summary>
 	private static readonly TimeSpan Cooldown = TimeSpan.FromSeconds(5);
 
+	/// <summary>
+	/// The level has to fall to this fraction of the sensitivity before an utterance counts as finished.
+	/// <para>
+	/// A separate, lower figure rather than the sensitivity itself, because the smoothed level sags between
+	/// syllables and a pause inside one word would otherwise cut the utterance in half.
+	/// </para>
+	/// </summary>
+	private const double ReleaseRatio = 0.6;
+
+	/// <summary>
+	/// Samples quieter than this are room tone for the purpose of finding where an utterance starts and
+	/// ends. Well under speech, and only ever used to trim, never to decide whether anybody spoke.
+	/// </summary>
+	private const float SpeechFloor = 0.01f;
+
+	/// <summary>An utterance shorter than this is a noise spike rather than a spoken word.</summary>
+	private static readonly TimeSpan MinimumUtterance = TimeSpan.FromMilliseconds(120);
+
 	private readonly ILogger _logger;
 	private DateTimeOffset _nextAllowed = DateTimeOffset.MinValue;
 	private int _busy;
+
+	/// <summary>Whether an utterance is in progress, so its end is what triggers a recognition.</summary>
+	private bool _speaking;
+
+	/// <summary>When the current utterance began, used to ignore a blip too short to be a word.</summary>
+	private DateTimeOffset _speechStartedAt;
 
 	public WakeWordDetector(ILogger logger, TimeSpan? window = null)
 	{
@@ -165,7 +189,44 @@ public sealed class WakeWordDetector : IDisposable
 	/// </summary>
 	public async Task OfferAsync(double level, CancellationToken cancellationToken)
 	{
-		if (!Enabled || Recognizer is null || level < Sensitivity || DateTimeOffset.UtcNow < _nextAllowed)
+		if (!Enabled || Recognizer is null || DateTimeOffset.UtcNow < _nextAllowed)
+		{
+			return;
+		}
+
+		// Triggered on the end of speech, not the start of it.
+		//
+		// Recognising the moment the level crosses the threshold hands the recogniser an utterance that has
+		// barely begun, surrounded by seconds of room tone, and a small model answers that with silence: the
+		// wake word never fired once because it kept transcribing "[BLANK_AUDIO]" while the user spoke. The
+		// word is in the buffer by the time the voice stops, so the end is both the only moment the whole
+		// word exists and the moment the buffer is worth reading.
+		if (level >= Sensitivity)
+		{
+			if (!_speaking)
+			{
+				_speaking = true;
+				_speechStartedAt = DateTimeOffset.UtcNow;
+			}
+
+			return;
+		}
+
+		// Not yet quiet enough to count as finished, so still inside the same utterance.
+		if (_speaking && level >= Sensitivity * ReleaseRatio)
+		{
+			return;
+		}
+
+		if (!_speaking)
+		{
+			return;
+		}
+
+		_speaking = false;
+
+		// A tap or a door is not a word. Without this a single spike spends a recognition on nothing.
+		if (DateTimeOffset.UtcNow - _speechStartedAt < MinimumUtterance)
 		{
 			return;
 		}
@@ -179,7 +240,8 @@ public sealed class WakeWordDetector : IDisposable
 
 		try
 		{
-			var samples = Buffer.TakeLast((int)(Window.TotalSeconds * Buffer.SampleRate));
+			var samples = Trim(
+				Buffer.TakeLast((int)(Window.TotalSeconds * Buffer.SampleRate)), Buffer.SampleRate);
 
 			if (samples.Length == 0)
 			{
@@ -245,13 +307,17 @@ public static bool Mentions(string? heard, string? word)
 		}
 
 		var window = needle.Length;
-		var tolerance = Math.Max(1, needle.Length / 5);
+
+		// A third of the word, not a fifth. At a fifth, a six-letter word allowed one edit and rejected the
+		// mishearings actually observed: "jarvez", "jarivs", "jardomies". The recogniser is a small model
+		// transcribing one word out of a few seconds of audio, so it lands near the word rather than on it.
+		// Still proportional, so a longer configured word is not held to a stricter absolute bar.
+		var tolerance = Math.Max(1, needle.Length / 3);
 
 		// Every position is tried, with a window exactly the length of the word. An earlier version used a
 		// window two characters longer, which meant a window could only ever overlap the word by a couple of
 		// letters, so "hey jarvis" and "jarvis, what time is it" both scored worse than the tolerance and the
-		// wake word never fired for the phrasing people actually use. Scanning every start at the word's own
-		// length fixes that without loosening the tolerance.
+		// wake word never fired for the phrasing people actually use.
 		for (var start = 0; start + window <= haystack.Length; start++)
 		{
 			if (Distance(haystack.AsSpan(start, window), needle) <= tolerance)
@@ -260,10 +326,81 @@ public static bool Mentions(string? heard, string? word)
 			}
 		}
 
+		return MatchesLongerRun(haystack, needle, tolerance);
+	}
+
+	/// <summary>
+	/// Catches the recogniser padding the word with extra sounds, which no fixed-length window can match.
+	/// <para>
+	/// "jardomies" is nine letters for a six-letter word, so every six-letter window of it overlaps the real
+	/// word by only a few letters and scores worse than any tolerance that would still reject an unrelated
+	/// phrase. Requiring the opening of the word to be recognisable, and then allowing the rest to run longer
+	/// than expected, accepts that without opening the matcher up: "Paris" shares no opening with the word
+	/// and so stays rejected.
+	/// </para>
+	/// </summary>
+	private static bool MatchesLongerRun(string haystack, string needle, int tolerance)
+	{
+		var opening = Math.Min(4, needle.Length);
+		var openingTolerance = 1;
+
+		for (var start = 0; start + opening <= haystack.Length; start++)
+		{
+			if (Distance(haystack.AsSpan(start, opening), needle[..opening]) > openingTolerance)
+			{
+				continue;
+			}
+
+			// The opening is right, so this is the word with sounds bolted on. What is left of the transcript
+			// from here is allowed to be as long as the word plus the padding a mishearing adds.
+			var rest = haystack[start..];
+			var longest = Math.Min(rest.Length, needle.Length + 3);
+
+			if (Distance(rest.AsSpan(0, longest), needle) <= tolerance + opening)
+			{
+				return true;
+			}
+		}
+
 		return false;
 	}
 
-private static string Clean(string? text) =>
+/// <summary>
+	/// Cuts the silence off both ends of a captured utterance, keeping a margin at each end.
+	/// <para>
+	/// The ring buffer holds the last few seconds so the word cannot be missed, which means it is mostly room
+	/// tone. Handed that, a small recogniser pads its output with silence markers and invents words, so the
+	/// audio is reduced to the part that is actually speech before it is recognised. The margin keeps the
+	/// attack of the first phoneme, which is where a consonant lives and which trimming would otherwise eat.
+	/// </para>
+	/// </summary>
+	internal static float[] Trim(float[] samples, int sampleRate)
+	{
+		var first = -1;
+		var last = -1;
+
+		for (var index = 0; index < samples.Length; index++)
+		{
+			if (Math.Abs(samples[index]) > SpeechFloor)
+			{
+				first = index;
+				last = index;
+			}
+		}
+
+		// Nothing above the floor: silence all the way through, so there is nothing to recognise.
+		if (first < 0)
+		{
+			return [];
+		}
+
+		var margin = (int)(sampleRate * 0.15);
+		var start = Math.Max(0, first - margin);
+
+		return samples[start..Math.Min(samples.Length, last + margin)];
+	}
+
+	private static string Clean(string? text) =>
   		text is null
   			? string.Empty
   			: new string(text.ToLowerInvariant().Where(char.IsLetter).ToArray());
