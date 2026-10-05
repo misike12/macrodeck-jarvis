@@ -9,6 +9,6 @@ version:     1.1.1
 id:          com.misike12.jarvis
 publisher:   misike12
 rid:         win-x64
-bytes:       2240963
-sha256:      ee6be04a0c0745a9d829bc0301de9c2891b0ebdb3319b2faae6b0f34ad081981
+bytes:       2241450
+sha256:      b4036af58680043a820b924bf111f5b521b68fbe687ef34174af59591ad6a0c1
 published:   https://github.com/misike12/macrodeck-jarvis/releases

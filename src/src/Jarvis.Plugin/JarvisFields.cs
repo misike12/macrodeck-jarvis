@@ -160,7 +160,7 @@ internal static class JarvisFields
 		// in after the flow was opened shows up as soon as the step renders again. An empty value means
 		// the system default, which is also what an untouched field reads back as.
 		new(JarvisSettingsStoreFields.MicrophoneIdField, JarvisFieldKind.Choice, VoiceStep,
-			() => Strings.ConfigFlow.Voice.MicrophoneId.Label(), Default: string.Empty,
+			() => Strings.ConfigFlow.Voice.MicrophoneId.Label(),
 			OptionsSource: LiveMicrophoneOptions),
 		// Stays as the escape hatch: ids can change when a USB device moves ports, and a name substring
 		// still matches then. The store tries the chosen id first and this second.

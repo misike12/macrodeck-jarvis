@@ -1,3 +1,4 @@
+using System.Globalization;
 using Jarvis.Plugin.Core;
 using MacroDeck.Localization;
 using MacroDeck.Sdk.Actions;
@@ -21,8 +22,22 @@ internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 	private const string VoiceStepId = "voice";
 	private const string BehaviourStepId = "behaviour";
 
+	private static readonly HashSet<string> SecretFields =
+		JarvisFields.All
+			.Where(field => field.Kind is JarvisFieldKind.Secret)
+			.Select(field => field.Name)
+			.ToHashSet(StringComparer.Ordinal);
+
+	/// <summary>
+	/// Everything the user has entered in this run. The flow instance lives for the run, so each submit
+	/// merges its step and the completion hands the whole set back: the values named in the completion
+	/// are what the host persists, and a multi-step flow that completes with none persists nothing.
+	/// </summary>
+	private readonly Dictionary<string, ConfigFlowValue> _collected = new(StringComparer.Ordinal);
+
 	public Task<ConfigFlowResult> StartAsync(IConfigFlowContext context, CancellationToken ct)
 	{
+		_collected.Clear();
 		return Task.FromResult(ConfigFlowResult.Step(ProviderStep()));
 	}
 
@@ -32,6 +47,8 @@ internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 		IConfigFlowContext context,
 		CancellationToken ct)
 	{
+		Merge(input);
+
 		var result = stepId switch
 		{
 			ProviderStepId => ProviderSubmitted(input),
@@ -43,6 +60,34 @@ internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 		};
 
 		return Task.FromResult(result);
+	}
+
+	/// <summary>
+	/// Folds one step's input into the run's collection. An empty secret means "unchanged": the host does
+	/// not echo a stored secret back into the form, so persisting an empty one would wipe the key the user
+	/// stored on an earlier run. Anything else is kept honestly, including an empty string, which is how a
+	/// choice for the system default arrives.
+	/// </summary>
+	internal void Merge(IReadOnlyDictionary<string, object?> input)
+	{
+		foreach (var (key, value) in input)
+		{
+			if (value is null)
+			{
+				continue;
+			}
+
+			var text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+
+			if (text.Length == 0 && SecretFields.Contains(key))
+			{
+				continue;
+			}
+
+			_collected[key] = SecretFields.Contains(key)
+				? ConfigFlowValue.Secret(text)
+				: ConfigFlowValue.Plain(text);
+		}
 	}
 
 	private static ConfigFlowResult ProviderSubmitted(IReadOnlyDictionary<string, object?> input)
@@ -82,18 +127,20 @@ internal sealed class JarvisConfigFlow(ILogger logger) : IConfigFlow
 	}
 
 	/// <summary>
-	/// Ends the flow.
+	/// Ends the flow, handing back everything the run collected.
 	/// <para>
-	/// No values dictionary is returned, and that is deliberate. The host persists every form field the
-	/// user filled in as the flow runs, across all steps, so handing back a dictionary built from the last
-	/// step's <c>input</c> would write that step's fields over everything the earlier steps collected.
-	/// The credentials are the sharp edge: they are collected two steps earlier, so a dictionary here wrote
-	/// an empty secret over a stored key every time setup was completed.
+	/// The values named here are what the host persists. This used to return no dictionary on the theory
+	/// that the host persists each step's fields as the flow runs, which holds for single-step flows only:
+	/// a multi-step completion with no values persisted nothing, so every plain setting silently reverted
+	/// to its default on every setup while the secrets (which take the secret store path) survived. The
+	/// empty-secret wipe the old comment feared cannot happen because the merge already drops one.
 	/// </para>
 	/// </summary>
-	private static ConfigFlowResult Complete()
+	private ConfigFlowResult Complete()
 	{
-		return ConfigFlowResult.Complete("JARVIS");
+		return ConfigFlowResult.Complete(
+			"JARVIS",
+			new Dictionary<string, ConfigFlowValue>(_collected, StringComparer.Ordinal));
 	}
 
 	private static ConfigFlowStep ProviderStep() => Step(

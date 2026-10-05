@@ -52,32 +52,24 @@ public class SettingsRoundTripTests
 	}
 
 	/// <summary>
-	/// Completing the flow must not hand back a values dictionary.
+	/// The completion hands back every value the run collected.
 	/// <para>
-	/// The host persists every form field as the flow runs, across all steps. The flow used to rebuild all
-	/// of them from the <em>last</em> step's input and pass them to <c>Complete</c>, so the three API keys
-	/// collected two steps earlier were absent from that input and were written back as an empty secret.
-	/// Every configured API key was therefore destroyed each time setup was completed, which is why the
-	/// dictionary is gone rather than merely corrected.
+	/// This used to assert the opposite: no values dictionary, on the theory that the host persists each
+	/// step as a multi-step flow runs. That holds for single-step flows only, so the assertion enshrined
+	/// the "nothing saves" bug. The credential wipe it feared (an empty secret overwriting a stored key)
+	/// is covered behaviorally instead: the merge drops an untouched secret before it can reach the
+	/// dictionary. See <see cref="ConfigFlowPersistenceTests"/>.
 	/// </para>
 	/// </summary>
 	[Test]
-	public void Completing_the_flow_writes_no_values()
+	public void Completing_the_flow_returns_the_collected_values()
 	{
 		var source = System.IO.File.ReadAllText(FlowPath());
 
-		Assert.Multiple(() =>
-		{
-			Assert.That(
-				source,
-				Does.Not.Contain("ConfigFlowValue."),
-				"the flow builds a values dictionary, so the last step's input overwrites every earlier step");
-
-			Assert.That(
-				source,
-				Does.Not.Match(@"ConfigFlowResult\.Complete\([^)]*,"),
-				"Complete is passed a second argument, which replaces what the host already persisted");
-		});
+		Assert.That(
+			source,
+			Does.Match(@"ConfigFlowResult\.Complete\([^)]*,"),
+			"Complete carries no values dictionary, so a multi-step setup persists nothing");
 	}
 
 	/// <summary>
