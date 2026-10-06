@@ -220,6 +220,130 @@ public class OpenWakeWordEngineLiveTests
 		}
 	}
 
+	/// <summary>
+	/// The positive case, on synthesized speech. A human recording cannot be pinned in the repository, so
+	/// the stand-in is the same SAPI voice Windows ships, which is honest about its limits: it proves the
+	/// port scores the phrase through the real models, not that every human voice on earth is recognised.
+	/// The rejection tests above are the half that catches a port gone subtly wrong; this is the half that
+	/// catches one gone deaf.
+	/// </summary>
+	[Test]
+	public async Task A_spoken_phrase_scores_high()
+	{
+		if (NewEngine(out var reason) is not { } engine)
+		{
+			Assert.Ignore($"skipped: {reason}");
+			return;
+		}
+
+		using (engine)
+		{
+			var path = Path.Combine(Path.GetTempPath(), $"jarvis-ww-{Guid.CreateVersion7():N}.wav");
+
+			try
+			{
+				if (!TrySynthesizePhrase(path))
+				{
+					Assert.Ignore("skipped: no SAPI voice was available to synthesize the phrase");
+					return;
+				}
+
+				var pcm = ReadWav(path);
+				var highest = 0f;
+
+				// Fed in 100 ms packets the way the microphone delivers them, through the same conversion
+				// path the engine applies to live audio.
+				for (var offset = 0; offset + 1600 <= pcm.Length; offset += 1600)
+				{
+					if (engine.Process(pcm[offset..(offset + 1600)], 16_000) is { } score)
+					{
+						highest = Math.Max(highest, score);
+					}
+				}
+
+				Assert.That(
+					highest,
+					Is.GreaterThan(0.5f),
+					$"the synthesized phrase never scored above the threshold (peak {highest:0.000})");
+			}
+			finally
+			{
+				try
+				{
+					File.Delete(path);
+				}
+				catch (IOException)
+				{
+					// A leftover temp file is not worth a failed test.
+				}
+			}
+		}
+	}
+
+	/// <summary>Renders the phrase with the machine's default SAPI voice, at 16 kHz mono.</summary>
+	private static bool TrySynthesizePhrase(string path)
+	{
+		var script =
+			"Add-Type -AssemblyName System.Speech; " +
+			"$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; " +
+			"$f = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(16000, " +
+			"[System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, " +
+			"[System.Speech.AudioFormat.AudioChannel]::Mono); " +
+			"$s.SetOutputToWaveFile('" + path.Replace("'", "''") + "', $f); " +
+			"$s.Speak('Hey Jarvis. Hey Jarvis, what time is it.'); " +
+			"$s.Dispose()";
+
+		try
+		{
+			using var process = System.Diagnostics.Process.Start(
+				new System.Diagnostics.ProcessStartInfo("powershell", "-NoProfile -NonInteractive -Command " + script)
+				{
+					UseShellExecute = false,
+					CreateNoWindow = true,
+				});
+
+			if (process is null || !process.WaitForExit(30_000) || process.ExitCode != 0 || !File.Exists(path))
+			{
+				return false;
+			}
+
+			return true;
+		}
+		catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+		{
+			return false;
+		}
+	}
+
+	/// <summary>Reads a 16-bit PCM WAV into normalized floats, which is what the engine's door expects.</summary>
+	private static float[] ReadWav(string path)
+	{
+		var bytes = File.ReadAllBytes(path);
+
+		for (var position = 12; position + 8 <= bytes.Length;)
+		{
+			var id = System.Text.Encoding.ASCII.GetString(bytes, position, 4);
+			var size = BitConverter.ToInt32(bytes, position + 4);
+
+			if (id == "data")
+			{
+				var count = size / 2;
+				var samples = new float[count];
+
+				for (var index = 0; index < count; index++)
+				{
+					samples[index] = BitConverter.ToInt16(bytes, position + 8 + index * 2) / 32768f;
+				}
+
+				return samples;
+			}
+
+			position += 8 + size + (size & 1);
+		}
+
+		throw new InvalidDataException($"{path} has no data chunk.");
+	}
+
 	[Test]
 	public void A_reset_engine_behaves_like_a_fresh_one()
 	{
