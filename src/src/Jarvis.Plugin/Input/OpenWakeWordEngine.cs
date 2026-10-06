@@ -41,7 +41,11 @@ public sealed class OpenWakeWordEngine : IDisposable
 	/// <summary>The keyword classifiers read the last 16 feature rows: 1.28 s of context.</summary>
 	private const int ClassifierFrames = 16;
 
-	/// <summary>The classifiers are muted for this many chunks after start, exactly as the reference does.</summary>
+	/// <summary>
+	/// The classifiers are muted for this many chunks after start, exactly as the reference does. The
+	/// feature buffer is already seeded, so this mute only covers the first predictions the models would
+	/// otherwise make against a context that is still mostly seed noise.
+	/// </summary>
 	private const int WarmupChunks = 5;
 
 	/// <summary>Mel frames retained. 970 is the reference's ten seconds; the classifier only ever reads the last 76.</summary>
@@ -49,9 +53,6 @@ public sealed class OpenWakeWordEngine : IDisposable
 
 	/// <summary>Feature rows retained. The reference keeps 120; 16 are read at a time.</summary>
 	private const int FeatureBufferMaxRows = 120;
-
-	/// <summary>Chunks of history the engine needs before its output means anything: warm-up plus classifier context.</summary>
-	private const int PrimeChunks = WarmupChunks + ClassifierFrames;
 
 	private readonly InferenceSession _mel;
 	private readonly InferenceSession _embedding;
@@ -240,7 +241,7 @@ public sealed class OpenWakeWordEngine : IDisposable
 		}
 
 		_chunksProcessed++;
-		_primed = _chunksProcessed >= PrimeChunks;
+		_primed = _chunksProcessed >= WarmupChunks;
 
 		return _primed ? Classify() : null;
 	}

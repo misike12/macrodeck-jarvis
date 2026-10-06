@@ -260,8 +260,8 @@ public class OpenWakeWordEngineLiveTests
 
 /// <summary>
 /// The detector's score path: fire after a run of confident chunks, not on one, and not while cooling
-/// down. The feed is a stub, because what is under test here is the counting and the cooldown, not the
-/// model - the model's own scores are asserted in the fixture above.
+/// down. The scores are handed over the way the pump does, because what is under test here is the
+/// counting and the cooldown, not the model - the model's own scores are asserted in the fixture above.
 /// </summary>
 [TestFixture]
 public class WakeWordScorePathTests
@@ -270,96 +270,74 @@ public class WakeWordScorePathTests
 		new(RuntimeTestLog.Logger, TimeSpan.FromSeconds(2)) { Enabled = true };
 
 	[Test]
-	public async Task A_run_of_confident_scores_fires_once_and_then_cools_down()
+	public void A_run_of_three_confident_chunks_fires_once_and_then_cools_down()
 	{
 		using var detector = NewDetector();
-		detector.ScoreFeed = (_, _, _) => Task.FromResult<float?>(0.9f);
 
 		var fired = 0;
 		detector.Detected += () => fired++;
 
-		for (var tick = 0; tick < 10; tick++)
+		for (var chunk = 0; chunk < 10; chunk++)
 		{
-			detector.Buffer.Append(new float[4800]);
-			await detector.OfferAsync(0.5, TestContext.CurrentContext.CancellationToken);
+			detector.OfferScore(0.9f);
 		}
 
-		Assert.Multiple(() =>
-		{
-			Assert.That(fired, Is.EqualTo(1), "the run fired more than once");
-		});
+		Assert.That(fired, Is.EqualTo(1), "the run fired more than once");
 	}
 
 	[Test]
-	public async Task One_confident_chunk_does_not_fire()
+	public void One_confident_chunk_does_not_fire()
 	{
 		using var detector = NewDetector();
-
-		var scores = new Queue<float?>([0.9f, 0f, 0f, 0f, 0f, 0f]);
-		detector.ScoreFeed = (_, _, _) => Task.FromResult(scores.Dequeue());
 
 		var fired = 0;
 		detector.Detected += () => fired++;
 
-		for (var tick = 0; tick < 6; tick++)
-		{
-			detector.Buffer.Append(new float[4800]);
-			await detector.OfferAsync(0.5, TestContext.CurrentContext.CancellationToken);
-		}
+		detector.OfferScore(0.9f);
 
 		Assert.That(fired, Is.Zero, "a single confident chunk started a turn");
 	}
 
 	[Test]
-	public async Task A_null_score_interrupts_a_run()
+	public void A_chunk_below_the_threshold_restarts_the_run()
 	{
 		using var detector = NewDetector();
-
-		// Two confident chunks, then a null (still priming), then two more. The run must restart at the
-		// null: a gap means the chunks were not consecutive audio, which is exactly what patience is for,
-		// so two confident chunks after the gap stay under the run of three.
-		var scores = new Queue<float?>([0.9f, 0.9f, null, 0.9f, 0.9f, 0f]);
-		detector.ScoreFeed = (_, _, _) => Task.FromResult(scores.Dequeue());
 
 		var fired = 0;
 		detector.Detected += () => fired++;
 
-		for (var tick = 0; tick < 6; tick++)
-		{
-			detector.Buffer.Append(new float[4800]);
-			await detector.OfferAsync(0.5, TestContext.CurrentContext.CancellationToken);
-		}
+		// Two confident, one miss, two confident: never three in a row, so never a fire.
+		detector.OfferScore(0.9f);
+		detector.OfferScore(0.9f);
+		detector.OfferScore(0.1f);
+		detector.OfferScore(0.9f);
+		detector.OfferScore(0.9f);
 
-		Assert.That(fired, Is.Zero, "a run interrupted by priming still fired");
+		Assert.That(fired, Is.Zero, "a run broken by a miss still fired");
 	}
 
 	[Test]
-	public async Task A_disabled_detector_never_feeds()
+	public void A_disabled_detector_never_fires()
 	{
 		using var detector = NewDetector();
 		detector.Enabled = false;
 
-		var feeds = 0;
-		detector.ScoreFeed = (_, _, _) =>
-		{
-			feeds++;
-			return Task.FromResult<float?>(0.9f);
-		};
+		var fired = 0;
+		detector.Detected += () => fired++;
 
-		for (var tick = 0; tick < 5; tick++)
+		for (var chunk = 0; chunk < 10; chunk++)
 		{
-			detector.Buffer.Append(new float[4800]);
-			await detector.OfferAsync(0.5, TestContext.CurrentContext.CancellationToken);
+			detector.OfferScore(0.9f);
 		}
 
-		Assert.That(feeds, Is.Zero);
+		Assert.That(fired, Is.Zero);
 	}
 
 	[Test]
-	public async Task Without_a_score_feed_the_transcript_path_still_works()
+	public async Task The_transcript_path_still_works_alongside_the_score_path()
 	{
-		// The transcript path is the fallback engine and remains selectable, so the detector must still
-		// run it when no score feed is attached.
+		// The transcript engine remains selectable and shares the same event, so it must be unaffected by
+		// the score path's arrival.
 		using var detector = new WakeWordDetector(RuntimeTestLog.Logger, TimeSpan.FromSeconds(1))
 		{
 			Enabled = true,

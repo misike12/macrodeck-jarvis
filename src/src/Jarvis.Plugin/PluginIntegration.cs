@@ -44,6 +44,7 @@ private readonly RuntimeManager _runtime;
 	private readonly ListeningPipeline _listening;
 	private readonly GlobalHotkey _hotkey;
 	private readonly WakeWordDetector _wakeWord;
+	private readonly OpenWakeWordEngineHost _wakeEngine;
 	private readonly WhisperTranscriber _transcriber;
 	private readonly ServiceAvailability _serviceAvailability;
 	/// <summary>
@@ -81,6 +82,7 @@ private readonly RuntimeManager _runtime;
 		ListeningPipeline listening,
 		GlobalHotkey hotkey,
 		WakeWordDetector wakeWord,
+		OpenWakeWordEngineHost wakeEngine,
 WhisperTranscriber transcriber,
 		ServiceAvailability serviceAvailability)
 	{
@@ -93,6 +95,7 @@ WhisperTranscriber transcriber,
 		_listening = listening;
 		_hotkey = hotkey;
 		_wakeWord = wakeWord;
+		_wakeEngine = wakeEngine;
 		_transcriber = transcriber;
 		_serviceAvailability = serviceAvailability;
 
@@ -273,7 +276,7 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 
 		RegisterHotkey(settings);
 
-		ConfigureWakeWord(settings);
+		await ConfigureWakeWordAsync(settings, cancellationToken).ConfigureAwait(false);
 
 		if (!settings.HasLlmCredentials)
 		{
@@ -337,11 +340,16 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 	}
 
 	/// <summary>
-	/// Wires the offline wake word to the recogniser already configured. The detector decides that someone
-	/// has spoken; the transcriber decides whether the word was in it. Nothing is downloaded and no account
-	/// is needed, which is the point: the wake word works offline out of the box.
+	/// Wires the selected wake word engine. The keyword spotter scores the raw stream in-process: the
+	/// models download the first time it is selected, the pump feeds them every packet in order, and a
+	/// run of confident chunks starts a turn. The transcript engine is the original design - level, then
+	/// recognise, then match - and stays selectable because it matches any word the settings name.
+	/// <para>
+	/// The two paths share nothing but the detector's cooldown and event, so a switch between them
+	/// leaves the same teardown whichever was running before.
+	/// </para>
 	/// </summary>
-	private void ConfigureWakeWord(JarvisSettings settings)
+	private async Task ConfigureWakeWordAsync(JarvisSettings settings, CancellationToken cancellationToken)
 	{
 		_wakeWord.Word = settings.WakeWord;
 		_wakeWord.Sensitivity = settings.WakeWordSensitivity;
@@ -351,29 +359,70 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 		// working after it has been switched off.
 		_wakeWord.Detected -= OnWakeWordDetected;
 		_microphone.LevelPublished -= OnMicrophoneLevel;
+		_microphone.SamplesCaptured -= OnMicrophoneSamples;
 		_microphone.DetachTap();
 		_wakeWord.Recognizer = null;
 		_wakeWord.Enabled = false;
+		_wakeEngine.ScoreReady -= _wakeWord.OfferScore;
+		_wakeEngine.Deactivate();
 
 		if (!settings.WakeWordEngineEnabled || !settings.MicrophoneAlwaysOn)
 		{
 			return;
 		}
 
-		// Assigned unconditionally rather than only on the enabled path, and it reads the current settings
-		// from the field rather than capturing the argument. A closure over a parameter holds the settings
-		// from the initialization that created it, so a later configuration change was recognised with the
-		// old language and sensitivity.
-		_wakeWord.Recognizer = RecognizeWakeWordAsync;
+		if (settings.WakeWordEngine == WakeWordEngine.OpenWakeWord)
+		{
+			if (!await _wakeEngine.ActivateAsync(settings, cancellationToken).ConfigureAwait(false))
+			{
+				// The models did not install; the download manager has raised an issue the user can act on.
+				// The wake word stays off rather than pretending to listen.
+				return;
+			}
+
+			_wakeEngine.ScoreReady += _wakeWord.OfferScore;
+			_microphone.SamplesCaptured += OnMicrophoneSamples;
+		}
+		else
+		{
+			// Assigned unconditionally rather than only on the enabled path, and it reads the current settings
+			// from the field rather than capturing the argument. A closure over a parameter holds the settings
+			// from the initialization that created it, so a later configuration change was recognised with the
+			// old language and sensitivity.
+			_wakeWord.Recognizer = RecognizeWakeWordAsync;
+		}
+
 		_wakeWord.Enabled = true;
 		_wakeWord.Detected += OnWakeWordDetected;
 
-		// The feed itself. Everything above configures a detector that waits to be given levels, and without
-		// this line it waits for the rest of its life: the tap keeps the audio and the detector never sees it.
-		_microphone.LevelPublished -= OnMicrophoneLevel;
-		_microphone.LevelPublished += OnMicrophoneLevel;
+		if (settings.WakeWordEngine == WakeWordEngine.Transcript)
+		{
+			// The feed itself. Everything above configures a detector that waits to be given levels, and
+			// without this line it waits for the rest of its life: the tap keeps the audio and the detector
+			// never sees it. The keyword path does not need the tap - its packets arrive through
+			// SamplesCaptured - so the ring buffer is only filled when something reads it.
+			_microphone.LevelPublished -= OnMicrophoneLevel;
+			_microphone.LevelPublished += OnMicrophoneLevel;
 
-		_microphone.AttachTap(_wakeWord.Buffer);
+			_microphone.AttachTap(_wakeWord.Buffer);
+		}
+	}
+
+	/// <summary>
+	/// Feeds one raw packet to the keyword engine. On the capture thread, deliberately without a task:
+	/// <see cref="OpenWakeWordEngineHost.Accept"/> is a bounded queue write, and the packet order that
+	/// the pump depends on is only guaranteed if the handover is as synchronous as the callback itself.
+	/// </summary>
+	private void OnMicrophoneSamples(float[] samples)
+	{
+		try
+		{
+			_wakeEngine.Accept(samples);
+		}
+		catch (Exception exception) when (exception is not OutOfMemoryException)
+		{
+			_logger.Debug(exception, "A microphone packet could not be fed to the wake word.");
+		}
 	}
 
 	/// <summary>
@@ -522,6 +571,10 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 		_wakeWord.Detected -= OnWakeWordDetected;
 		_wakeWord.Recognizer = null;
 		_wakeWord.Enabled = false;
+
+		_wakeEngine.ScoreReady -= _wakeWord.OfferScore;
+		_microphone.SamplesCaptured -= OnMicrophoneSamples;
+		_wakeEngine.Deactivate();
 
 		_microphone.LevelPublished -= OnMicrophoneLevel;
 		_microphone.DetachTap();

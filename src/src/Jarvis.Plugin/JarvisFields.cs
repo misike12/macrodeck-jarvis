@@ -136,12 +136,11 @@ internal static class JarvisFields
 		new(JarvisSettingsStoreFields.LanguageField, JarvisFieldKind.Text, VoiceStep,
 			() => Strings.ConfigFlow.Voice.Language.Label(), Default: "en", Required: true),
 		new(JarvisSettingsStoreFields.WakeEngineField, JarvisFieldKind.Choice, VoiceStep,
-			() => Strings.ConfigFlow.Voice.WakeEngine.Label(), Default: "porcupine", Required: true,
+			() => Strings.ConfigFlow.Voice.WakeEngine.Label(), Default: "openwakeword", Required: true,
 			Options:
 			[
-				Option("porcupine", Strings.ConfigFlow.Voice.Option.Porcupine()),
-				Option("nanowakeword", Strings.ConfigFlow.Voice.Option.NanoWakeWord()),
-				Option("vosk", Strings.ConfigFlow.Voice.Option.Vosk()),
+				Option("openwakeword", Strings.ConfigFlow.Voice.Option.OpenWakeWord()),
+				Option("transcript", Strings.ConfigFlow.Voice.Option.Transcript()),
 			]),
 
 		// The wake word had no way to be switched off. It was read back from a field no step declared, so

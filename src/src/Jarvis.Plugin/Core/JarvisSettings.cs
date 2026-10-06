@@ -66,7 +66,7 @@ public sealed record JarvisSettings
 
 	public bool WakeWordEngineEnabled { get; init; }
 
-	public WakeWordEngine WakeWordEngine { get; init; } = WakeWordEngine.Porcupine;
+	public WakeWordEngine WakeWordEngine { get; init; } = WakeWordEngine.OpenWakeWord;
 
 	public string WakeWord { get; init; } = "jarvis";
 
@@ -155,9 +155,11 @@ public sealed record JarvisSettings
 
 	public bool HasWakeWordCredentials => WakeWordEngine switch
 	{
-		WakeWordEngine.Porcupine => !string.IsNullOrWhiteSpace(PicovoiceAccessKey),
-		WakeWordEngine.NanoWakeWord => true,
-		WakeWordEngine.Vosk => true,
+		// Every engine this build ships runs without an account. The switch stays because the question
+		// "can this engine work at all here" is still asked, and the answer for the keyword spotter is
+		// its models being downloadable rather than a key being present.
+		WakeWordEngine.OpenWakeWord => true,
+		WakeWordEngine.Transcript => true,
 		_ => false,
 	};
 }

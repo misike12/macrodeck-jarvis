@@ -21,11 +21,21 @@ public enum TextToSpeechProvider
 	WindowsSapi,
 }
 
+/// <summary>
+/// How the wake word is spotted. The keyword spotter runs entirely in-process on ONNX Runtime and needs
+/// no account; the transcript engine is the original level-then-recognise path, kept selectable because
+/// it is the one that can match any word the settings name, not just the keywords a model exists for.
+/// </summary>
 public enum WakeWordEngine
 {
-	Porcupine,
-	NanoWakeWord,
-	Vosk,
+	/// <summary>openWakeWord's keyword models, run in-process. The default: fastest and fully offline.</summary>
+	OpenWakeWord,
+
+	/// <summary>
+	/// The transcript engine: wait for the level to say someone spoke, transcribe the utterance, match
+	/// the word in the text. Slower per detection, but works with any configured word.
+	/// </summary>
+	Transcript,
 }
 
 public enum LifetimeTier

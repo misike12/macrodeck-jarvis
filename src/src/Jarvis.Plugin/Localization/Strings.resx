@@ -337,14 +337,11 @@
   <data name="ConfigFlow.Voice.Option.Piper" xml:space="preserve">
     <value>Piper (offline)</value>
   </data>
-  <data name="ConfigFlow.Voice.Option.Porcupine" xml:space="preserve">
-    <value>Porcupine</value>
+  <data name="ConfigFlow.Voice.Option.OpenWakeWord" xml:space="preserve">
+    <value>Keyword model (openWakeWord, offline)</value>
   </data>
-  <data name="ConfigFlow.Voice.Option.NanoWakeWord" xml:space="preserve">
-    <value>NanoWakeWord (no key)</value>
-  </data>
-  <data name="ConfigFlow.Voice.Option.Vosk" xml:space="preserve">
-    <value>Vosk</value>
+  <data name="ConfigFlow.Voice.Option.Transcript" xml:space="preserve">
+    <value>Transcribe and match (works with any word)</value>
   </data>
 
   <data name="ConfigFlow.Behaviour.Title" xml:space="preserve">

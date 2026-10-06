@@ -101,23 +101,17 @@ public sealed class SampleRingBuffer
 			_count = 0;
 		}
 	}
-}
-
-/// <summary>
-/// An offline wake word, with no model file and no account.
-/// <para>
-/// Rather than shipping a keyword-spotting model, this reuses the speech recognition already installed:
-/// the microphone's own level decides that somebody has started speaking, and the audio that triggered it
-/// is transcribed and checked for the word. The wake word is therefore exactly as good as the recogniser
-/// and exactly as offline, at the cost of a recognition pass per utterance, which is why the trigger is
-/// deliberately conservative.
-/// </para>
-/// <para>
-/// The trade is worth recording. A dedicated model would be faster and would not need a recogniser at all,
-/// but Porcupine needs an account and NanoWakeWord needs an ONNX runtime dependency. Neither was worth it
-/// for a feature that already works offline with what is installed.
-/// </para>
-/// </summary>
+}	/// <summary>
+	/// The wake word trigger, with two selectable paths behind one event.
+	/// <para>
+	/// The score path runs the openWakeWord keyword model in-process: the engine's pump hands over one
+	/// score per 80 ms chunk, and a run of confident chunks fires. The transcript path keeps the original
+	/// design - the microphone's level decides that somebody has spoken, the audio that triggered it is
+	/// transcribed, and the transcript is matched for the word. The engine setting picks the path; the
+	/// cooldown and the <see cref="Detected"/> event are shared, so nothing downstream knows or cares
+	/// which one ran.
+	/// </para>
+	/// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WakeWordDetector : IDisposable
 {
@@ -198,35 +192,19 @@ public sealed class WakeWordDetector : IDisposable
 	public event Action? Detected;
 
 	/// <summary>
-	/// When set, chunk scores from the keyword model feed the score path. Supplied rather than constructed
-	/// so the detector has no opinion about which engine exists and can be exercised without one.
-	/// </summary>
-	public Func<float[], int, CancellationToken, Task<float?>>? ScoreFeed { get; set; }
-
-	/// <summary>
 	/// Runs the actual check. Supplied by the owner rather than constructed here, so this class has no
 	/// opinion about which recogniser is configured and can be exercised without one.
 	/// </summary>
 	public Func<float[], CancellationToken, Task<string?>>? Recognizer { get; set; }
 
 	/// <summary>
-	/// Offers the current level to the detector. Called from the monitor's own publish tick, so nothing
-	/// extra is scheduled and a silent microphone costs nothing.
+	/// The transcript path's entry: the level decides that someone has spoken, the recogniser decides
+	/// whether the word was in it. Called from the monitor's own publish tick, so nothing extra is
+	/// scheduled and a silent microphone costs nothing.
 	/// </summary>
 	public async Task OfferAsync(double level, CancellationToken cancellationToken)
 	{
-		if (!Enabled || DateTimeOffset.UtcNow < _nextAllowed)
-		{
-			return;
-		}
-
-		if (ScoreFeed is { } feed)
-		{
-			await OfferScoreAsync(feed, cancellationToken).ConfigureAwait(false);
-			return;
-		}
-
-		if (Recognizer is null)
+		if (!Enabled || Recognizer is null || DateTimeOffset.UtcNow < _nextAllowed)
 		{
 			return;
 		}
@@ -235,80 +213,42 @@ public sealed class WakeWordDetector : IDisposable
 	}
 
 	/// <summary>
-	/// The score path: every offered level carries 50 ms of audio into the engine through the tap, the
-	/// engine answers with the chunk's score when one completes, and a run of confident chunks fires.
+	/// One keyword score for one 80 ms chunk, delivered by the engine's pump. Synchronous and cheap: the
+	/// pump has already paid for the inference, so what is left is only the counting.
 	/// <para>
-	/// The level is not looked at: the keyword model is better at telling a word from a click than a
-	/// threshold is, and gating on the level would only add a second way to miss the word. Chunks complete
-	/// every 80 ms and the offer ticks every 50 ms, so most offers find the remainder short and return
-	/// immediately; the engine's own remainder buffer carries the partial chunk across offers.
+	/// The rules are the openWakeWord patience behaviour with a cooldown bolted on. A single chunk over
+	/// the threshold is a click or a syllable of an unrelated word, so a run of three fires; any chunk
+	/// under it restarts the run; and after a fire the word goes quiet for a while, because the tail of
+	/// the phrase is still in the model's context window and would otherwise re-detect itself.
 	/// </para>
 	/// </summary>
-	private async Task OfferScoreAsync(
-		Func<float[], int, CancellationToken, Task<float?>> feed,
-		CancellationToken cancellationToken)
+	public void OfferScore(float score)
 	{
-		if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
+		if (!Enabled || DateTimeOffset.UtcNow < _nextAllowed)
 		{
 			return;
 		}
 
-		try
+		if (score >= ScoreThreshold)
 		{
-			float[] samples;
+			_consecutiveScores++;
 
-			lock (Buffer)
+			if (_consecutiveScores >= ScorePatience)
 			{
-				samples = Buffer.TakeLast(MicrophoneMonitor.SampleRate / 10);
-			}
+				_logger.Information(
+					"Wake word scored {Score} over {Patience} chunks; firing.",
+					score,
+					_consecutiveScores);
 
-			if (samples.Length == 0)
-			{
-				return;
-			}
-
-			var score = await feed(samples, MicrophoneMonitor.SampleRate, cancellationToken).ConfigureAwait(false);
-
-			if (score is null)
-			{
-				// Still priming or inference failed: neither is a miss, and both happen every start-up.
 				_consecutiveScores = 0;
-				return;
-			}
-
-			if (score >= ScoreThreshold)
-			{
-				_consecutiveScores++;
-
-				if (_consecutiveScores >= ScorePatience)
-				{
-					_logger.Information(
-						"Wake word scored {Score} over {Patience} chunks; firing.",
-						$"{score:0.000}",
-						_consecutiveScores);
-
-					_consecutiveScores = 0;
-					_nextAllowed = DateTimeOffset.UtcNow + ScoreCooldown;
-					Detected?.Invoke();
-				}
-			}
-			else
-			{
-				_consecutiveScores = 0;
+				_nextAllowed = DateTimeOffset.UtcNow + ScoreCooldown;
+				Detected?.Invoke();
 			}
 		}
-		catch (OperationCanceledException)
+		else
 		{
-			throw;
-			}
-		catch (Exception exception) when (exception is not OutOfMemoryException)
-		{
-			_logger.Information(exception, "A wake word score check failed.");
+			_consecutiveScores = 0;
 		}
-		finally
-			{
-				Interlocked.Exchange(ref _busy, 0);
-			}
 	}
 
 		/// <summary>
@@ -317,7 +257,11 @@ public sealed class WakeWordDetector : IDisposable
 	/// </summary>
 	private async Task OfferTranscriptAsync(double level, CancellationToken cancellationToken)
 	{
-		if (Recognizer is null || DateTimeOffset.UtcNow < _nextAllowed)
+		// The entry already gated on the recogniser being present, but a local copy is what proves it to
+		// the compiler: the null-state does not follow a call across methods.
+		var recogniser = Recognizer;
+
+		if (recogniser is null)
 		{
 			return;
 		}
@@ -376,7 +320,7 @@ public sealed class WakeWordDetector : IDisposable
 				return;
 			}
 
-var heard = await Recognizer(samples, cancellationToken).ConfigureAwait(false);
+var heard = await recogniser(samples, cancellationToken).ConfigureAwait(false);
 
 		if (heard is { } text && Mentions(text, Word))
 		{

@@ -33,6 +33,7 @@ public static class PluginServices
 		builder.Services.AddSingleton<ListeningPipeline>();
 		builder.Services.AddSingleton<GlobalHotkey>();
 		builder.Services.AddSingleton<WakeWordDetector>();
+		builder.Services.AddSingleton<OpenWakeWordEngineHost>();
 		builder.Services.AddSingleton<SpeechPlayer>();
 		builder.Services.AddSingleton<VoiceService>();
 
