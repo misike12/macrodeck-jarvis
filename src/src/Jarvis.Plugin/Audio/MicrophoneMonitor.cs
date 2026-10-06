@@ -216,6 +216,11 @@ public sealed class MicrophoneMonitor : IDisposable
 			_meter.Accumulate(samples);
 			_tap?.Append(samples);
 		}
+
+		// Raised outside the lock with a defensive copy. OnDataAvailable is the only place raw packets
+		// exist - the publish tick carries levels, not audio - and a keyword-spotting engine fed from
+		// anything coarser than this would be deciding on a summary of the word rather than the word.
+		SamplesCaptured?.Invoke(samples);
 	}
 
 	private void Publish()
@@ -258,6 +263,13 @@ public sealed class MicrophoneMonitor : IDisposable
 	/// decision from loudness. Not the raw samples: a subscriber that wants audio takes the tap.
 	/// </summary>
 	public event Action<double>? LevelPublished;
+
+	/// <summary>
+	/// Raised for every raw packet the device delivers, as device-rate floats. For the keyword engine,
+	/// which needs the audio itself: a ring buffer read a tick later misses the 30 ms between packets, and
+	/// the wake word is exactly a couple of hundred milliseconds of audio.
+	/// </summary>
+	public event Action<float[]>? SamplesCaptured;
 
 	public void Dispose()
 	{

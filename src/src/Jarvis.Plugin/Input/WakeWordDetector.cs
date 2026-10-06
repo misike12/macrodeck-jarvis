@@ -145,9 +145,29 @@ public sealed class WakeWordDetector : IDisposable
 	/// <summary>An utterance shorter than this is a noise spike rather than a spoken word.</summary>
 	private static readonly TimeSpan MinimumUtterance = TimeSpan.FromMilliseconds(120);
 
+	/// <summary>
+	/// A keyword score has to exceed this for a run of consecutive chunks before the wake word fires.
+	/// <para>
+	/// The model's score for the real phrase measured 0.999, and everything that was not the phrase -
+	/// silence, tones, noise, speech-like babble - scored below 0.01, so 0.5 sits in the gap. The count is
+	/// the openWakeWord patience behaviour: a single chunk over the line is a click or a syllable of an
+	/// unrelated word, and requiring three keeps that from starting a turn.
+	/// </para>
+	/// </summary>
+	public const double ScoreThreshold = 0.5;
+
+	/// <summary>The number of consecutive over-threshold chunks a score run requires.</summary>
+	public const int ScorePatience = 3;
+
+	/// <summary>How long after a score fire the score path goes quiet. Mirrors the transcript cooldown.</summary>
+	private static readonly TimeSpan ScoreCooldown = TimeSpan.FromSeconds(5);
+
 	private readonly ILogger _logger;
 	private DateTimeOffset _nextAllowed = DateTimeOffset.MinValue;
 	private int _busy;
+
+	/// <summary>Consecutive chunks the score path has seen above the threshold, reset on any miss.</summary>
+	private int _consecutiveScores;
 
 	/// <summary>Whether an utterance is in progress, so its end is what triggers a recognition.</summary>
 	private bool _speaking;
@@ -178,6 +198,12 @@ public sealed class WakeWordDetector : IDisposable
 	public event Action? Detected;
 
 	/// <summary>
+	/// When set, chunk scores from the keyword model feed the score path. Supplied rather than constructed
+	/// so the detector has no opinion about which engine exists and can be exercised without one.
+	/// </summary>
+	public Func<float[], int, CancellationToken, Task<float?>>? ScoreFeed { get; set; }
+
+	/// <summary>
 	/// Runs the actual check. Supplied by the owner rather than constructed here, so this class has no
 	/// opinion about which recogniser is configured and can be exercised without one.
 	/// </summary>
@@ -189,7 +215,109 @@ public sealed class WakeWordDetector : IDisposable
 	/// </summary>
 	public async Task OfferAsync(double level, CancellationToken cancellationToken)
 	{
-		if (!Enabled || Recognizer is null || DateTimeOffset.UtcNow < _nextAllowed)
+		if (!Enabled || DateTimeOffset.UtcNow < _nextAllowed)
+		{
+			return;
+		}
+
+		if (ScoreFeed is { } feed)
+		{
+			await OfferScoreAsync(feed, cancellationToken).ConfigureAwait(false);
+			return;
+		}
+
+		if (Recognizer is null)
+		{
+			return;
+		}
+
+		await OfferTranscriptAsync(level, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <summary>
+	/// The score path: every offered level carries 50 ms of audio into the engine through the tap, the
+	/// engine answers with the chunk's score when one completes, and a run of confident chunks fires.
+	/// <para>
+	/// The level is not looked at: the keyword model is better at telling a word from a click than a
+	/// threshold is, and gating on the level would only add a second way to miss the word. Chunks complete
+	/// every 80 ms and the offer ticks every 50 ms, so most offers find the remainder short and return
+	/// immediately; the engine's own remainder buffer carries the partial chunk across offers.
+	/// </para>
+	/// </summary>
+	private async Task OfferScoreAsync(
+		Func<float[], int, CancellationToken, Task<float?>> feed,
+		CancellationToken cancellationToken)
+	{
+		if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
+		{
+			return;
+		}
+
+		try
+		{
+			float[] samples;
+
+			lock (Buffer)
+			{
+				samples = Buffer.TakeLast(MicrophoneMonitor.SampleRate / 10);
+			}
+
+			if (samples.Length == 0)
+			{
+				return;
+			}
+
+			var score = await feed(samples, MicrophoneMonitor.SampleRate, cancellationToken).ConfigureAwait(false);
+
+			if (score is null)
+			{
+				// Still priming or inference failed: neither is a miss, and both happen every start-up.
+				_consecutiveScores = 0;
+				return;
+			}
+
+			if (score >= ScoreThreshold)
+			{
+				_consecutiveScores++;
+
+				if (_consecutiveScores >= ScorePatience)
+				{
+					_logger.Information(
+						"Wake word scored {Score} over {Patience} chunks; firing.",
+						$"{score:0.000}",
+						_consecutiveScores);
+
+					_consecutiveScores = 0;
+					_nextAllowed = DateTimeOffset.UtcNow + ScoreCooldown;
+					Detected?.Invoke();
+				}
+			}
+			else
+			{
+				_consecutiveScores = 0;
+			}
+		}
+		catch (OperationCanceledException)
+		{
+			throw;
+			}
+		catch (Exception exception) when (exception is not OutOfMemoryException)
+		{
+			_logger.Information(exception, "A wake word score check failed.");
+		}
+		finally
+			{
+				Interlocked.Exchange(ref _busy, 0);
+			}
+	}
+
+		/// <summary>
+	/// The transcript path, unchanged: the level decides that someone has spoken, the recogniser decides
+	/// whether the word was in it. Selected by the engine setting being anything but the keyword spotter.
+	/// </summary>
+	private async Task OfferTranscriptAsync(double level, CancellationToken cancellationToken)
+	{
+		if (Recognizer is null || DateTimeOffset.UtcNow < _nextAllowed)
 		{
 			return;
 		}
