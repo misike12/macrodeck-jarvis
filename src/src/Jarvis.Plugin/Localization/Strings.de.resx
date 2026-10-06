@@ -149,6 +149,9 @@
   <data name="Actions.ManageComponents.Component.Whisper" xml:space="preserve">
     <value>Lokale Spracherkennung (Whisper)</value>
   </data>
+  <data name="Actions.ManageComponents.Component.WakeWord" xml:space="preserve">
+    <value>Wake-Word-Modelle (openWakeWord)</value>
+  </data>
 
   <data name="Parameter.Mode.OneShot.Label" xml:space="preserve">
     <value>Einmalig</value>

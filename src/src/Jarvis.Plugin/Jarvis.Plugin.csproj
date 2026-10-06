@@ -31,6 +31,9 @@
         <PackageReference Include="MacroDeck.Plugin.Hosting" />
         <PackageReference Include="MacroDeck.Plugin.Serilog" />
         <PackageReference Include="MacroDeck.Sdk" />
+        <!-- In-process ONNX inference for the openWakeWord keyword models. CPU only: the wake word runs
+             on the microphone's own thread budget and a GPU provider would only add start-up cost. -->
+        <PackageReference Include="Microsoft.ML.OnnxRuntime" />
         <PackageReference Include="NAudio" />
         <PackageReference Include="NAudio.Wasapi" />
     <PackageReference Include="System.Drawing.Common" />

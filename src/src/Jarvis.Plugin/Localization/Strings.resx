@@ -516,6 +516,9 @@
   <data name="Actions.ManageComponents.Component.Whisper" xml:space="preserve">
     <value>Local speech to text (Whisper)</value>
   </data>
+  <data name="Actions.ManageComponents.Component.WakeWord" xml:space="preserve">
+    <value>Wake word models (openWakeWord)</value>
+  </data>
   <data name="Errors.MicrophoneUnavailable" xml:space="preserve">
     <value>No microphone is available.</value>
   </data>

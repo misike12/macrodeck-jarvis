@@ -51,6 +51,7 @@ public sealed class ManageComponentsAction(RuntimeManager runtime) : IActionDefi
 	{
 		AssetCatalog.Piper => Strings.Actions.ManageComponents.Component.Piper(),
 		AssetCatalog.Whisper => Strings.Actions.ManageComponents.Component.Whisper(),
+		AssetCatalog.WakeWord => Strings.Actions.ManageComponents.Component.WakeWord(),
 		_ => Strings.Errors.UnknownComponent(component),
 	};
 

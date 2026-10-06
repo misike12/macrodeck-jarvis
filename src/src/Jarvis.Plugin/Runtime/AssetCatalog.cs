@@ -69,7 +69,14 @@ public static class AssetCatalog
 {
 	public const string Piper = "piper";
 	public const string Whisper = "whisper";
-	public const string Porcupine = "porcupine";
+	public const string WakeWord = "wakeword";
+
+	/// <summary>
+	/// The openWakeWord release every pinned wake word model comes from. All five files are built against
+	/// one another: the mel and embedding preprocessors expect the exact audio front-end of these keyword
+	/// models, so a model from a different release cannot be substituted for one of them.
+	/// </summary>
+	public const string WakeWordModelsVersion = "v0.5.1";
 
 	/// <summary>
 	/// Digests measured from the pinned URLs rather than copied from a release note, because a pin nobody
@@ -142,6 +149,71 @@ public static class AssetCatalog
 			Sha256 = "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f",
 			SizeBytes = 77704715,
 			Purpose = "The smallest Whisper model, for a fast first install.",
+		},
+
+		// The openWakeWord models are one release's worth of ONNX files. The two preprocessors are shared
+		// by every keyword model and installed into the component root; each keyword model gets its own
+		// install group so selecting it in settings only downloads that one. There is no executable to
+		// probe: they are loaded in-process through ONNX Runtime, where a wrong file fails the digest long
+		// before it can fail a session.
+		new()
+		{
+			Id = "wakeword-melspectrogram",
+			Component = WakeWord,
+			FileName = "melspectrogram.onnx",
+			Url = $"https://github.com/dscripka/openWakeWord/releases/download/{WakeWordModelsVersion}/melspectrogram.onnx",
+			Sha256 = "ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f",
+			SizeBytes = 1_087_958,
+			InstallGroup = "preprocessors",
+			Purpose = "Turns microphone audio into the mel spectrogram every wake word model reads.",
+		},
+
+		new()
+		{
+			Id = "wakeword-embedding",
+			Component = WakeWord,
+			FileName = "embedding_model.onnx",
+			Url = $"https://github.com/dscripka/openWakeWord/releases/download/{WakeWordModelsVersion}/embedding_model.onnx",
+			Sha256 = "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f",
+			SizeBytes = 1_326_578,
+			InstallGroup = "preprocessors",
+			Purpose = "Turns the mel spectrogram into the speech features every wake word model reads.",
+		},
+
+		new()
+		{
+			Id = "wakeword-model-hey-jarvis",
+			Component = WakeWord,
+			FileName = "hey_jarvis_v0.1.onnx",
+			Url = $"https://github.com/dscripka/openWakeWord/releases/download/{WakeWordModelsVersion}/hey_jarvis_v0.1.onnx",
+			Sha256 = "94a13cfe60075b132f6a472e7e462e8123ee70861bc3fb58434a73712ee0d2cb",
+			SizeBytes = 1_271_370,
+			InstallGroup = "hey-jarvis",
+			Purpose = "The \"hey jarvis\" keyword model, the wake word this plugin listens for by default.",
+		},
+
+		new()
+		{
+			Id = "wakeword-model-alexa",
+			Component = WakeWord,
+			FileName = "alexa_v0.1.onnx",
+			Url = $"https://github.com/dscripka/openWakeWord/releases/download/{WakeWordModelsVersion}/alexa_v0.1.onnx",
+			Sha256 = "6ff566a01d12670e8d9e3c59da32651db1575d17272a601b7f8a39283dfbae3e",
+			SizeBytes = 854_246,
+			InstallGroup = "alexa",
+			Purpose = "The \"alexa\" keyword model, an alternative wake word.",
+		},
+
+		new()
+		{
+			Id = "wakeword-model-hey-mycroft",
+			Component = WakeWord,
+			FileName = "hey_mycroft_v0.1.onnx",
+			Url = $"https://github.com/dscripka/openWakeWord/releases/download/{WakeWordModelsVersion}/hey_mycroft_v0.1.onnx",
+			Sha256 = "c2a311e8fa1338de89c31b3b46dc4dffd4af2f9a8d6ddead48893c2d301b1f18",
+			SizeBytes = 857_691,
+			InstallGroup = "hey-mycroft",
+			Purpose = "The \"hey mycroft\" keyword model, an alternative wake word.",
 		},
 	];
 
