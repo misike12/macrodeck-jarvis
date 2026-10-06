@@ -72,6 +72,21 @@ public sealed class OpenWakeWordEngine : IDisposable
 	private int _chunksProcessed;
 	private bool _primed;
 
+	/// <summary>Failures in a row before the engine declares itself dead and stops spending CPU on retries.</summary>
+	private const int MaxConsecutiveFailures = 5;
+
+	private int _consecutiveFailures;
+
+	/// <summary>Volatile: read by the pump on every packet, written only under the gate on a failure.</summary>
+	private volatile bool _dead;
+
+	/// <summary>
+	/// Whether the engine has given up. A session that cannot run - a model file replaced underneath it,
+	/// a native fault - fails every chunk, and retrying at chunk rate means an exception and a stack
+	/// trace eighty times a second. Five in a row is not bad luck; the engine stops and says so.
+	/// </summary>
+	public bool IsDead => _dead;
+
 	/// <summary>How many raw samples of lookback the mel computation needs, carried across chunks.</summary>
 	private const int RawBufferNeed = LookbackSamples + ChunkSamples;
 
@@ -79,9 +94,20 @@ public sealed class OpenWakeWordEngine : IDisposable
 	{
 		_logger = logger.ForContext<OpenWakeWordEngine>();
 
-		_mel = new InferenceSession(Path.Combine(preprocessorDirectory, "melspectrogram.onnx"));
-		_embedding = new InferenceSession(Path.Combine(preprocessorDirectory, "embedding_model.onnx"));
-		_classifier = new InferenceSession(classifierPath);
+		// One thread per session, sequential execution. These models are tiny, and ONNX Runtime's default
+		// pool sizes itself to the machine's cores and spins its threads between runs: measured on this
+		// machine, that idle spin burned tens of percent of CPU for milliseconds of actual work. The
+		// reference Python package pins its sessions to one thread for the same reason.
+		var options = new SessionOptions
+		{
+			IntraOpNumThreads = 1,
+			InterOpNumThreads = 1,
+			ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
+		};
+
+		_mel = new InferenceSession(Path.Combine(preprocessorDirectory, "melspectrogram.onnx"), options);
+		_embedding = new InferenceSession(Path.Combine(preprocessorDirectory, "embedding_model.onnx"), options);
+		_classifier = new InferenceSession(classifierPath, options);
 
 		(_classifierInput, _classifierOutput) = (_classifier.InputMetadata.Keys.First(), _classifier.OutputMetadata.Keys.First());
 
@@ -141,6 +167,11 @@ public sealed class OpenWakeWordEngine : IDisposable
 
 		lock (_gate)
 		{
+			if (_dead)
+			{
+				return null;
+			}
+
 			try
 			{
 				float? score = null;
@@ -159,17 +190,35 @@ public sealed class OpenWakeWordEngine : IDisposable
 				}
 
 				_remainder = combined[offset..];
+				_consecutiveFailures = 0;
 				return _primed ? score : null;
 			}
 			catch (Exception exception) when (exception is not OutOfMemoryException)
 			{
-				// A failed inference must not kill the caller: the microphone's own thread publishes here,
-				// and the wake word is a convenience. Reported, and the chunk's state rolled forward by
-				// dropping the remainder, because a corrupted buffer would otherwise fail forever.
-				_logger.Warning(exception, "The wake word inference failed; the engine will re-prime.");
+				// A failed inference must not kill the caller: the pump's own loop publishes here, and the
+				// wake word is a convenience. The chunk's state rolls forward by dropping the remainder, so
+				// a transient fault re-primes; a persistent one stops the engine after a handful of tries
+				// rather than spending an exception and a stack trace on every chunk forever.
 				_remainder = [];
 				_primed = false;
 				_chunksProcessed = 0;
+				_consecutiveFailures++;
+
+				if (_consecutiveFailures >= MaxConsecutiveFailures)
+				{
+					_dead = true;
+
+					_logger.Warning(
+						exception,
+						"The wake word engine failed {Count} inferences in a row and has stopped listening. "
+						+ "Reconfigure the wake word to rebuild it.",
+						_consecutiveFailures);
+				}
+				else
+				{
+					_logger.Warning(exception, "The wake word inference failed; the engine will re-prime.");
+				}
+
 				return null;
 			}
 		}
@@ -231,8 +280,9 @@ public sealed class OpenWakeWordEngine : IDisposable
 		// out of the alignment the models were trained with.
 		_lookback = chunk[^LookbackSamples..];
 
-		// One embedding window per chunk: the newest 76 mel frames.
-		var embedding = Embed(_melFrames.ToArray()[^EmbeddingWindowFrames..]);
+		// One embedding window per chunk: the newest 76 mel frames. Read straight out of the queue -
+		// snapshotting the whole 970-frame buffer per chunk was a megabyte of garbage a second for nothing.
+		var embedding = Embed(_melFrames.Skip(Math.Max(0, _melFrames.Count - EmbeddingWindowFrames)));
 		_featureRows.Add(embedding);
 
 		if (_featureRows.Count > FeatureBufferMaxRows)
@@ -283,13 +333,15 @@ public sealed class OpenWakeWordEngine : IDisposable
 		return flat;
 	}
 
-	private float[] Embed(ReadOnlySpan<float[]> window)
+	private float[] Embed(IEnumerable<float[]> window)
 	{
 		var flat = new float[EmbeddingWindowFrames * 32];
+		var offset = 0;
 
-		for (var frame = 0; frame < EmbeddingWindowFrames; frame++)
+		foreach (var frame in window)
 		{
-			window[frame].CopyTo(flat, frame * 32);
+			frame.CopyTo(flat, offset);
+			offset += 32;
 		}
 
 		var tensor = new DenseTensor<float>(flat, [1, EmbeddingWindowFrames, 32, 1]);

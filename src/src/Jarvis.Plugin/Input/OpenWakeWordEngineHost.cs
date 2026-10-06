@@ -4,6 +4,8 @@ using Jarvis.Plugin.Core;
 using Jarvis.Plugin.Runtime;
 using Serilog;
 
+// The host implements Dispose through Deactivate below.
+
 namespace Jarvis.Plugin.Input;
 
 /// <summary>
@@ -20,6 +22,9 @@ namespace Jarvis.Plugin.Input;
 /// </summary>
 public sealed class OpenWakeWordEngineHost : IDisposable
 {
+	/// <summary>Stops the pump. The engine itself is disposed by the pump that owns it.</summary>
+	public void Dispose() => Deactivate();
+
 	private const string MelspectrogramAsset = "wakeword-melspectrogram";
 	private const string EmbeddingAsset = "wakeword-embedding";
 	private const string DefaultModelAsset = "wakeword-model-hey-jarvis";
@@ -113,10 +118,10 @@ public sealed class OpenWakeWordEngineHost : IDisposable
 
 		lock (_gate)
 		{
-			// One engine at a time, rebuilt per selected model. Selecting a different wake word is the
-			// only thing that rebuilds; sensitivity and threshold live in the detector and need nothing
-			// here beyond the model the settings already chose.
-			_engine?.Dispose();
+			// A new engine per activation. The old one is NOT disposed here: its pump may be inside
+			// engine.Process on another thread right now, and freeing an ONNX session mid-Run faults in
+			// native code - the NullReferenceException on every reconfiguration came from exactly that.
+			// Each pump owns the engine it was built with and disposes it when its loop exits.
 			_engine = new OpenWakeWordEngine(preprocessors, classifier, _logger);
 
 			_packets = Channel.CreateBounded<float[]>(new BoundedChannelOptions(PacketQueueCapacity)
@@ -137,9 +142,18 @@ public sealed class OpenWakeWordEngineHost : IDisposable
 				{
 					await foreach (var packet in reader.ReadAllAsync(stopping).ConfigureAwait(false))
 					{
-						if (engine.Process(packet, MicrophoneMonitor.SampleRate) is { } score)
+						var score = engine.Process(packet, MicrophoneMonitor.SampleRate);
+
+						if (engine.IsDead)
 						{
-							ScoreReady?.Invoke(score);
+							// The engine gave up; draining more packets would spend CPU on inference that
+							// can never answer. The engine has already said why.
+							break;
+						}
+
+						if (score is { } value)
+						{
+							ScoreReady?.Invoke(value);
 						}
 					}
 				}
@@ -151,14 +165,26 @@ public sealed class OpenWakeWordEngineHost : IDisposable
 				{
 					_logger.Warning(exception, "The wake word audio pump stopped unexpectedly.");
 				}
+				finally
+				{
+					// Owned here, and only ever freed here: the loop has left Process by the time it
+					// runs, whether it left through the channel completing, the token cancelling, or
+					// the engine dying.
+					engine.Dispose();
+
+					lock (_gate)
+					{
+						if (ReferenceEquals(_engine, engine))
+						{
+							IsActive = false;
+						}
+					}
+				}
 			}, CancellationToken.None);
 		}
 
 		return true;
 	}
-
-	/// <summary>Stops the pump and frees the engine. Safe to call from any state.</summary>
-	public void Dispose() => Deactivate();
 
 	/// <summary>Stops the pump and frees the engine. Safe to call from any state.</summary>
 	public void Deactivate()
@@ -168,7 +194,9 @@ public sealed class OpenWakeWordEngineHost : IDisposable
 		lock (_gate)
 		{
 			IsActive = false;
-			_engine?.Dispose();
+
+			// The reference is dropped, not disposed: the pump that holds this engine disposes it when
+			// its loop exits, which is the only moment disposal is provably outside Process.
 			_engine = null;
 		}
 	}
