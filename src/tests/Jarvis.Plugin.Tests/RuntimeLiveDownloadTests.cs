@@ -18,6 +18,7 @@ public class RuntimeLiveDownloadTests
 
 	[TestCase(AssetCatalog.Whisper)]
 	[TestCase(AssetCatalog.Piper)]
+	[TestCase(AssetCatalog.WakeWord)]
 	[CancelAfter(600_000)]
 	public async Task Every_catalogue_pin_downloads_and_verifies(string component)
 	{
