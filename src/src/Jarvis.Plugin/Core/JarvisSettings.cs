@@ -22,7 +22,16 @@ public sealed record JarvisSettings
 
 	public const string DefaultFastLlmModel = "nvidia/nemotron-3.5-lightning-30b-a3b";
 
-	public const string DefaultVisionModel = "meta/llama-3.2-90b-vision-instruct";
+	/// <summary>
+	/// The vision model this build asks for by default.
+	/// <para>
+	/// The 11b variant rather than the 90b one. Both are published and both answer correctly, but the 90b
+	/// model did not return a description of a full-screen screenshot inside the client's timeout on the
+	/// machine this was measured on, so choosing it by default meant the screenshot tool failed on first use
+	/// while looking correctly configured. The smaller model returned the right answer in a few seconds.
+	/// </para>
+	/// </summary>
+	public const string DefaultVisionModel = "meta/llama-3.2-11b-vision-instruct";
 
 	public const string DefaultNimSpeechToTextModel = "nvidia/parakeet-tdt-0.6b-v2";
 
