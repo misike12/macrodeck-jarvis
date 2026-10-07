@@ -83,9 +83,18 @@ public sealed class ShellTool(AssistantSession session, ILogger logger) : ITool
 
 			try
 			{
-				var (exitCode, output) = await tracker.WaitForResultAsync(timeout.Token).ConfigureAwait(false);
+				var (exitCode, output, cancelled) = await tracker.WaitForResultAsync(timeout.Token).ConfigureAwait(false);
 
-				if (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+				// Checked before the timeout, because a cancel and a timeout arrive through the same linked
+				// token and the caller's cancel is indistinguishable from the timeout's own flag once linked.
+				// Both used to fall through to a success carrying a half-finished command's output.
+				if (cancelled && cancellationToken.IsCancellationRequested)
+				{
+					tracker.Kill();
+					return ToolOutcome.Failure("The command was cancelled before it finished.");
+				}
+
+				if (timeout.IsCancellationRequested)
 				{
 					tracker.Kill();
 					return ToolOutcome.Failure($"The command did not finish within {TimeoutSeconds} seconds and was stopped.");

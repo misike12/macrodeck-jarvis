@@ -253,9 +253,17 @@ public static class BrowserTools
 
 			var target = url!;
 
-			var text = await browser.NavigateAsync(target, cancellationToken).ConfigureAwait(false);
-
-			return ToolOutcome.Success(text);
+			try
+			{
+				return ToolOutcome.Success(
+					await browser.NavigateAsync(target, cancellationToken).ConfigureAwait(false));
+			}
+			catch (Exception exception) when (exception is not OutOfMemoryException)
+			{
+				// The browser's own reason, because "net::ERR_NAME_NOT_RESOLVED" is what tells the model to
+				// try a different spelling and "the navigation failed" is what tells it to try again.
+				return ToolOutcome.Failure(exception.Message);
+			}
 		}
 	}
 
@@ -696,6 +704,15 @@ internal sealed class ThBrowser : IDisposable
 
 	internal static void SetCurrent(ThBrowser browser) => Current = browser;
 
+	/// <summary>
+	/// Navigates and returns the page's text, or throws with the browser's own reason.
+	/// <para>
+	/// Throwing rather than returning a sentence about the failure. The sentence used to be handed back
+	/// inside a success, so a typo'd host or a <c>net::ERR_*</c> arrived as "The page could not be opened:
+	/// ..." wrapped in a result claiming the navigation happened, and the caller read whatever page was
+	/// already open and carried on as if it were the one asked for.
+	/// </para>
+	/// </summary>
 	internal async Task<string> NavigateAsync(string url, CancellationToken cancellationToken)
 	{
 		var result = await SendAsync(
@@ -704,7 +721,7 @@ internal sealed class ThBrowser : IDisposable
 
 		if (result["errorText"] is JsonValue failure)
 		{
-			return $"The page could not be opened: {failure.ToString()}";
+			throw new InvalidOperationException($"The page could not be opened: {failure.ToString()}");
 		}
 
 		// The load event arrives after the navigate reply, so the page is read afterwards rather than from

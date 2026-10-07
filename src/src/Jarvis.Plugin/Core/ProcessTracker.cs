@@ -159,7 +159,16 @@ public sealed class ProcessTracker : IDisposable
 		return ExitCode;
 	}
 
-	public async Task<(int ExitCode, string Output)> WaitForResultAsync(CancellationToken cancellationToken)
+	/// <summary>
+	/// Waits for the process and reports its exit code and output.
+	/// <para>
+	/// Distinguishes a command that finished from one that was cancelled. Both branches used to return the
+	/// same thing, so a command killed mid-run reported the exit code of a process that had been killed as
+	/// though it had completed, and the caller returned that as a success with a truncated body.
+	/// </para>
+	/// </summary>
+	public async Task<(int ExitCode, string Output, bool Cancelled)> WaitForResultAsync(
+		CancellationToken cancellationToken)
 	{
 		try
 		{
@@ -167,10 +176,10 @@ public sealed class ProcessTracker : IDisposable
 		}
 		catch (OperationCanceledException)
 		{
-			return (ExitCode, Output);
+			return (ExitCode, Output, true);
 		}
 
-		return (ExitCode, Output);
+		return (ExitCode, Output, false);
 	}
 
 	/// <summary>
