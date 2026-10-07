@@ -335,6 +335,9 @@
   <data name="ConfigFlow.Voice.MicrophoneName.Label" xml:space="preserve">
     <value>Microphone name</value>
   </data>
+  <data name="ConfigFlow.Voice.MicrophoneName.Description" xml:space="preserve">
+    <value>A fallback for when the microphone chosen above cannot be found, which usually means it moved USB ports or came back with a new identifier. Leave this empty unless the microphone above is not being picked up.</value>
+  </data>
   <data name="ConfigFlow.Option.Yes" xml:space="preserve">
     <value>Yes</value>
   </data>

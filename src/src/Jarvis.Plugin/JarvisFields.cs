@@ -16,6 +16,7 @@ internal enum JarvisFieldKind
 	Flag,
 	Number,
 	Secret,
+	Slider,
 }
 
 /// <summary>
@@ -41,6 +42,10 @@ internal sealed record JarvisField(
 	Func<LocalizedText>? Description = null,
 	double? Minimum = null,
 	double? Maximum = null,
+
+	/// <summary>Granularity of a slider. Named apart from <see cref="Step"/>, which is the config step this
+	/// field belongs to.</summary>
+	double? SliderStep = null,
 	Func<IReadOnlyList<ActionParameterOption>>? OptionsSource = null);
 
 /// <summary>
@@ -127,6 +132,20 @@ internal static class JarvisFields
 	public const double MinThreshold = 0.001;
 
 	public const double MaxThreshold = 1;
+
+	/// <summary>
+	/// The wake word slider's own bounds, narrower than the store's.
+	/// <para>
+	/// The store accepts any fraction, because a threshold is a threshold. A slider has to stop somewhere
+	/// legible, and 0 to 1 across 5,000 pixels would put every usable value in the first twentieth of the
+	/// track. A hundredth of a step is enough resolution to matter to a voice and coarse enough to land on.
+	/// </para>
+	/// </summary>
+	public const double MinSlider = 0.01;
+
+	public const double MaxSlider = 0.6;
+
+	public const double SliderStep = 0.01;
 
 	public static readonly IReadOnlyList<JarvisField> All =
 	[
@@ -225,9 +244,13 @@ Option(ValueOf(TextToSpeechProvider.PiperLocal), Strings.ConfigFlow.Voice.Option
 		new(JarvisSettingsStoreFields.WakeWordField, JarvisFieldKind.Text, VoiceStep,
 			() => Strings.ConfigFlow.Voice.WakeWord.Label(), Default: "jarvis",
 			Description: () => Strings.ConfigFlow.Voice.WakeWord.Description()),
-		new(JarvisSettingsStoreFields.WakeSensitivityField, JarvisFieldKind.Number, VoiceStep,
-			() => Strings.ConfigFlow.Voice.WakeSensitivity.Label(), Default: WakeWordDetector.DefaultSensitivity.ToString(CultureInfo.InvariantCulture),
-			Minimum: MinThreshold, Maximum: MaxThreshold, Advanced: true,
+		// A slider because the number is meaningless without the mapping: 0.06 looks like nothing and 0.3 looks
+		// like a lot, and the figure that matters is the score threshold it produces. Advanced only because
+		// the shipped default is right for most people and a fiddled one is a support question otherwise.
+		new(JarvisSettingsStoreFields.WakeSensitivityField, JarvisFieldKind.Slider, VoiceStep,
+			() => Strings.ConfigFlow.Voice.WakeSensitivity.Label(),
+			Default: WakeWordDetector.DefaultSensitivity.ToString(CultureInfo.InvariantCulture),
+			Minimum: MinSlider, Maximum: MaxSlider, SliderStep: SliderStep, Advanced: true,
 			Description: () => Strings.ConfigFlow.Voice.WakeSensitivity.Description()),
 		new(JarvisSettingsStoreFields.MicrophoneAlwaysOnField, JarvisFieldKind.Flag, VoiceStep,
 			() => Strings.ConfigFlow.Voice.MicrophoneAlwaysOn.Label(), Default: "true"),
@@ -238,10 +261,13 @@ Option(ValueOf(TextToSpeechProvider.PiperLocal), Strings.ConfigFlow.Voice.Option
 		new(JarvisSettingsStoreFields.MicrophoneIdField, JarvisFieldKind.Choice, VoiceStep,
 			() => Strings.ConfigFlow.Voice.MicrophoneId.Label(),
 			OptionsSource: LiveMicrophoneOptions),
-		// Stays as the escape hatch: ids can change when a USB device moves ports, and a name substring
-		// still matches then. The store tries the chosen id first and this second.
+		// Not a second way to choose the same microphone, and saying so is the whole point of it. It is only
+		// consulted when the id above resolves to nothing, which happens when a device moves USB ports or
+		// comes back after a reboot under a new endpoint id. It stays in the flow because that is the moment
+		// a user needs it, and hiding it until then is what left people editing a raw id by hand.
 		new(JarvisSettingsStoreFields.MicrophoneNameField, JarvisFieldKind.Text, VoiceStep,
-			() => Strings.ConfigFlow.Voice.MicrophoneName.Label(), Advanced: true),
+			() => Strings.ConfigFlow.Voice.MicrophoneName.Label(),
+			Description: () => Strings.ConfigFlow.Voice.MicrophoneName.Description(), Advanced: true),
 		new(JarvisSettingsStoreFields.HotkeyField, JarvisFieldKind.Text, VoiceStep,
 			() => Strings.ConfigFlow.Voice.Hotkey.Label(), Default: "Ctrl+Alt+J"),
 

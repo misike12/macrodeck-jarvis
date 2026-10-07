@@ -630,6 +630,9 @@
   <data name="ConfigFlow.Voice.MicrophoneName.Label" xml:space="preserve">
     <value>Mikrofonname</value>
   </data>
+  <data name="ConfigFlow.Voice.MicrophoneName.Description" xml:space="preserve">
+    <value>Ein Ersatz für den Fall, dass das oben gewählte Mikrofon nicht gefunden wird, meist weil es den USB-Port gewechselt hat oder mit einer neuen Kennung zurückkam. Leer lassen, solange das Mikrofon oben erkannt wird.</value>
+  </data>
   <data name="ConfigFlow.Option.Yes" xml:space="preserve">
     <value>Ja</value>
   </data>

@@ -221,7 +221,18 @@ internal sealed class JarvisConfigFlow(ILogger logger, JarvisSettingsStore setti
 		return field.Kind is JarvisFieldKind.Flag ? field.Default ?? "true" : field.Default ?? string.Empty;
 	}
 
-	private static ActionParameter ToParameter(JarvisField field, string defaultValue)
+	/// <summary>
+	/// A slider's default is a figure rather than a string, and it is declared as a string because every
+	/// field's default is stored as text. Parsed with the invariant culture so the default does not depend
+	/// on the machine's separators, and discarded rather than guessed when it is not a number: a slider
+	/// defaulting to zero because its own text failed to parse would be worse than no default at all.
+	/// </summary>
+	private static double? ParsedAsNumber(string? value) =>
+		double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+			? parsed
+			: null;
+
+	private static ActionParameter ToParameter(JarvisField field, string? defaultValue)
 	{
 		var parameter = field.Kind switch
 		{
@@ -247,6 +258,22 @@ internal sealed class JarvisConfigFlow(ILogger logger, JarvisSettingsStore setti
 				field.Label(),
 				field.Description?.Invoke() ?? field.Label(),
 				required: field.Required),
+
+			// A bounded figure a person tunes by feel, rather than types. The wake word sensitivity is the
+			// reason: its useful range is narrow, its default is 0.06, and the mapping from it to what the
+			// models actually require is not something a text box communicates. The bounds are declared on
+			// the field and enforced here, because a slider with no bounds is a slider that can be dragged
+			// off both ends.
+			JarvisFieldKind.Slider => ActionParameter.Slider(
+				field.Name,
+				field.Minimum ?? throw new InvalidOperationException(
+					$"The slider '{field.Name}' has no minimum."),
+				field.Maximum ?? throw new InvalidOperationException(
+					$"The slider '{field.Name}' has no maximum."),
+				field.Label(),
+				field.Description?.Invoke() ?? field.Label(),
+				step: field.SliderStep,
+				defaultValue: ParsedAsNumber(defaultValue)),
 
 			// A flag is stored as "true" or "false" and read back through the same parser as every other
 			// string field, so it is declared as a choice rather than inventing a second representation.

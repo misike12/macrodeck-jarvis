@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -32,16 +33,81 @@ public class ConfigFieldTableTests
 	public void Every_numeric_setting_declares_both_bounds_and_a_default_inside_them()
 	{
 		var unbounded = JarvisFields.All
-			.Where(field => field.Kind is JarvisFieldKind.Number)
+			.Where(field => field.Kind is JarvisFieldKind.Number or JarvisFieldKind.Slider)
 			.Where(field => field.Minimum is null || field.Maximum is null)
 			.Select(field => field.Name)
 			.ToArray();
 
 		Assert.That(unbounded, Is.Empty, "a number the form will accept but the store cannot place");
 
-		foreach (var field in JarvisFields.All.Where(field => field.Kind is JarvisFieldKind.Number))
+		foreach (var field in JarvisFields.All.Where(field => field.Kind is JarvisFieldKind.Number or JarvisFieldKind.Slider))
 		{
 			Assert.That(field.Minimum!, Is.LessThan(field.Maximum!), $"{field.Name} has an empty range");
+		}
+	}
+
+	/// <summary>
+	/// A slider without a step is a track every value on it is a rounding away from, and its default has to
+	/// land on the grid the step defines rather than between two of its points.
+	/// <para>
+	/// Both were true here: no step was declared, and the wake word's default of 0.06 would have sat between
+	/// grid points on any sensible one. A slider that cannot represent its own default shows a marker the
+	/// user cannot put back by dragging.
+	/// </para>
+	/// </summary>
+	[Test]
+	public void Every_slider_declares_a_step_and_a_default_that_lands_on_it()
+	{
+		var sliders = JarvisFields.All
+			.Where(field => field.Kind is JarvisFieldKind.Slider)
+			.Where(field => field.Minimum is not null && field.Maximum is not null && field.SliderStep is not null)
+			.ToArray();
+
+		Assert.That(sliders, Is.Not.Empty, "no setting uses a slider, so the kind is decoration");
+
+		foreach (var field in sliders)
+		{
+			var step = field.SliderStep.GetValueOrDefault();
+			var minimum = field.Minimum.GetValueOrDefault();
+			var maximum = field.Maximum.GetValueOrDefault();
+			var defaultValue = double.Parse(
+				field.Default!,
+				NumberStyles.Float,
+				CultureInfo.InvariantCulture);
+
+			// Distance to the nearest grid point, so a value sitting a rounding error away still passes
+			// while one genuinely between steps does not.
+			var offset = (defaultValue - minimum) % step;
+
+			Assert.Multiple(() =>
+			{
+				Assert.That(step, Is.GreaterThan(0), $"{field.Name} has a step of zero");
+				Assert.That(step, Is.LessThanOrEqualTo(maximum - minimum),
+					$"{field.Name} steps further than its whole range");
+
+				Assert.That(
+					Math.Min(offset, step - offset),
+					Is.LessThan(step / 1_000),
+					$"{field.Name} defaults to {defaultValue}, which is between two steps");
+			});
+		}
+	}
+
+	/// <summary>
+	/// A slider narrower than the range the store accepts is a deliberate choice, and the point of it is that
+	/// the values it cannot offer are still storable. Clamping the declared range to the store's would let a
+	/// hand-edited value sit outside the form's own limits.
+	/// </summary>
+	[Test]
+	public void A_slider_is_inside_the_range_the_store_keeps()
+	{
+		foreach (var field in JarvisFields.All.Where(field => field.Kind is JarvisFieldKind.Slider))
+		{
+			Assert.Multiple(() =>
+			{
+				Assert.That(field.Minimum, Is.GreaterThanOrEqualTo(JarvisFields.MinThreshold).And.Not.Null);
+				Assert.That(field.Maximum, Is.LessThanOrEqualTo(JarvisFields.MaxThreshold).And.Not.Null);
+			});
 		}
 	}
 
@@ -50,6 +116,14 @@ public class ConfigFieldTableTests
 	/// Both thresholds were declared 0 to 1 while the store discarded anything at or below 0.001, so a user
 	/// who deliberately asked for maximum sensitivity got the default instead.
 	/// </summary>
+	/// <summary>
+	/// The highest figure each setting should offer. A slider's track is deliberately shorter than the
+	/// range the store keeps, so this is not the same number for both.
+	/// </summary>
+	private static double StorableMaximumFor(string name) => name == JarvisSettingsStoreFields.WakeSensitivityField
+		? JarvisFields.MaxSlider
+		: JarvisFields.MaxThreshold;
+
 	[Test]
 	public void A_threshold_cannot_be_offered_a_value_that_can_never_be_crossed()
 	{
@@ -61,8 +135,12 @@ public class ConfigFieldTableTests
 		{
 			var field = JarvisFields.All.Single(candidate => candidate.Name == name);
 
+			// The top of the offered range, not the top of the storable one. The wake word is now a slider
+			// whose track stops at 0.6 because everything above that is past the floor the score threshold
+			// clamps to, so offering it would be a control that does nothing when dragged.
 			Assert.That(field.Minimum!, Is.GreaterThan(0), $"{name} can be set to a level nothing can reach");
-			Assert.That(field.Maximum, Is.EqualTo(JarvisFields.MaxThreshold));
+			Assert.That(field.Maximum, Is.LessThanOrEqualTo(JarvisFields.MaxThreshold), $"{name} exceeds what can be stored");
+			Assert.That(field.Maximum, Is.EqualTo(StorableMaximumFor(name)));
 		}
 	}
 
