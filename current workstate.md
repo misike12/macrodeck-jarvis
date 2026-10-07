@@ -5,7 +5,7 @@ correct as of the commit it sits in rather than as an append-only log, because t
 this file was a running commentary that had drifted far enough from the code to contradict the
 conformance reports beside it.
 
-Last updated at the `1.1.1` hardening milestone.
+Last updated at the microphone-native milestone.
 
 ## What this is
 
@@ -30,7 +30,7 @@ Everything runs as the signed-in user except the optional service. See
 | Check | Command | Result |
 | --- | --- | --- |
 | Build | `dotnet build -c Release` | 0 warnings, 0 errors |
-| Tests | `dotnet test` | **592 passed**, 0 failed |
+| Tests | `dotnet test` | **828 passed**, 0 failed |
 | Manifest validation | `macrodeck-plugin validate --artifact ... --level Publication` | 0 errors, 0 warnings |
 | Conformance, project | `src/conformance.md` | conformant |
 | Conformance, artifact | `src/artifact-conformance.md` | conformant, and it carries MDC0104 through MDC0107 |
@@ -251,6 +251,51 @@ answer slowly.
   materializing, because the orb declares its own `accentColor` field and the host's appearance section
   declared a second one: node ids must be unique across the whole tree. The throw was swallowed into the
   host's generic message, which is why nothing in the log pointed at either.
+
+## Found after that audit
+
+These were found by running the plugin and its tests, not by reading it. Each is a defect that made the
+plugin wrong on hardware or in a configuration it claimed to support.
+
+- **The build was not warning-free.** `current workstate.md` claimed zero warnings and there were four: a
+  dead streaming counter left behind by the remainder rewrite, an unused constant, and three `Enumerable`
+  calls on indexable ONNX result sets.
+
+- **The `lifetime` setting was a number parsed as an enum.** Declared as a number with a default of 30 and
+  read back through `Enum.TryParse` against a three-valued enum, so it never parsed. Nothing read the result
+  anyway.
+
+- **Eight settings were read by the code and offered by no step.** The three standing tool permissions and
+  the command allowlist, so `SafetyMode.ToolPermissions` asked for every tool forever and
+  `SafetyMode.Allowlist` permitted the same fixed commands whatever the user chose. Four more had no field at
+  all, including the reply volume and whether replies are spoken aloud.
+
+- **Every numeric bound was declared three times and disagreed.** The form offered 1 to 32 iterations, the
+  store kept 1 to 12 and the turn clamped again to 1 to 16. A threshold was offered at 0 while the store
+  discarded anything at or below 0.001, so a user who deliberately asked for maximum sensitivity got the
+  default.
+
+- **A custom wake word listened for something else.** Choosing a word with no pinned keyword model loaded the
+  default model, so the deck answered to "hey jarvis" whatever the user had set, and the only sign was one log
+  line. The integration now asks the engine whether a model can hear the configured word and falls back to
+  the transcript engine, which matches any word.
+
+- **Two of the five mouse buttons could not be pressed at all.** Only left, right, middle and a left double
+  click existed, so the two side buttons most mice map to browser back and forward were unreachable and a
+  drag was always a left drag. A drag cancelled part way also left the button down for the rest of the
+  session.
+
+- **The orb could only be read.** A user with just the orb on a deck had no way to start a turn from it.
+
+- **Capture assumed 48 kHz mono.** Any device that would not convert, which is several 96 kHz and 192 kHz
+  studio interfaces, a 16 kHz Bluetooth headset and any stereo input, presented as "JARVIS cannot hear
+  anything" on hardware that works in every other application. Opening is now a negotiation and what the
+  device agreed to is read back off the recorder and told to everything downstream.
+
+- **Decimating aliased.** Converting a capture rate to 16 kHz was linear interpolation, which folds everything
+  above the new halfway frequency down into the speech band, where a recogniser reads it as words that were
+  never said. It is now a windowed-sinc low pass, with the alias down by more than twenty-eight decibels.
+
 ## Known limitations
 
 These are deliberate and recorded rather than fixed.
@@ -268,7 +313,7 @@ These are deliberate and recorded rather than fixed.
   published under `com.misu.jarvis`, and anyone who installed them will not see 1.1.1 as an update. If an
   in-place upgrade for existing users matters more than the id matching the publisher, revert the id to
   `com.misu.jarvis` and keep only the publisher change.
-- **The SDK is pinned to `3.0.0-beta.14`.** The floating template default resolves to a *preview* build
+- **The SDK is pinned to `3.0.0-beta.15`.** The floating template default resolves to a *preview* build
   that predates it in SemVer ordering and lacks three APIs this plugin uses. Re-verify when 3.0 ships
   stable.
 - **Scheduled tasks created with elevated rights may only name a program in Program Files or Windows
