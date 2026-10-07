@@ -15,6 +15,7 @@ namespace Jarvis.Plugin.Actions;
 /// partial component is not a usable one: the action fails with what was missing rather than claiming a
 /// success the next turn cannot build on.
 /// </para>
+/// </summary>
 public sealed class ManageComponentsAction(RuntimeManager runtime) : IActionDefinition
 {
 	private const string ComponentParameter = "component";

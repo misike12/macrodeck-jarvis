@@ -116,7 +116,6 @@ private NamedPipeServerStream CreateServer() =>
 			0,
 			_security);
 
-	/// <summary>
 /// <summary>
 	/// Builds the pipe's security.
 	/// <para>

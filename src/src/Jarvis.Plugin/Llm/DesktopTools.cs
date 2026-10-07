@@ -10,11 +10,11 @@ namespace Jarvis.Plugin.Llm;
 /// <summary>
 /// The desktop-control tools, gathered into one file because each is a thin call over a documented Win32
 /// entry point and the interesting decisions are the ones shared between them.
-/// <summary>
-/// <remarks>
+/// <para>
 /// Every tool here can change what the user sees, so every one requires confirmation except the ones that
 /// only read. That split is the safety model: looking is free, acting is not.
-/// </remarks>
+/// </para>
+/// </summary>
 public static partial class DesktopTools
 {
 	/// <summary>Reads a value from the clipboard.</summary>

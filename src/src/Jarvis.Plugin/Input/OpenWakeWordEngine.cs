@@ -146,20 +146,17 @@ public sealed class OpenWakeWordEngine : IDisposable
 	}
 
 	/// <summary>
-	/// Builds the engine. <paramref name="preprocessorDirectory"/> holds the two shared models;
-	/// <paramref name="classifierPath"/> is the full path of the keyword model to listen for, resolved by
-	/// the caller from whichever model the settings selected.
-	/// </summary>
+	/// Scores one packet of microphone audio, in the device's own rate and float scale.
 	/// <para>
-	/// Returns null while the engine is still priming: its buffers are filling, so any score it would
-	/// report is about the warm-up noise and about nothing the microphone heard.
+	/// Returns null while the engine is still priming: its buffers are filling, so any score it would report
+	/// is about the warm-up noise and about nothing the microphone heard.
 	/// </para>
 	/// </summary>
-	public float? Process(float[] samples48k, int sourceRate)
+	public float? Process(float[] samples, int sourceRate)
 	{
-		ArgumentNullException.ThrowIfNull(samples48k);
+		ArgumentNullException.ThrowIfNull(samples);
 
-		var pcm = Downsample.ToInt16Scale(samples48k, sourceRate);
+		var pcm = Downsample.ToInt16Scale(samples, sourceRate);
 
 		lock (_gate)
 		{

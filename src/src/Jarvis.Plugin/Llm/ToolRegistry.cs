@@ -30,9 +30,8 @@ public interface ITool
 /// A tool that is not always worth offering.
 /// <para>
 /// The registry is built once, so a tool whose availability depends on a setting or on another process
-/// cannot be registered or unregistered to match. Reading <see cref="IsAvailable"/> at the moment the
-/// catalogue is built means a change takes effect on the next turn rather than after a restart, which is
-/// the difference between a setting that works and one that appears not to.
+/// cannot be registered or unregistered to match. Its availability is read when the catalogue is built,
+/// which means a change takes effect on the next turn rather than after a restart.
 /// </para>
 /// </summary>
 public interface IConditionalTool

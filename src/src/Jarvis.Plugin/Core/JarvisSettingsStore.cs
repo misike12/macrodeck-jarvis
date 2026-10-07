@@ -58,12 +58,9 @@ public static class JarvisSettingsStoreFields
 /// <summary>
 /// Merges the host's configuration with the defaults into one immutable snapshot.
 /// <para>
-/// The host is the only place a setting comes from. There used to be a developer file loaded from beside the
-/// executable and two environment variables, and this comment used to describe all three as supported ways
-/// to supply a value. Neither of the other two could ever be reached, because the integration requires a
-/// configuration before the host will start it, so they only ever left a place for a credential to be
-/// written in plaintext. The injectable constructor below still accepts a settings object so tests can
-/// exercise a configured store without a real key.
+/// The host's encrypted store is the only production source of a setting. The injectable constructor takes a
+/// settings object for tests, which need a configured store without a real key and without a file that every
+/// test in the assembly would then also read.
 /// </para>
 /// </summary>
 public sealed class JarvisSettingsStore
@@ -79,8 +76,8 @@ public sealed class JarvisSettingsStore
 	private JarvisSettings _current = new();
 
 	/// <summary>
-	/// The production constructor. Nothing is read from disk: the host's encrypted store is the only source,
-	/// so a plugin directory has no settings file to hold a key in.
+	/// The production constructor. Nothing is read from disk, so a plugin directory has no settings file to
+	/// hold a key in.
 	/// </summary>
 	public JarvisSettingsStore(ILogger logger)
 		: this(logger, LocalSettingsFile.Empty)
@@ -108,18 +105,13 @@ public sealed class JarvisSettingsStore
 		}
 	}
 
-	/// <summary>
-	/// Reads every configured value back from the config entry, falling back to the developer file and
-	/// then the environment. Host calls are network round trips, so a failure degrades to the local
-	/// value instead of leaving the integration without configuration.
-	/// </summary>
-	/// <summary>
-	/// The non-secret fields the setup flow writes, read back in one pass. Keeping them in one list means a
-	/// setting added to the flow is read by editing the same place, rather than two that can drift.
-	/// </summary>
-/// Everything the setup flow writes, taken from the one declared table rather than restated here.
-	/// A list written out separately is a list that drifts, and when it drifts the store reads back a setting
-	/// the flow cannot write, so the code that consumes it reads a default forever and nothing says so.
+/// <summary>
+	/// The non-secret fields the setup flow writes, read back in one pass.
+	/// <para>
+	/// Taken from the one declared table rather than restated here. A second list is a second thing to keep in
+	/// step, and when it drifts the store reads back a setting the flow cannot write, so the code consuming it
+	/// reads a default forever and nothing says so.
+	/// </para>
 	/// </summary>
 	private static readonly string[] StringFields = JarvisFields.ReadBackAsText;
 

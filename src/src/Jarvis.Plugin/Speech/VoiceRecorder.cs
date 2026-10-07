@@ -39,7 +39,8 @@ public sealed class VoiceRecorder : IDisposable
 	private bool _speaking;
 	private int _quietRuns;
 
-	/// <param name="speechThreshold">RMS above which audio counts as speech.</param>
+	/// <param name="logger">Diagnostics. Everything this class reports is a log line, never a result.</param>
+	/// <param name="speechThreshold">Level above which audio counts as speech.</param>
 	/// <param name="silenceMilliseconds">Quiet that ends an utterance.</param>
 	/// <param name="maximumMilliseconds">Hard cap, so a room tone that never falls quiet cannot record forever.</param>
 	public VoiceRecorder(

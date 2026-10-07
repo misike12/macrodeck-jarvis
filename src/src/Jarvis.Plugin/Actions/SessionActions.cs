@@ -300,9 +300,9 @@ public sealed class ToggleAction(AssistantSession session, ListeningPipeline lis
 /// </para>
 /// <para>
 /// So the turn runs on its own token, bounded by the conversation timeout, and the press returns
-/// <see cref="ActionResult.Accepted"/> immediately. The answer arrives as speech and in the orb, which is
-/// where an assistant's answer belongs anyway. The session already owns a turn that outlives an invocation
-/// and a cancel button that stops it, so nothing new is left running unowned.
+/// accepted immediately. The answer arrives as speech and in the orb, which is where an assistant's
+/// answer belongs anyway. The session already owns a turn that outlives an invocation and a cancel
+/// button that stops it, so nothing new is left running unowned.
 /// </para>
 /// <para>
 /// The result is <c>Accepted</c> rather than <c>Succeeded</c> on purpose: the work was taken and will be

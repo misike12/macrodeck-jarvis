@@ -3,8 +3,7 @@ using System.Collections.Immutable;
 namespace Jarvis.Plugin.Core;
 
 /// <summary>
-/// The single place a state change is published. The session owns the current value and raises
-/// <see cref="Changed"/>; readers take snapshots so a widget never sees a torn set of fields.
+/// One reading of everything a widget shows, taken atomically so a reader never sees a torn set of fields.
 /// </summary>
 public sealed record AssistantSnapshot
 {
