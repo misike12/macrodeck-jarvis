@@ -10,8 +10,12 @@
         <!-- Documentation is generated so the compiler checks the doc comments themselves: a mismatched or
              unclosed tag is otherwise invisible, and the repository's rule is that a comment states a
              constraint rather than narrating a bug. CS1591 is excluded because not every member here needs
-             a comment, and requiring one would be decoration rather than documentation. -->
-        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+             a comment, and requiring one would be decoration rather than documentation.
+
+             Development builds only. The generated XML sits beside the assembly, and the packer ships
+             everything beside it, so turning this on for Release put a third of a megabyte of documentation
+             into every user's plugin. The check is a development-time check. -->
+        <GenerateDocumentationFile Condition="'$(Configuration)' != 'Release'">true</GenerateDocumentationFile>
         <NoWarn>$(NoWarn);CS1591</NoWarn>
     </PropertyGroup>
 
