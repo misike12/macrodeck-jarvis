@@ -179,8 +179,36 @@ public sealed class WakeWordDetector : IDisposable
 	/// <summary>How much audio is retained for inspection: long enough for the word, short enough not to be a recording.</summary>
 	public TimeSpan Window { get; }
 
-	/// <summary>The retained samples, oldest first.</summary>
-	public SampleRingBuffer Buffer { get; }
+	/// <summary>
+	/// The retained samples, oldest first.
+	/// <para>
+	/// Replaced rather than resized when the open device turns out to deliver a different rate than the one
+	/// the buffer was sized for. A buffer holding 96 kHz audio while claiming 48 kHz would hand the recogniser
+	/// half as much time as it thinks it has, which trims the front of the word off.
+	/// </para>
+	/// </summary>
+	public SampleRingBuffer Buffer { get; private set; }
+
+	/// <summary>
+	/// Points the detector at a capture rate, rebuilding the buffer when it differs from the one in hand.
+	/// Safe to call on every configuration: a device that stayed at the same rate keeps its audio.
+	/// </summary>
+	public void UseSampleRate(int sampleRate)
+	{
+		if (sampleRate <= 0 || sampleRate == Buffer.SampleRate)
+		{
+			return;
+		}
+
+		var existing = Buffer.TakeLast(Buffer.Count);
+		Buffer = new SampleRingBuffer(Window, sampleRate);
+
+		// Only meaningful going upwards; resampling retained audio is the recogniser's job, not this one's.
+		if (existing.Length > 0)
+		{
+			Buffer.Append(existing);
+		}
+	}
 
 	public string Word { get; set; } = "jarvis";
 

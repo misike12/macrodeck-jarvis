@@ -386,6 +386,8 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 
 		if (usesScorePath)
 		{
+			_wakeEngine.SourceRate = _microphone.ActiveSampleRate;
+
 			if (!await _wakeEngine.ActivateAsync(settings, cancellationToken).ConfigureAwait(false))
 			{
 				// The models did not install; the download manager has raised an issue the user can act on.
@@ -398,6 +400,10 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 		}
 		else
 		{
+			// The detector's buffer is sized from the rate, so it has to be told what the device is really
+			// delivering before the transcript path reads from it.
+			_wakeWord.UseSampleRate(_microphone.ActiveSampleRate);
+
 			// Assigned unconditionally rather than only on the enabled path, and it reads the current settings
 			// from the field rather than capturing the argument. A closure over a parameter holds the settings
 			// from the initialization that created it, so a later configuration change was recognised with the
@@ -492,7 +498,9 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 		}
 
 		var language = _settings.Current.SttLanguage;
-		var wav = UtteranceAudio.WriteWav(samples, Audio.MicrophoneMonitor.SampleRate);
+		// The rate the device actually delivered, not the one that was asked for. A 96 kHz stream written into
+		// a header claiming 48 kHz plays back at half speed, which a small recogniser answers with nonsense.
+		var wav = UtteranceAudio.WriteWav(samples, _microphone.ActiveSampleRate);
 
 		try
 		{

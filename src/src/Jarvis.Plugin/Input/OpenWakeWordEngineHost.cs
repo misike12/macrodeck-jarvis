@@ -53,6 +53,36 @@ public sealed class OpenWakeWordEngineHost : IDisposable
 	/// <summary>Whether a built engine is listening. False whenever another engine is selected or off.</summary>
 	public bool IsActive { get; private set; }
 
+	/// <summary>
+	/// The rate the microphone is actually delivering, which is not always the one the plugin asked for.
+	/// <para>
+	/// Shared mode converts for most devices, and a driver that will not converts nothing: several 96 kHz and
+	/// 192 kHz interfaces hand over their own rate. Passing the requested figure instead would make the engine
+	/// halve a 96 kHz stream's pitch, which looks like speech on a meter and scores the wake word at nothing.
+	/// </para>
+	/// </summary>
+	public int SourceRate
+	{
+		get
+		{
+			lock (_gate)
+			{
+				return _sourceRate;
+			}
+		}
+		set
+		{
+			lock (_gate)
+			{
+				// A rate of zero or less would divide by nothing inside the resampler, and the device's own
+				// rate is the only thing this is ever set to, so it is not a value worth storing.
+				_sourceRate = value > 0 ? value : MicrophoneMonitor.SampleRate;
+			}
+		}
+	}
+
+	private int _sourceRate = MicrophoneMonitor.SampleRate;
+
 	/// <summary>A keyword score for one completed 80 ms chunk, raised on the pump thread.</summary>
 	public event Action<float>? ScoreReady;
 
@@ -134,6 +164,11 @@ public sealed class OpenWakeWordEngineHost : IDisposable
 			var engine = _engine;
 			var stopping = (_stopping = new CancellationTokenSource()).Token;
 
+			// Read once, here, rather than per packet: the rate is a property of the open device, and asking
+			// it from the pump would mean a cross-thread read sixty times a second to learn something that
+			// cannot change while the engine exists.
+			var sourceRate = _sourceRate;
+
 			IsActive = true;
 
 			_ = Task.Run(async () =>
@@ -142,7 +177,7 @@ public sealed class OpenWakeWordEngineHost : IDisposable
 				{
 					await foreach (var packet in reader.ReadAllAsync(stopping).ConfigureAwait(false))
 					{
-						var score = engine.Process(packet, MicrophoneMonitor.SampleRate);
+						var score = engine.Process(packet, sourceRate);
 
 						if (engine.IsDead)
 						{

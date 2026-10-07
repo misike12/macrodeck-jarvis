@@ -34,6 +34,7 @@ public sealed class VoiceRecorder : IDisposable
 
 	private WasapiRecorder? _capture;
 	private List<float>? _samples;
+	private CaptureFormat _format = CaptureFormat.Preferred;
 	private bool _speaking;
 	private int _quietRuns;
 
@@ -85,18 +86,23 @@ public sealed class VoiceRecorder : IDisposable
 			var device = AudioDeviceCatalog.ResolveCapture(preferredId, preferredName)
 				?? throw new InvalidOperationException("No capture device was found.");
 
-			var recorder = new WasapiRecorderBuilder()
-				.WithDevice(new MMDeviceEnumerator().GetDevice(device.Id))
-				.WithSharedMode()
-				.WithPollingSync()
-				.WithFormat(WaveFormat.CreateIeeeFloatWaveFormat(TargetSampleRate, 1))
-				.Build();
+			// Whisper wants 16 kHz, but it is asked for rather than required: a device that will not convert
+			// is opened at its own rate and resampled here, which is slower and always works, while insisting
+			// on the rate means no microphone at all on hardware that works everywhere else.
+			if (!AudioDeviceCatalog.TryOpenCapture(device, out var recorder, out var error, out var format)
+				|| recorder is null)
+			{
+				LastError = error ?? "The capture device could not be opened.";
+				_logger.Warning("{Error} on {Device}.", LastError, device.Name);
+				return false;
+			}
 
 			recorder.DataAvailable += OnData;
 
 			lock (_gate)
 			{
 				_samples = [];
+				_format = format;
 				_capture = recorder;
 				_speaking = false;
 				_quietRuns = 0;
@@ -104,6 +110,15 @@ public sealed class VoiceRecorder : IDisposable
 
 			recorder.StartRecording();
 			LastError = null;
+
+			if (format != CaptureFormat.Preferred)
+			{
+				_logger.Information(
+					"Recording from {Device} at {Format}, where the plugin asked for {Requested}.",
+					device.Name,
+					format,
+					CaptureFormat.Preferred);
+			}
 
 			return true;
 		}
@@ -124,12 +139,13 @@ public sealed class VoiceRecorder : IDisposable
 	{
 		WasapiRecorder? capture;
 		List<float>? samples;
-		double seconds;
+		CaptureFormat format;
 
 		lock (_gate)
 		{
 			capture = _capture;
 			samples = _samples;
+			format = _format;
 			_capture = null;
 			_samples = null;
 
@@ -156,7 +172,14 @@ public sealed class VoiceRecorder : IDisposable
 			return null;
 		}
 
-		seconds = samples.Count / (double)TargetSampleRate;
+		// Whisper reads 16-bit PCM at 16 kHz. A device that delivered its own rate is resampled here, once,
+		// rather than handed to the transcriber as a clip that plays back at the wrong speed.
+		var atTargetRate = format.SampleRate == TargetSampleRate
+			? [.. samples]
+			: UtteranceAudio.Resample([.. samples], format.SampleRate, TargetSampleRate);
+
+		var pcm16 = ToPcm16(atTargetRate);
+		var seconds = atTargetRate.Length / (double)TargetSampleRate;
 
 		// Under a fifth of a second is a click or a breath, not a sentence. Feeding it to a speech model
 		// wastes a model load and invites a hallucinated transcript.
@@ -169,10 +192,11 @@ public sealed class VoiceRecorder : IDisposable
 			Path.GetTempPath(),
 			$"jarvis-utt-{Convert.ToHexString(Guid.NewGuid().ToByteArray()).ToLowerInvariant()}.wav");
 
-		// Whisper reads 16-bit PCM. The capture is already IEEE float at the target rate, so the samples are
-		// narrowed and clipped here rather than resampled a second time downstream.
-		var format = new WaveFormat(TargetSampleRate, 16, 1);
-		using var pcm = new RawSourceWaveStream(new MemoryStream(ToPcm16(samples)), format);
+		// Already at the target rate by this point, so the samples are narrowed and clipped rather than
+		// resampled a second time downstream.
+		using var pcm = new RawSourceWaveStream(
+			new MemoryStream(pcm16),
+			new WaveFormat(TargetSampleRate, 16, 1));
 		WaveFileWriter.CreateWaveFile(path, pcm);
 
 		return path;
@@ -222,14 +246,40 @@ public sealed class VoiceRecorder : IDisposable
 
 	private void OnData(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long _, long __)
 	{
-		if (flags.HasFlag(AudioClientBufferFlags.Silent) || buffer.Length < sizeof(float))
+		if (flags.HasFlag(AudioClientBufferFlags.Silent))
+		{
+			return;
+		}
+
+		CaptureFormat format;
+
+		lock (_gate)
+		{
+			if (_capture is null)
+			{
+				return;
+			}
+
+			format = _format;
+		}
+
+		// The device's own channel count and rate, both taken from the format that was negotiated rather than
+		// assumed: a stereo or 96 kHz interface that will not convert hands over exactly what it has, and
+		// reading either of those as 16 kHz mono is noise.
+		var channels = Math.Max(1, format.Channels);
+		var frames = CaptureInterleave.WholeFrames(buffer.Length, channels);
+
+		if (frames <= 0)
 		{
 			return;
 		}
 
 		// WASAPI hands over a span over the driver's own memory, so the samples are copied out before this
 		// returns. Nothing here retains the span.
-		var block = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(buffer).ToArray();
+		var block = CaptureInterleave.ToMono(
+			System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(buffer[..(frames * channels * sizeof(float))]),
+			channels);
+
 		var meter = new AmplitudeMeter();
 		var level = meter.Accumulate(block);
 
@@ -240,7 +290,7 @@ public sealed class VoiceRecorder : IDisposable
 				return;
 			}
 
-			var blockMilliseconds = (int)(block.Length * 1000.0 / TargetSampleRate);
+			var blockMilliseconds = (int)(block.Length * 1000.0 / format.SampleRate);
 
 			if (level >= SpeechThreshold)
 			{
@@ -253,9 +303,11 @@ public sealed class VoiceRecorder : IDisposable
 				_quietRuns += blockMilliseconds;
 				samples.AddRange(block);
 
-				// The trailing quiet is kept so the tail of the last word is not clipped off.
+				// The trailing quiet is kept so the tail of the last word is not clipped off. Both bounds are
+				// counted at the device's own rate, so a 96 kHz interface is not cut off after a tenth of the
+				// time it should have recorded.
 				if (_quietRuns >= SilenceMilliseconds
-					|| samples.Count >= TargetSampleRate * MaximumMilliseconds / 1000)
+					|| samples.Count >= format.SampleRate * MaximumMilliseconds / 1000)
 				{
 					_speaking = false;
 				}
@@ -264,14 +316,14 @@ public sealed class VoiceRecorder : IDisposable
 	}
 
 	/// <summary>
-	/// Whisper reads 16-bit PCM. The capture is already IEEE float at the target rate, so this narrows it
-	/// and clips rather than resampling a second time.
+	/// Whisper reads 16-bit PCM, so the float capture is narrowed and clipped here. Called only once the
+	/// samples are at the target rate.
 	/// </summary>
-	private static byte[] ToPcm16(List<float> samples)
+	private static byte[] ToPcm16(float[] samples)
 	{
-		var pcm = new byte[samples.Count * 2];
+		var pcm = new byte[samples.Length * 2];
 
-		for (var index = 0; index < samples.Count; index++)
+		for (var index = 0; index < samples.Length; index++)
 		{
 			var clamped = Math.Clamp(samples[index], -1f, 1f);
 			BitConverter.TryWriteBytes(pcm.AsSpan(index * 2), (short)(clamped * short.MaxValue));

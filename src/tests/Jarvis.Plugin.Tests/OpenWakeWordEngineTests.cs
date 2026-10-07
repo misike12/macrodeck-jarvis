@@ -77,6 +77,242 @@ public class DownsampleTests
 	{
 		Assert.That(Downsample.ToInt16Scale([], 48_000), Is.Empty);
 	}
+
+	/// <summary>
+	/// Every capture rate a Windows microphone actually negotiates, because the plugin asks the device for
+	/// 48 kHz and a driver that refuses converts down, while a shared-mode endpoint opened elsewhere can
+	/// arrive at any of these. A rate that is not handled does not throw: it produces the wrong number of
+	/// samples, which the models score as silence.
+	/// </summary>
+	[TestCase(8_000)]
+	[TestCase(11_025)]
+	[TestCase(16_000)]
+	[TestCase(22_050)]
+	[TestCase(24_000)]
+	[TestCase(32_000)]
+	[TestCase(44_100)]
+	[TestCase(48_000)]
+	[TestCase(88_200)]
+	[TestCase(96_000)]
+	[TestCase(192_000)]
+	public void Every_rate_a_microphone_negotiates_resamples_to_sixteen(int sourceRate)
+	{
+		// Fifty milliseconds at the device's own rate, which has to arrive as fifty milliseconds at 16 kHz.
+		// The same duration rather than the same sample count, because the whole point is that the rate
+		// changes the count and the duration is what the models care about.
+		var samples = new float[sourceRate / 20];
+
+		var result = Downsample.ToInt16Scale(samples, sourceRate);
+
+		Assert.That(
+			result.Length,
+			Is.EqualTo(800).Within(2),
+			$"{sourceRate} Hz produced {result.Length} samples for 50 ms where about 800 were expected");
+	}
+
+	/// <summary>
+	/// A rate below the target genuinely grows the buffer, since it has to invent the samples in between.
+	/// That is correct rather than a leak, but it has to be bounded: a device negotiating something absurd
+	/// must not be able to make one packet allocate without limit.
+	/// </summary>
+	[Test]
+	public void Upsampling_is_bounded_by_the_rate_ratio()
+	{
+		foreach (var rate in new[] { 1_000, 4_000, 8_000 })
+		{
+			var samples = new float[rate];
+
+			var result = Downsample.ToInt16Scale(samples, rate);
+
+			Assert.That(
+				result.Length,
+				Is.EqualTo(16_000).Within(2),
+				$"{rate} Hz produced {result.Length} samples for one second");
+		}
+	}
+
+	/// <summary>
+	/// The signal has to survive the conversion, not merely the sample count. A rate handled by producing
+	/// the right length of silence would pass every other test here and score the wake word at zero.
+	/// </summary>
+	[TestCase(8_000)]
+	[TestCase(44_100)]
+	[TestCase(48_000)]
+	[TestCase(96_000)]
+	[TestCase(192_000)]
+	public void A_tone_survives_the_conversion_at_any_rate(int sourceRate)
+	{
+		var samples = new float[sourceRate];
+
+		for (var index = 0; index < samples.Length; index++)
+		{
+			samples[index] = 0.8f * (float)Math.Sin(2 * Math.PI * 220 * index / sourceRate);
+		}
+
+		var result = Downsample.ToInt16Scale(samples, sourceRate);
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(result.Length, Is.GreaterThan(1_000), $"{sourceRate} Hz produced {result.Length} samples");
+			Assert.That(
+				result.Select(value => Math.Abs(value)).Max(),
+				Is.GreaterThan(24_000),
+				$"a full-scale tone arrived at {sourceRate} Hz with almost nothing left of it");
+		});
+	}
+
+	/// <summary>
+	/// A rate that is not a positive number has to be refused rather than dividing by it. The device is the
+	/// only source of the rate, so this cannot happen in practice, and a NaN length would throw from deep
+	/// inside a conversion rather than say what was wrong.
+	/// </summary>
+	[TestCase(0)]
+	[TestCase(-48_000)]
+	public void An_impossible_rate_is_refused(int sourceRate)
+	{
+		Assert.That(
+			() => Downsample.ToInt16Scale([0.1f, 0.2f], sourceRate),
+			Throws.TypeOf<ArgumentOutOfRangeException>());
+	}
+}
+
+/// <summary>
+/// The rate a capture device actually delivers, as far as the plugin can tell without hardware.
+/// <para>
+/// The plugin asks for 48 kHz because that is what its meter and its ring buffer were sized for, but shared
+/// mode converts for most devices and converts nothing for several 96 kHz and 192 kHz interfaces. Everything
+/// downstream therefore has to be told the rate the device agreed to rather than assuming the one requested:
+/// treating a 96 kHz stream as 48 kHz halves its pitch, which still reads as speech on a meter and scores
+/// the wake word at nothing at all.
+/// </para>
+/// </summary>
+[TestFixture]
+public class CaptureRateTests
+{
+	/// <summary>The rates a Windows capture endpoint is seen to negotiate.</summary>
+	public static IEnumerable<int> NegotiatedRates =>
+	[
+		8_000, 11_025, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000, 88_200, 96_000, 192_000,
+	];
+
+	/// <summary>Whatever the device hands over, the ring buffer has to be sized for that and no other.</summary>
+	[TestCaseSource(nameof(NegotiatedRates))]
+	public void The_wake_word_buffer_follows_the_capture_rate(int rate)
+	{
+		using var detector = new WakeWordDetector(RuntimeTestLog.Logger, TimeSpan.FromSeconds(1));
+
+		detector.UseSampleRate(rate);
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(detector.Buffer.SampleRate, Is.EqualTo(rate));
+			Assert.That(
+				detector.Buffer.Capacity,
+				Is.EqualTo(rate).Within(1),
+				"the buffer does not hold one second of the device's own rate");
+		});
+	}
+
+	/// <summary>A buffer holding one rate while claiming another trims the front off the word.</summary>
+	[TestCase(96_000)]
+	[TestCase(192_000)]
+	public void A_retimed_buffer_keeps_the_audio_it_already_had(int rate)
+	{
+		using var detector = new WakeWordDetector(RuntimeTestLog.Logger, TimeSpan.FromSeconds(1));
+
+		detector.Buffer.Append(new float[4_800]);
+		detector.UseSampleRate(rate);
+
+		// Four thousand eight hundred samples is 100 ms at 48 kHz and 25 ms at 192 kHz. Carried across
+		// unchanged, so the count proves the audio survived and the rate proves it is now interpreted.
+		Assert.Multiple(() =>
+		{
+			Assert.That(detector.Buffer.SampleRate, Is.EqualTo(rate));
+			Assert.That(detector.Buffer.Count, Is.EqualTo(4_800));
+		});
+	}
+
+	/// <summary>Retiming on every configuration must not keep discarding the audio the recogniser needs.</summary>
+	[Test]
+	public void Retiming_to_the_same_rate_twice_keeps_the_buffer()
+	{
+		using var detector = new WakeWordDetector(RuntimeTestLog.Logger, TimeSpan.FromSeconds(1));
+
+		detector.UseSampleRate(44_100);
+		detector.Buffer.Append(new float[1_000]);
+		detector.UseSampleRate(44_100);
+
+		Assert.That(detector.Buffer.Count, Is.EqualTo(1_000), "an unchanged rate discarded the audio anyway");
+	}
+
+	/// <summary>A rate that is not a positive number would size the buffer at nothing, so it is ignored.</summary>
+	[TestCase(0)]
+	[TestCase(-48_000)]
+	public void An_impossible_capture_rate_leaves_the_buffer_alone(int rate)
+	{
+		using var detector = new WakeWordDetector(RuntimeTestLog.Logger, TimeSpan.FromSeconds(1));
+		var before = detector.Buffer.SampleRate;
+
+		detector.UseSampleRate(rate);
+
+		Assert.That(detector.Buffer.SampleRate, Is.EqualTo(before));
+	}
+
+	/// <summary>
+	/// The recording is handed to whisper at 16 kHz whatever the device gave us, so the rate the caller
+	/// passes has to decide how much audio comes out. Getting it wrong does not fail loudly: it writes a
+	/// clip that is the right length in bytes and plays back at the wrong speed.
+	/// </summary>
+	[TestCase(8_000)]
+	[TestCase(44_100)]
+	[TestCase(48_000)]
+	[TestCase(96_000)]
+	[TestCase(192_000)]
+	public void A_recording_keeps_its_duration_at_whichever_rate_the_device_ran_at(int sourceRate)
+	{
+		// One hundred milliseconds at the device's own rate.
+		var samples = new float[sourceRate / 10];
+		var path = Path.Combine(Path.GetTempPath(), $"jarvis-rate-{sourceRate}.wav");
+
+		try
+		{
+			var written = Jarvis.Plugin.Speech.UtteranceAudio.WriteWav(samples, sourceRate);
+			File.Move(written, path, overwrite: true);
+
+			var headerRate = BitConverter.ToInt32(File.ReadAllBytes(path), 24);
+			var dataBytes = File.ReadAllBytes(path).Length;
+
+			// 16-bit mono, so two bytes per sample.
+			var samplesWritten = (dataBytes - 44) / 2;
+
+			Assert.Multiple(() =>
+			{
+				Assert.That(headerRate, Is.EqualTo(16_000), "whisper is not given the rate it expects");
+				Assert.That(
+					samplesWritten,
+					Is.EqualTo(1_600).Within(40),
+					$"{sourceRate} Hz produced {samplesWritten} samples for 100 ms");
+			});
+		}
+		finally
+		{
+			try
+			{
+				File.Delete(path);
+			}
+			catch (IOException)
+			{
+				// A leftover temp file is not worth a failed test.
+			}
+		}
+	}
+
+	/// <summary>The rate the plugin asks for has to be one Windows can actually be asked for.</summary>
+	[Test]
+	public void The_requested_capture_rate_is_one_windows_negotiates()
+	{
+		Assert.That(NegotiatedRates, Contains.Item(Jarvis.Plugin.Audio.MicrophoneMonitor.SampleRate));
+	}
 }
 
 /// <summary>

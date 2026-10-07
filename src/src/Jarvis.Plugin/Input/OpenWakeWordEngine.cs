@@ -393,6 +393,8 @@ public static class Downsample
 	/// </summary>
 	public static float[] ToInt16Scale(float[] samples, int sourceRate)
 	{
+		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(sourceRate, 0);
+
 		if (samples.Length == 0)
 		{
 			return [];

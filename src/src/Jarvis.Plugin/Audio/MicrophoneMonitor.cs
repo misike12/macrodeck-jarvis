@@ -75,6 +75,21 @@ public sealed class MicrophoneMonitor : IDisposable
 
 	public string? ActiveDeviceName { get; private set; }
 
+	/// <summary>
+	/// The format the open device is actually delivering, which is not the one that was asked for.
+	/// <para>
+	/// Shared mode converts for most devices, and a driver that will not converts nothing: several 96 kHz and
+	/// 192 kHz interfaces hand over their own rate, a Bluetooth headset its own, and an aggregate endpoint
+	/// whatever the driver underneath it settled on. Every consumer resamples from this rather than from
+	/// <see cref="SampleRate"/>, because treating a 96 kHz stream as 48 kHz halves its pitch: the audio still
+	/// looks like speech on a level meter and the wake word scores nothing at all.
+	/// </para>
+	/// </summary>
+	public CaptureFormat ActiveFormat { get; private set; } = CaptureFormat.Preferred;
+
+	/// <summary>The rate half of <see cref="ActiveFormat"/>, which is what the resamplers need.</summary>
+	public int ActiveSampleRate => ActiveFormat.SampleRate;
+
 	public string? LastError { get; private set; }
 
 	/// <summary>
@@ -125,7 +140,7 @@ public sealed class MicrophoneMonitor : IDisposable
 			return false;
 		}
 
-		if (!AudioDeviceCatalog.TryOpenCapture(device, out var capture, out var error) || capture is null)
+		if (!AudioDeviceCatalog.TryOpenCapture(device, out var capture, out var error, out var format) || capture is null)
 		{
 			LastError = error ?? "The capture device could not be opened.";
 			_logger.Warning("{Error} on {Device}.", LastError, device.Name);
@@ -156,7 +171,23 @@ public sealed class MicrophoneMonitor : IDisposable
 		}
 
 		ActiveDeviceName = device.Name;
-		_logger.Information("Microphone capture started on {Device}.", device.Name);
+		ActiveFormat = format;
+
+		// The format is logged whenever it is not the one asked for, because a device that opened its own way
+		// is the kind of thing that looks like a wake word bug until it is written down.
+		if (format == CaptureFormat.Preferred)
+		{
+			_logger.Information("Microphone capture started on {Device} at {Format}.", device.Name, format);
+		}
+		else
+		{
+			_logger.Information(
+				"Microphone capture started on {Device} at {Format}, where the plugin asked for {Requested}.",
+				device.Name,
+				format,
+				CaptureFormat.Preferred);
+		}
+
 		return true;
 	}
 
@@ -204,12 +235,25 @@ public sealed class MicrophoneMonitor : IDisposable
 		long devicePosition,
 		long qpcPosition)
 	{
-		if (flags.HasFlag(AudioClientBufferFlags.Silent) || buffer.Length < sizeof(float))
+		if (flags.HasFlag(AudioClientBufferFlags.Silent))
 		{
 			return;
 		}
 
-		var samples = MemoryMarshal.Cast<byte, float>(buffer).ToArray();
+		// The channel count comes from the format that was actually negotiated rather than assumed, because a
+		// stereo interface that will not convert hands over two channels and reading them as mono plays the
+		// audio back at double speed.
+		var channels = Math.Max(1, ActiveFormat.Channels);
+		var frames = CaptureInterleave.WholeFrames(buffer.Length, channels);
+
+		// A packet that is not a whole number of frames is dropped rather than read: the leftover would shift
+		// every sample after it by one position, which the models read as a click at the start of the word.
+		if (frames <= 0)
+		{
+			return;
+		}
+
+		var samples = CaptureInterleave.ToMono(MemoryMarshal.Cast<byte, float>(buffer[..(frames * channels * sizeof(float))]), channels);
 
 		lock (_gate)
 		{
