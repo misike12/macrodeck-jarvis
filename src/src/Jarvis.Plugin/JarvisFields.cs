@@ -65,6 +65,42 @@ internal static class JarvisFields
 		new() { Value = value, Label = label };
 
 	/// <summary>
+	/// The stored spelling of an enum member: kebab-case, which is what a form shows and what the store reads
+	/// back.
+	/// <para>
+	/// The option values used to be written out by hand as "llama-cpp", "whisper-cpp", "sapi", "piper",
+	/// "magpie", "challenge" and none of those is a member of the enum it stood for. The store parsed the
+	/// stored value with <c>Enum.TryParse</c>, so every one of them reverted to the default on the next
+	/// reload: picking a local model silently ran the NVIDIA one, and picking the Windows voice still tried
+	/// to download Piper. Deriving the value from the member means the two cannot disagree.
+	/// </para>
+	/// </summary>
+	internal static string ValueOf<TEnum>(TEnum value) where TEnum : struct, Enum
+	{
+		var name = value.ToString();
+		var builder = new System.Text.StringBuilder(name.Length + 4);
+
+		for (var index = 0; index < name.Length; index++)
+		{
+			if (char.IsUpper(name[index]))
+			{
+				if (index > 0)
+				{
+					builder.Append('-');
+				}
+
+				builder.Append(char.ToLowerInvariant(name[index]));
+			}
+			else
+			{
+				builder.Append(name[index]);
+			}
+		}
+
+		return builder.ToString();
+	}
+
+	/// <summary>
 	/// The bounds every numeric setting is declared and read against.
 	/// <para>
 	/// Public because they are not only this file's business: the store reads a stored number against the
@@ -94,16 +130,16 @@ internal static class JarvisFields
 	[
 		// Provider.
 		new(JarvisSettingsStoreFields.LlmProviderField, JarvisFieldKind.Choice, ProviderStep,
-			() => Strings.ConfigFlow.Provider.Llm.Label(), Default: "nvidia-nim", Required: true,
+			() => Strings.ConfigFlow.Provider.Llm.Label(), Default: ValueOf(LlmProvider.NvidiaNim), Required: true,
 			Options:
 			[
-				Option("nvidia-nim", Strings.ConfigFlow.Option.NvidiaNim()),
-				Option("self-hosted-nim", Strings.ConfigFlow.Option.SelfHosted()),
-				Option("llama-cpp", Strings.ConfigFlow.Option.LlamaCpp()),
+				Option(ValueOf(LlmProvider.NvidiaNim), Strings.ConfigFlow.Option.NvidiaNim()),
+				Option(ValueOf(LlmProvider.SelfHostedNim), Strings.ConfigFlow.Option.SelfHosted()),
+				Option(ValueOf(LlmProvider.LocalLlamaCpp), Strings.ConfigFlow.Option.LlamaCpp()),
 			]),
 		new(JarvisSettingsStoreFields.SelfHostedUrlField, JarvisFieldKind.Text, ProviderStep,
 			() => Strings.ConfigFlow.Provider.SelfHostedUrl.Label(), Default: "http://localhost:8000/v1",
-			OnlyWhenField: JarvisSettingsStoreFields.LlmProviderField, OnlyWhenValue: "self-hosted-nim"),
+			OnlyWhenField: JarvisSettingsStoreFields.LlmProviderField, OnlyWhenValue: ValueOf(LlmProvider.SelfHostedNim)),
 		new(JarvisSettingsStoreFields.NvidiaBaseUrlField, JarvisFieldKind.Text, ProviderStep,
 			() => Strings.ConfigFlow.Provider.NvidiaBaseUrl.Label(), Default: JarvisSettings.DefaultNvidiaBaseUrl,
 			Advanced: true),
@@ -115,7 +151,7 @@ internal static class JarvisFields
 		new(JarvisSettingsStoreFields.SelfHostedTokenField, JarvisFieldKind.Secret, KeysStep,
 			() => Strings.ConfigFlow.Keys.SelfHostedToken.Label(),
 			Description: () => Strings.ConfigFlow.Keys.SelfHostedToken.Description(),
-			OnlyWhenField: JarvisSettingsStoreFields.LlmProviderField, OnlyWhenValue: "self-hosted-nim"),
+			OnlyWhenField: JarvisSettingsStoreFields.LlmProviderField, OnlyWhenValue: ValueOf(LlmProvider.SelfHostedNim)),
 		new(JarvisSettingsStoreFields.PicovoiceKeyField, JarvisFieldKind.Secret, KeysStep,
 			() => Strings.ConfigFlow.Keys.Picovoice.Label(),
 			Description: () => Strings.ConfigFlow.Keys.Picovoice.Description()),
@@ -124,44 +160,44 @@ internal static class JarvisFields
 		new(JarvisSettingsStoreFields.LlmModelField, JarvisFieldKind.Text, ModelsStep,
 			() => Strings.ConfigFlow.Models.Llm.Label(), Default: JarvisSettings.DefaultLlmModel, Required: true),
 		new(JarvisSettingsStoreFields.VisionProviderField, JarvisFieldKind.Choice, ModelsStep,
-			() => Strings.ConfigFlow.Models.VisionProvider.Label(), Default: "nvidia-nim", Required: true,
+			() => Strings.ConfigFlow.Models.VisionProvider.Label(), Default: ValueOf(VisionProvider.NvidiaNim), Required: true,
 			Options:
 			[
-				Option("nvidia-nim", Strings.ConfigFlow.Option.NvidiaNim()),
-				Option("llama-cpp", Strings.ConfigFlow.Option.LlamaCpp()),
+Option(ValueOf(VisionProvider.NvidiaNim), Strings.ConfigFlow.Option.NvidiaNim()),
+							Option(ValueOf(VisionProvider.LocalLlamaCpp), Strings.ConfigFlow.Option.LlamaCpp()),
 			]),
 		new(JarvisSettingsStoreFields.VisionModelField, JarvisFieldKind.Text, ModelsStep,
 			() => Strings.ConfigFlow.Models.VisionModel.Label(), Default: JarvisSettings.DefaultVisionModel),
 		new(JarvisSettingsStoreFields.SttProviderField, JarvisFieldKind.Choice, ModelsStep,
-			() => Strings.ConfigFlow.Models.Stt.Label(), Default: "whisper-cpp", Required: true,
+			() => Strings.ConfigFlow.Models.Stt.Label(), Default: ValueOf(SpeechToTextProvider.WhisperCppLocal), Required: true,
 			Options:
 			[
-				Option("whisper-cpp", Strings.ConfigFlow.Models.Option.WhisperCpp()),
-				Option("nvidia-nim", Strings.ConfigFlow.Option.NvidiaNim()),
-				Option("sapi", Strings.ConfigFlow.Option.Sapi()),
+Option(ValueOf(SpeechToTextProvider.WhisperCppLocal), Strings.ConfigFlow.Models.Option.WhisperCpp()),
+							Option(ValueOf(SpeechToTextProvider.NvidiaNim), Strings.ConfigFlow.Option.NvidiaNim()),
+							Option(ValueOf(SpeechToTextProvider.WindowsSapi), Strings.ConfigFlow.Option.Sapi()),
 			]),
 		new(JarvisSettingsStoreFields.SttModelField, JarvisFieldKind.Text, ModelsStep,
 			() => Strings.ConfigFlow.Models.SttModel.Label(), Default: JarvisSettings.DefaultNimSpeechToTextModel,
-			OnlyWhenField: JarvisSettingsStoreFields.SttProviderField, OnlyWhenValue: "nvidia-nim"),
+			OnlyWhenField: JarvisSettingsStoreFields.SttProviderField, OnlyWhenValue: ValueOf(SpeechToTextProvider.NvidiaNim)),
 		new(JarvisSettingsStoreFields.WhisperModelField, JarvisFieldKind.Text, ModelsStep,
 			() => Strings.ConfigFlow.Models.WhisperModel.Label(), Default: JarvisSettings.DefaultWhisperModel,
-			OnlyWhenField: JarvisSettingsStoreFields.SttProviderField, OnlyWhenValue: "whisper-cpp"),
+			OnlyWhenField: JarvisSettingsStoreFields.SttProviderField, OnlyWhenValue: ValueOf(SpeechToTextProvider.WhisperCppLocal)),
 
 		// Voice and input.
 		new(JarvisSettingsStoreFields.TtsProviderField, JarvisFieldKind.Choice, VoiceStep,
-			() => Strings.ConfigFlow.Voice.Tts.Label(), Default: "piper", Required: true,
+			() => Strings.ConfigFlow.Voice.Tts.Label(), Default: ValueOf(TextToSpeechProvider.PiperLocal), Required: true,
 			Options:
 			[
-				Option("piper", Strings.ConfigFlow.Voice.Option.Piper()),
-				Option("nvidia-nim", Strings.ConfigFlow.Option.NvidiaNim()),
-				Option("sapi", Strings.ConfigFlow.Option.Sapi()),
+Option(ValueOf(TextToSpeechProvider.PiperLocal), Strings.ConfigFlow.Voice.Option.Piper()),
+							Option(ValueOf(TextToSpeechProvider.NvidiaNim), Strings.ConfigFlow.Option.NvidiaNim()),
+							Option(ValueOf(TextToSpeechProvider.WindowsSapi), Strings.ConfigFlow.Option.Sapi()),
 			]),
 		new(JarvisSettingsStoreFields.PiperVoiceField, JarvisFieldKind.Text, VoiceStep,
 			() => Strings.ConfigFlow.Voice.PiperVoice.Label(), Default: "en_GB-alan-medium",
-			OnlyWhenField: JarvisSettingsStoreFields.TtsProviderField, OnlyWhenValue: "piper"),
+			OnlyWhenField: JarvisSettingsStoreFields.TtsProviderField, OnlyWhenValue: ValueOf(TextToSpeechProvider.PiperLocal)),
 		new(JarvisSettingsStoreFields.WindowsVoiceField, JarvisFieldKind.Text, VoiceStep,
 			() => Strings.ConfigFlow.Voice.WindowsVoice.Label(),
-			OnlyWhenField: JarvisSettingsStoreFields.TtsProviderField, OnlyWhenValue: "sapi"),
+			OnlyWhenField: JarvisSettingsStoreFields.TtsProviderField, OnlyWhenValue: ValueOf(TextToSpeechProvider.WindowsSapi)),
 		new(JarvisSettingsStoreFields.VolumePercentField, JarvisFieldKind.Number, VoiceStep,
 			() => Strings.ConfigFlow.Voice.VolumePercent.Label(), Default: "100",
 			Minimum: MinVolumePercent, Maximum: MaxVolumePercent),
@@ -169,15 +205,15 @@ internal static class JarvisFields
 			() => Strings.ConfigFlow.Voice.SpeakReplies.Label(), Default: "true"),
 		new(JarvisSettingsStoreFields.TtsModelField, JarvisFieldKind.Text, VoiceStep,
 			() => Strings.ConfigFlow.Voice.TtsModel.Label(), Default: JarvisSettings.DefaultNimTextToSpeechModel,
-			OnlyWhenField: JarvisSettingsStoreFields.TtsProviderField, OnlyWhenValue: "nvidia-nim"),
+			OnlyWhenField: JarvisSettingsStoreFields.TtsProviderField, OnlyWhenValue: ValueOf(TextToSpeechProvider.NvidiaNim)),
 		new(JarvisSettingsStoreFields.LanguageField, JarvisFieldKind.Text, VoiceStep,
 			() => Strings.ConfigFlow.Voice.Language.Label(), Default: "en", Required: true),
 		new(JarvisSettingsStoreFields.WakeEngineField, JarvisFieldKind.Choice, VoiceStep,
-			() => Strings.ConfigFlow.Voice.WakeEngine.Label(), Default: "openwakeword", Required: true,
+			() => Strings.ConfigFlow.Voice.WakeEngine.Label(), Default: ValueOf(WakeWordEngine.OpenWakeWord), Required: true,
 			Options:
 			[
-				Option("openwakeword", Strings.ConfigFlow.Voice.Option.OpenWakeWord()),
-				Option("transcript", Strings.ConfigFlow.Voice.Option.Transcript()),
+				Option(ValueOf(WakeWordEngine.OpenWakeWord), Strings.ConfigFlow.Voice.Option.OpenWakeWord()),
+				Option(ValueOf(WakeWordEngine.Transcript), Strings.ConfigFlow.Voice.Option.Transcript()),
 			]),
 
 		// The wake word had no way to be switched off. It was read back from a field no step declared, so
@@ -208,33 +244,33 @@ internal static class JarvisFields
 
 		// Behaviour.
 		new(JarvisSettingsStoreFields.SafetyField, JarvisFieldKind.Choice, BehaviourStep,
-			() => Strings.ConfigFlow.Behaviour.Safety.Label(), Default: "confirm-all", Required: true,
+			() => Strings.ConfigFlow.Behaviour.Safety.Label(), Default: ValueOf(SafetyMode.ConfirmAll), Required: true,
 			Options:
 			[
-				Option("confirm-all", Strings.ConfigFlow.Behaviour.Option.SafetyConfirmAll()),
-				Option("allowlist", Strings.ConfigFlow.Behaviour.Option.SafetyAllowlist()),
-				Option("tool-permissions", Strings.ConfigFlow.Behaviour.Option.SafetyToolPermissions()),
-				Option("autonomous", Strings.ConfigFlow.Behaviour.Option.SafetyAutonomous()),
+				Option(ValueOf(SafetyMode.ConfirmAll), Strings.ConfigFlow.Behaviour.Option.SafetyConfirmAll()),
+				Option(ValueOf(SafetyMode.Allowlist), Strings.ConfigFlow.Behaviour.Option.SafetyAllowlist()),
+				Option(ValueOf(SafetyMode.ToolPermissions), Strings.ConfigFlow.Behaviour.Option.SafetyToolPermissions()),
+				Option(ValueOf(SafetyMode.Autonomous), Strings.ConfigFlow.Behaviour.Option.SafetyAutonomous()),
 			]),
 		new(JarvisSettingsStoreFields.ConfirmationField, JarvisFieldKind.Choice, BehaviourStep,
-			() => Strings.ConfigFlow.Behaviour.Confirmation.Label(), Default: "hybrid", Required: true,
+			() => Strings.ConfigFlow.Behaviour.Confirmation.Label(), Default: ValueOf(VoiceConfirmation.Hybrid), Required: true,
 			Options:
 			[
-				Option("yes-no", Strings.ConfigFlow.Behaviour.Option.ConfirmYesNo()),
-				Option("challenge", Strings.ConfigFlow.Behaviour.Option.ConfirmChallenge()),
-				Option("hybrid", Strings.ConfigFlow.Behaviour.Option.ConfirmHybrid()),
+				Option(ValueOf(VoiceConfirmation.YesNo), Strings.ConfigFlow.Behaviour.Option.ConfirmYesNo()),
+				Option(ValueOf(VoiceConfirmation.SpokenChallenge), Strings.ConfigFlow.Behaviour.Option.ConfirmChallenge()),
+				Option(ValueOf(VoiceConfirmation.Hybrid), Strings.ConfigFlow.Behaviour.Option.ConfirmHybrid()),
 			]),
 		new(JarvisSettingsStoreFields.CancelDepthField, JarvisFieldKind.Choice, BehaviourStep,
-			() => Strings.ConfigFlow.Behaviour.CancelDepth.Label(), Default: "speech-and-stream", Required: true,
+			() => Strings.ConfigFlow.Behaviour.CancelDepth.Label(), Default: ValueOf(CancelDepth.SpeechAndStream), Required: true,
 			Options:
 			[
-				Option("speech-and-stream", Strings.ConfigFlow.Behaviour.Option.CancelSpeech()),
-				Option("stop-running-command", Strings.ConfigFlow.Behaviour.Option.CancelCommand()),
+				Option(ValueOf(CancelDepth.SpeechAndStream), Strings.ConfigFlow.Behaviour.Option.CancelSpeech()),
+				Option(ValueOf(CancelDepth.StopRunningCommand), Strings.ConfigFlow.Behaviour.Option.CancelCommand()),
 			]),
 		new(JarvisSettingsStoreFields.BargeInField, JarvisFieldKind.Flag, BehaviourStep,
-			() => Strings.ConfigFlow.Behaviour.BargeIn.Label(), Default: "false"),
+			() => Strings.ConfigFlow.Behaviour.BargeIn.Label(), Default: "true"),
 		new(JarvisSettingsStoreFields.BargeInThresholdField, JarvisFieldKind.Number, BehaviourStep,
-			() => Strings.ConfigFlow.Behaviour.BargeInThreshold.Label(), Default: "0.6",
+			() => Strings.ConfigFlow.Behaviour.BargeInThreshold.Label(), Default: "0.12",
 			Minimum: MinThreshold, Maximum: MaxThreshold, Advanced: true),
 		new(JarvisSettingsStoreFields.MaxIterationsField, JarvisFieldKind.Number, BehaviourStep,
 			() => Strings.ConfigFlow.Behaviour.MaxIterations.Label(), Default: "4",
@@ -250,35 +286,35 @@ internal static class JarvisFields
 		// the same fixed commands whatever the user wanted.
 		new(JarvisSettingsStoreFields.PermitReadField, JarvisFieldKind.Flag, BehaviourStep,
 			() => Strings.ConfigFlow.Behaviour.PermitRead.Label(), Default: "false",
-			OnlyWhenField: JarvisSettingsStoreFields.SafetyField, OnlyWhenValue: "tool-permissions"),
+			OnlyWhenField: JarvisSettingsStoreFields.SafetyField, OnlyWhenValue: ValueOf(SafetyMode.ToolPermissions)),
 		new(JarvisSettingsStoreFields.PermitWriteField, JarvisFieldKind.Flag, BehaviourStep,
 			() => Strings.ConfigFlow.Behaviour.PermitWrite.Label(), Default: "false",
-			OnlyWhenField: JarvisSettingsStoreFields.SafetyField, OnlyWhenValue: "tool-permissions"),
+			OnlyWhenField: JarvisSettingsStoreFields.SafetyField, OnlyWhenValue: ValueOf(SafetyMode.ToolPermissions)),
 		new(JarvisSettingsStoreFields.PermitExecuteField, JarvisFieldKind.Flag, BehaviourStep,
 			() => Strings.ConfigFlow.Behaviour.PermitExecute.Label(), Default: "false",
-			OnlyWhenField: JarvisSettingsStoreFields.SafetyField, OnlyWhenValue: "tool-permissions"),
+			OnlyWhenField: JarvisSettingsStoreFields.SafetyField, OnlyWhenValue: ValueOf(SafetyMode.ToolPermissions)),
 		new(JarvisSettingsStoreFields.CommandAllowlistField, JarvisFieldKind.Text, BehaviourStep,
 			() => Strings.ConfigFlow.Behaviour.CommandAllowlist.Label(),
 			Default: string.Join(',', JarvisSettings.DefaultCommandAllowlist),
-			OnlyWhenField: JarvisSettingsStoreFields.SafetyField, OnlyWhenValue: "allowlist"),
+			OnlyWhenField: JarvisSettingsStoreFields.SafetyField, OnlyWhenValue: ValueOf(SafetyMode.Allowlist)),
 		new(JarvisSettingsStoreFields.MemoryField, JarvisFieldKind.Choice, BehaviourStep,
-			() => Strings.ConfigFlow.Behaviour.Memory.Label(), Default: "persistent-notes", Required: true,
+			() => Strings.ConfigFlow.Behaviour.Memory.Label(), Default: ValueOf(MemoryMode.PersistentNotes), Required: true,
 			Options:
 			[
-				Option("none", Strings.ConfigFlow.Behaviour.Option.MemoryNone()),
-				Option("session", Strings.ConfigFlow.Behaviour.Option.MemorySession()),
-				Option("persistent", Strings.ConfigFlow.Behaviour.Option.MemoryPersistent()),
-				Option("persistent-notes", Strings.ConfigFlow.Behaviour.Option.MemoryNotes()),
+				Option(ValueOf(MemoryMode.None), Strings.ConfigFlow.Behaviour.Option.MemoryNone()),
+				Option(ValueOf(MemoryMode.Session), Strings.ConfigFlow.Behaviour.Option.MemorySession()),
+				Option(ValueOf(MemoryMode.Persistent), Strings.ConfigFlow.Behaviour.Option.MemoryPersistent()),
+				Option(ValueOf(MemoryMode.PersistentNotes), Strings.ConfigFlow.Behaviour.Option.MemoryNotes()),
 			]),
 		new(JarvisSettingsStoreFields.PersonaField, JarvisFieldKind.Choice, BehaviourStep,
-			() => Strings.ConfigFlow.Behaviour.Persona.Label(), Default: "classic-jarvis", Required: true,
+			() => Strings.ConfigFlow.Behaviour.Persona.Label(), Default: ValueOf(PersonaPreset.ClassicJarvis), Required: true,
 			Options:
 			[
-				Option("classic-jarvis", Strings.ConfigFlow.Behaviour.Option.PersonaClassic()),
-				Option("terse", Strings.ConfigFlow.Behaviour.Option.PersonaTerse()),
-				Option("sarcastic", Strings.ConfigFlow.Behaviour.Option.PersonaSarcastic()),
-				Option("formal", Strings.ConfigFlow.Behaviour.Option.PersonaFormal()),
-				Option("custom", Strings.ConfigFlow.Behaviour.Option.PersonaCustom()),
+				Option(ValueOf(PersonaPreset.ClassicJarvis), Strings.ConfigFlow.Behaviour.Option.PersonaClassic()),
+				Option(ValueOf(PersonaPreset.Terse), Strings.ConfigFlow.Behaviour.Option.PersonaTerse()),
+				Option(ValueOf(PersonaPreset.Sarcastic), Strings.ConfigFlow.Behaviour.Option.PersonaSarcastic()),
+				Option(ValueOf(PersonaPreset.Formal), Strings.ConfigFlow.Behaviour.Option.PersonaFormal()),
+				Option(ValueOf(PersonaPreset.Custom), Strings.ConfigFlow.Behaviour.Option.PersonaCustom()),
 			]),
 		new(JarvisSettingsStoreFields.PromptField, JarvisFieldKind.Multiline, BehaviourStep,
 			() => Strings.ConfigFlow.Behaviour.Prompt.Label(), Advanced: true),

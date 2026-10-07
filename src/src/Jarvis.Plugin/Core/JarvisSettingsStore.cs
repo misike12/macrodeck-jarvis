@@ -124,11 +124,53 @@ public sealed class JarvisSettingsStore
 	private static readonly string[] StringFields = JarvisFields.ReadBackAsText;
 
 /// <summary>
-	/// Parses a stored enum, keeping the current value for one this build does not recognise. A stored
-	/// value from a newer release, or a typo, must not stop the plugin from starting.
+	/// Parses a stored enum, keeping the current value for one this build does not recognise.
+	/// <para>
+	/// Both spellings are accepted, because the setup flow writes option values and those are kebab-case:
+	/// "self-hosted-nim", "tool-permissions", "yes-no". <see cref="Enum.TryParse{TEnum}(string, bool, out TEnum)"/>
+	/// matches neither a hyphen nor anything but the exact member name, so without the second attempt every
+	/// one of those settings silently reverted to its default on the next reload. A user who chose a
+	/// self-hosted provider got the NVIDIA one, and the self-hosted token was sent to a host it was never
+	/// meant for.
+	/// </para>
+	/// <para>
+	/// A numeric string is refused even when it parses, because it produces a member the enum does not have.
+	/// Every <c>switch</c> over these then falls to its default arm, which for the safety mode means asking
+	/// about everything and for a provider means failing every turn with "no credentials configured".
+	/// </para>
 	/// </summary>
 	private TEnum ReadEnum<TEnum>(string field, TEnum current) where TEnum : struct, System.Enum =>
-		System.Enum.TryParse<TEnum>(Stored(field), true, out var parsed) ? parsed : current;
+		TryParseStoredEnum(Stored(field), out TEnum parsed) ? parsed : current;
+
+	/// <summary>
+	/// Whether a stored string names a member of <typeparamref name="TEnum"/>, in either spelling.
+	/// <para>
+	/// Shared with the orb's reader rather than written twice, because the two read the same kind of value
+	/// written by the same kind of form and had drifted into disagreeing about it.
+	/// </para>
+	/// </summary>
+	internal static bool TryParseStoredEnum<TEnum>(string? stored, out TEnum parsed)
+		where TEnum : struct, System.Enum
+	{
+		parsed = default;
+
+		if (string.IsNullOrWhiteSpace(stored))
+		{
+			return false;
+		}
+
+		var raw = stored.Trim();
+
+		if ((System.Enum.TryParse<TEnum>(raw, true, out parsed)
+				|| System.Enum.TryParse<TEnum>(raw.Replace("-", string.Empty, StringComparison.Ordinal), true, out parsed))
+			&& System.Enum.IsDefined(parsed))
+		{
+			return true;
+		}
+
+		parsed = default;
+		return false;
+	}
 
 	/// <summary>Reads a stored flag. Anything unparseable keeps the current value rather than becoming false.</summary>
 	private bool ReadFlag(string field, bool current) =>
@@ -514,6 +556,13 @@ public async Task ReloadAsync(IIntegrationContext? context, CancellationToken ca
 			PermitWrite = ReadFlag(JarvisSettingsStoreFields.PermitWriteField, current.PermitWrite),
 			PermitExecute = ReadFlag(JarvisSettingsStoreFields.PermitExecuteField, current.PermitExecute),
 			CommandAllowlist = ParseCommandAllowlist(Text(JarvisSettingsStoreFields.CommandAllowlistField)),
+
+			// The language the assistant answers in, which is a different thing from the language the
+			// recogniser listens for. The field carries the recogniser's, because that is what the models
+			// need and it is what the flow has always offered; the prompt's language is taken from it unless
+			// the user has not chosen one, in which case auto-detect is what the recogniser will do and the
+			// assistant follows.
+			Language = Current.SttLanguage,
 
 			// The three elevated-service switches were read into the dictionary and then never copied into
 			// the snapshot, so the code that consulted them saw false forever. That is why a user who turned

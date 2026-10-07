@@ -160,6 +160,143 @@ public class SettingsRoundTripTests
 			"an out-of-range sensitivity was accepted and would silently disable the wake word");
 	}
 
+	/// <summary>
+	/// The stored spelling of every enum setting has to be readable back.
+	/// <para>
+	/// This is the check that was missing, and the bug it would have caught was severe. The setup flow writes
+	/// option <em>values</em>, which are kebab-case: "self-hosted-nim", "tool-permissions", "yes-no". The
+	/// store parsed with <c>Enum.TryParse</c> and nothing else, which matches neither a hyphen nor anything
+	/// but the exact member name. Every one of those settings therefore reverted to its default on the very
+	/// next reload, silently: a user who chose a self-hosted provider got NVIDIA, and their self-hosted token
+	/// was posted to a host it was never meant for. Two of the four safety modes happened to parse, so the
+	/// mode silently changed behaviour depending on which word had been picked.
+	/// </para>
+	/// </summary>
+	[TestCase("nvidia-nim", LlmProvider.NvidiaNim)]
+	[TestCase("self-hosted-nim", LlmProvider.SelfHostedNim)]
+	[TestCase("local-llama-cpp", LlmProvider.LocalLlamaCpp)]
+	[TestCase("SelfHostedNim", LlmProvider.SelfHostedNim)]
+	[TestCase("whisper-cpp-local", SpeechToTextProvider.WhisperCppLocal)]
+	[TestCase("nvidia-nim", SpeechToTextProvider.NvidiaNim)]
+	[TestCase("windows-sapi", SpeechToTextProvider.WindowsSapi)]
+	[TestCase("piper-local", TextToSpeechProvider.PiperLocal)]
+	[TestCase("nvidia-nim", TextToSpeechProvider.NvidiaNim)]
+	[TestCase("openwakeword", WakeWordEngine.OpenWakeWord)]
+	[TestCase("transcript", WakeWordEngine.Transcript)]
+	[TestCase("confirm-all", SafetyMode.ConfirmAll)]
+	[TestCase("allowlist", SafetyMode.Allowlist)]
+	[TestCase("tool-permissions", SafetyMode.ToolPermissions)]
+	[TestCase("autonomous", SafetyMode.Autonomous)]
+	[TestCase("yes-no", VoiceConfirmation.YesNo)]
+	[TestCase("spoken-challenge", VoiceConfirmation.SpokenChallenge)]
+	[TestCase("hybrid", VoiceConfirmation.Hybrid)]
+	[TestCase("speech-and-stream", CancelDepth.SpeechAndStream)]
+	[TestCase("stop-running-command", CancelDepth.StopRunningCommand)]
+	[TestCase("none", MemoryMode.None)]
+	[TestCase("session", MemoryMode.Session)]
+	[TestCase("persistent", MemoryMode.Persistent)]
+	[TestCase("persistent-notes", MemoryMode.PersistentNotes)]
+	[TestCase("classic-jarvis", PersonaPreset.ClassicJarvis)]
+	[TestCase("terse", PersonaPreset.Terse)]
+	[TestCase("sarcastic", PersonaPreset.Sarcastic)]
+	[TestCase("formal", PersonaPreset.Formal)]
+	[TestCase("custom", PersonaPreset.Custom)]
+	public void Every_stored_enum_spelling_the_flow_writes_reads_back<TEnum>(string stored, TEnum expected)
+		where TEnum : struct, System.Enum
+	{
+		Assert.That(JarvisSettingsStore.TryParseStoredEnum(stored, out TEnum parsed), Is.True, $"'{stored}' did not parse");
+		Assert.That(parsed, Is.EqualTo(expected), $"'{stored}' parsed as {parsed}");
+	}
+
+	/// <summary>
+	/// A numeric string parses into a member the enum does not have, and every switch over these then falls
+	/// to its default arm: the safety mode silently becomes "ask about everything" and a provider fails every
+	/// turn with "no credentials configured". A value that names nothing is refused instead.
+	/// </summary>
+	[TestCase("7", LlmProvider.NvidiaNim)]
+	[TestCase("9", SafetyMode.ConfirmAll)]
+	[TestCase("99", SafetyMode.ConfirmAll)]
+	[TestCase("-1", PersonaPreset.ClassicJarvis)]
+	[TestCase("not-a-mode", SafetyMode.ConfirmAll)]
+	[TestCase("", SafetyMode.ConfirmAll)]
+	[TestCase(null, SafetyMode.ConfirmAll)]
+	public void A_stored_value_naming_no_member_is_refused<TEnum>(string? stored, TEnum fallback)
+		where TEnum : struct, System.Enum
+	{
+		Assert.That(JarvisSettingsStore.TryParseStoredEnum<TEnum>(stored, out _), Is.False, $"'{stored}' was accepted");
+	}
+
+	/// <summary>
+	/// Every enum value the setup flow actually offers has to read back. The table above is written by hand
+	/// and would drift from the options, so this is generated from the same place the options come from.
+	/// </summary>
+	[Test]
+	public void Every_option_the_flow_offers_is_readable_back()
+	{
+		var unreadable = JarvisFields.All
+			.Where(field => EnumFields.Contains(field.Name))
+			.SelectMany(field => field.Options ?? [])
+			.Where(option => !NamesAnyMember(option.Value))
+			.Select(option => option.Value)
+			.Distinct(StringComparer.Ordinal)
+			.Order(StringComparer.Ordinal)
+			.ToArray();
+
+		Assert.That(unreadable, Is.Empty, "the flow offers a value no enum member can be read from");
+	}
+
+	/// <summary>
+	/// Whether a value names a member of any enum the store reads. A flow that offered "magpie" for the
+	/// speech provider was offering something that parsed as nothing at all, so the setting silently stayed on
+	/// its default and the user was told their choice had been made.
+	/// </summary>
+	private static bool NamesAnyMember(string value) =>
+		JarvisSettingsStore.TryParseStoredEnum<LlmProvider>(value, out _)
+		|| JarvisSettingsStore.TryParseStoredEnum<VisionProvider>(value, out _)
+		|| JarvisSettingsStore.TryParseStoredEnum<SpeechToTextProvider>(value, out _)
+		|| JarvisSettingsStore.TryParseStoredEnum<TextToSpeechProvider>(value, out _)
+		|| JarvisSettingsStore.TryParseStoredEnum<WakeWordEngine>(value, out _)
+		|| JarvisSettingsStore.TryParseStoredEnum<SafetyMode>(value, out _)
+		|| JarvisSettingsStore.TryParseStoredEnum<VoiceConfirmation>(value, out _)
+		|| JarvisSettingsStore.TryParseStoredEnum<CancelDepth>(value, out _)
+		|| JarvisSettingsStore.TryParseStoredEnum<MemoryMode>(value, out _)
+		|| JarvisSettingsStore.TryParseStoredEnum<PersonaPreset>(value, out _);
+
+	/// <summary>The fields the store parses as an enum, which is what the check above applies to.</summary>
+	private static readonly HashSet<string> EnumFields =
+	[
+		JarvisSettingsStoreFields.LlmProviderField,
+		JarvisSettingsStoreFields.VisionProviderField,
+		JarvisSettingsStoreFields.SttProviderField,
+		JarvisSettingsStoreFields.TtsProviderField,
+		JarvisSettingsStoreFields.WakeEngineField,
+		JarvisSettingsStoreFields.SafetyField,
+		JarvisSettingsStoreFields.ConfirmationField,
+		JarvisSettingsStoreFields.CancelDepthField,
+		JarvisSettingsStoreFields.MemoryField,
+		JarvisSettingsStoreFields.PersonaField,
+	];
+
+	/// <summary>
+	/// The language the assistant answers in is a different thing from the language the recogniser listens
+	/// for. It was never assigned from the stored value, so every prompt carried the record's hard-coded "en"
+	/// and a user with a French recogniser got a French ear and an English mouth.
+	/// </summary>
+	[Test]
+	public async Task The_answer_language_follows_the_recogniser_language()
+	{
+		var store = NewStore();
+		store.Apply(store.Current with { SttLanguage = "fr" });
+
+		await store.ReloadAsync(context: null, TestContext.CurrentContext.CancellationToken);
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(store.Current.SttLanguage, Is.EqualTo("fr"));
+			Assert.That(store.Current.Language, Is.EqualTo("fr"), "the assistant would answer in the hard-coded default");
+		});
+	}
+
 	/// <summary>Memory off must genuinely mean off, including on a settings reload.</summary>
 	[Test]
 	public async Task Memory_mode_survives_a_reload()
