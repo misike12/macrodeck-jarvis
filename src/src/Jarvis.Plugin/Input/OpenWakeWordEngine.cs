@@ -68,7 +68,6 @@ public sealed class OpenWakeWordEngine : IDisposable
 	private readonly List<float[]> _featureRows = [];
 	private float[] _remainder = [];
 	private float[] _lookback = [];
-	private int _accumulated;
 	private int _chunksProcessed;
 	private bool _primed;
 
@@ -86,9 +85,6 @@ public sealed class OpenWakeWordEngine : IDisposable
 	/// trace eighty times a second. Five in a row is not bad luck; the engine stops and says so.
 	/// </summary>
 	public bool IsDead => _dead;
-
-	/// <summary>How many raw samples of lookback the mel computation needs, carried across chunks.</summary>
-	private const int RawBufferNeed = LookbackSamples + ChunkSamples;
 
 	public OpenWakeWordEngine(string preprocessorDirectory, string classifierPath, ILogger logger)
 	{
@@ -230,7 +226,6 @@ public sealed class OpenWakeWordEngine : IDisposable
 		{
 			_remainder = [];
 			_lookback = [];
-			_accumulated = 0;
 			_chunksProcessed = 0;
 			_primed = false;
 			_melFrames.Clear();
@@ -316,7 +311,7 @@ public sealed class OpenWakeWordEngine : IDisposable
 		var tensor = new DenseTensor<float>(pcm, [1, pcm.Length]);
 		using var results = _mel.Run([NamedOnnxValue.CreateFromTensor(_mel.InputMetadata.Keys.First(), tensor)]);
 
-		var output = results.First().AsTensor<float>();
+		var output = results[0].AsTensor<float>();
 		var frames = output.Dimensions[2];
 		var flat = new float[frames * 32];
 
@@ -347,7 +342,7 @@ public sealed class OpenWakeWordEngine : IDisposable
 		var tensor = new DenseTensor<float>(flat, [1, EmbeddingWindowFrames, 32, 1]);
 		using var results = _embedding.Run([NamedOnnxValue.CreateFromTensor(_embedding.InputMetadata.Keys.First(), tensor)]);
 
-		var output = results.First().AsTensor<float>().ToArray();
+		var output = results[0].AsTensor<float>().ToArray();
 		var row = new float[FeatureLength];
 		Array.Copy(output, row, FeatureLength);
 		return row;
@@ -367,7 +362,7 @@ public sealed class OpenWakeWordEngine : IDisposable
 		var tensor = new DenseTensor<float>(input, [1, ClassifierFrames, FeatureLength]);
 		using var results = _classifier.Run([NamedOnnxValue.CreateFromTensor(_classifierInput, tensor)]);
 
-		return results.First().AsTensor<float>().ToArray()[0];
+		return results[0].AsTensor<float>()[0];
 	}
 
 	private static readonly float[] Ones = Enumerable.Repeat(1f, 32).ToArray();
