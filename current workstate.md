@@ -333,6 +333,11 @@ plugin wrong on hardware or in a configuration it claimed to support.
   describe a screenshot inside the client's timeout, so the screenshot tool failed on first use while looking
   correctly configured. The 11b model answers in seconds and is correct.
 
+- **Nine doc comments were malformed and nobody could tell.** Documentation was never generated, so a mismatched
+  tag, a cref naming something other than what it claimed, and a half-documented parameter were all invisible.
+  The build now generates documentation for the configurations that are not packed, so the next one fails the
+  build rather than being read past.
+
 - **Reading the configuration costs six seconds and cannot be fixed here.** It is one host call per field with
   no bulk form, and the host refuses a plugin that calls back too quickly, so the calls are spaced. That
   happens on every reconnect and every configuration change. It is a host contract, not a decision in this
