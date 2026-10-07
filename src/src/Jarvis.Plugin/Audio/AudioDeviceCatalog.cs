@@ -187,6 +187,8 @@ public static class AudioDeviceCatalog
 	/// </summary>
 	private static CaptureFormat NativeFormatOf(MMDevice endpoint)
 	{
+		// The endpoint itself belongs to the caller here, so it is not disposed: it is opened by
+		// TryOpenCapture and stays alive for as long as the recorder does.
 		try
 		{
 			// CreateAudioClient rather than the AudioClient property: the property builds a new client on every
@@ -208,16 +210,23 @@ public static class AudioDeviceCatalog
 		try
 		{
 			using var enumerator = new MMDeviceEnumerator();
-			var defaultId = enumerator.GetDefaultAudioEndpoint(flow, Role.Console).ID;
-			var collection = enumerator.EnumerateAudioEndPoints(flow, DeviceState.Active);
+			using var defaultEndpoint = enumerator.GetDefaultAudioEndpoint(flow, Role.Console);
+			using var collection = enumerator.EnumerateAudioEndPoints(flow, DeviceState.Active);
+
 			var devices = new List<AudioDevice>();
 
+			// Each endpoint disposed as it is read. This is called on every capture start and again on every
+			// render of the microphone dropdown, and an MMDevice holds a COM handle that only the finalizer
+			// releases, so leaving them to the collector accumulates handles for the life of the process.
 			foreach (var endpoint in collection)
 			{
-				devices.Add(new AudioDevice(
-					endpoint.ID,
-					endpoint.FriendlyName,
-					string.Equals(endpoint.ID, defaultId, StringComparison.OrdinalIgnoreCase)));
+				using (endpoint)
+				{
+					devices.Add(new AudioDevice(
+						endpoint.ID,
+						endpoint.FriendlyName,
+						string.Equals(endpoint.ID, defaultEndpoint.ID, StringComparison.OrdinalIgnoreCase)));
+				}
 			}
 
 			return devices;

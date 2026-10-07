@@ -170,15 +170,30 @@ public sealed record OrbWidgetData
 			? value.GetBoolean()
 			: fallback;
 
+	/// <summary>
+	/// A number that is a whole one in range, or nothing.
+	/// <para>
+	/// <c>TryGetInt32</c> rather than <c>GetInt32</c>: being a JSON number is not the same as being an
+	/// integer, and the difference is a throw rather than a fallback. A widget saved from JSON mode with
+	/// <c>"ringCount": 2.5</c>, or one holding <c>1e3</c>, took the exception out of <see cref="Parse"/> and
+	/// through <c>CreateSessionAsync</c>, so the orb failed to open rather than drawing with a sensible
+	/// default. A widget placed before a release that added a key must still draw, which is the whole point
+	/// of reading defensively here.
+	/// </para>
+	/// </summary>
 	private static int ReadInt(JsonElement element, string name, int fallback) =>
-		element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number
-			? value.GetInt32()
-			: fallback;
+		element.TryGetProperty(name, out var value)
+			&& value.ValueKind == JsonValueKind.Number
+			&& value.TryGetInt32(out var parsed)
+				? parsed
+				: fallback;
 
 	private static double ReadDouble(JsonElement element, string name, double fallback) =>
-		element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number
-			? value.GetDouble()
-			: fallback;
+		element.TryGetProperty(name, out var value)
+			&& value.ValueKind == JsonValueKind.Number
+			&& value.TryGetDouble(out var parsed)
+				? parsed
+				: fallback;
 
 	/// <summary>
 	/// Both spellings are accepted: the schema and the configuration surface write kebab-case, while a
@@ -192,22 +207,21 @@ public sealed record OrbWidgetData
 			return fallback;
 		}
 
-		var raw = value.GetString();
-
-		if (string.IsNullOrWhiteSpace(raw))
-		{
-			return fallback;
-		}
-
-		return Enum.TryParse<T>(raw, true, out var parsed)
-			|| Enum.TryParse<T>(raw.Replace("-", string.Empty, StringComparison.Ordinal), true, out parsed)
-				? parsed
-				: fallback;
+		// The settings reader, rather than a second implementation of the same thing. It also refuses a
+		// numeric that names a member the enum does not have, which otherwise reaches the renderer's
+		// default arm silently.
+		return Jarvis.Plugin.Core.JarvisSettingsStore.TryParseStoredEnum<T>(value.GetString(), out var parsed)
+			? parsed
+			: fallback;
 	}
 
 	/// <summary>
-	/// Written by the configuration tree, so it validates the shape before the widget can store an
-	/// unreadable payload.
+	/// Clones the payload the configuration tree produced.
+	/// <para>
+	/// Nothing is validated here. A validator that only inspected the shape would still let a hand-edited
+	/// widget or a JSON-mode save put an unreadable number on disk, and the reader is what has to survive
+	/// that: every read falls back rather than throwing.
+	/// </para>
 	/// </summary>
 	public static JsonNode? Describe(JsonNode? node)
 	{

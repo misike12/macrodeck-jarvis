@@ -243,6 +243,46 @@ return document.RootElement
 			.ToDictionary(property => property.Name, property => property.Value.Clone(), StringComparer.Ordinal);
 	}
 
+	/// <summary>
+	/// A widget's payload reaches the reader as raw host data, and being a JSON number is not the same as
+	/// being an integer. The reader used <c>GetInt32</c> and <c>GetDouble</c>, which throw rather than fall
+	/// back, so a widget saved from JSON mode with <c>"ringCount": 2.5</c> took the exception out of the
+	/// session and the orb failed to open at all.
+	/// </summary>
+	[TestCase(@"{""ringCount"": 2.5}")]
+	[TestCase(@"{""ringCount"": ""3""}")]
+	[TestCase(@"{""ringCount"": 99999999999}")]
+	[TestCase(@"{""ringSpeed"": ""fast""}")]
+	[TestCase(@"{""textSize"": null}")]
+	public void An_unreadable_number_falls_back_rather_than_throwing(string json)
+	{
+		var parsed = OrbWidgetData.Parse(JsonSerializer.Deserialize<JsonElement>(json));
+		var defaults = new OrbWidgetData();
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(parsed.RingCount, Is.EqualTo(defaults.RingCount), json);
+			Assert.That(parsed.RingSpeed, Is.EqualTo(defaults.RingSpeed), json);
+			Assert.That(parsed.TextSize, Is.EqualTo(defaults.TextSize), json);
+		});
+	}
+
+	/// <summary>A numeric preset that names no member is refused, as every other stored enum now is.</summary>
+	[TestCase(@"{""preset"": 9}")]
+	[TestCase(@"{""textMode"": 99}")]
+	[TestCase(@"{""scope"": 7}")]
+	public void A_number_standing_in_for_an_enum_falls_back(string json)
+	{
+		var parsed = OrbWidgetData.Parse(JsonSerializer.Deserialize<JsonElement>(json));
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(parsed.Preset, Is.EqualTo(OrbPreset.ArcReactor), json);
+			Assert.That(parsed.TextMode, Is.EqualTo(TextDisplayMode.InterimPlusReply), json);
+			Assert.That(parsed.Scope, Is.EqualTo(SessionScope.Global), json);
+		});
+	}
+
 	private static OrbUiProvider Provider(Action? start = null, Action? stop = null) => new(
 		new AssistantStateHolder(),
 		new ThrowingRegistry(),

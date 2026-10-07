@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace Jarvis.Plugin.Orb;
 
 /// <summary>
@@ -18,7 +20,17 @@ public sealed class AnimatedGif
 	public const int DelayHundredths = 8;
 
 	private static readonly byte[] Palette = BuildPalette();
-	private static readonly Dictionary<int, byte> QuantisationCache = [];
+
+	/// <summary>
+	/// Memoised nearest-colour answers, keyed on the packed RGB triple.
+	/// <para>
+	/// Concurrent, because frames are built on whichever pool thread the asset cache happens to use and two
+	/// states can be rendering at once. A plain dictionary written from two threads corrupts its own bucket
+	/// array during a resize, which throws inside a frame build and takes the whole orb down rather than one
+	/// frame. ConcurrentDictionary costs a little per lookup and cannot.
+	/// </para>
+	/// </summary>
+	private static readonly ConcurrentDictionary<int, byte> QuantisationCache = new();
 
 	private readonly int _width;
 	private readonly int _height;
