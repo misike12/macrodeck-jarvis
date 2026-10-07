@@ -1,5 +1,8 @@
 # Never commit the developer settings file or the API keys it holds.
 jarvis.settings.json
+# Tool scratch directories and the task list, which is the owner's scratchpad.
+.freebuff/
+todo.md
 
 # Build output
 **/bin/
