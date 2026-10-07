@@ -234,7 +234,23 @@ public sealed class JarvisSettingsStore
 	/// than merely not be the sole cause of a refusal: at 60 ms this loop demanded more than the host
 	/// refills, drained the bucket, and every reload ended in a rate-limit failure.
 	/// </summary>
-	private static readonly TimeSpan HostCallSpacing = TimeSpan.FromMilliseconds(150);
+	/// <summary>The gap the host's own limit requires, which is what a test host does not have.</summary>
+	internal static readonly TimeSpan DefaultHostCallSpacing = TimeSpan.FromMilliseconds(150);
+
+	private static TimeSpan HostCallSpacing { get; set; } = DefaultHostCallSpacing;
+
+	/// <summary>
+	/// Closes the gap between calls, for a host that is not rate limiting.
+	/// <para>
+	/// The spacing exists because the real host refuses a plugin that calls back too quickly, and a full
+	/// reload is forty calls, so a reload costs six seconds of waiting on any machine. A test host has no such
+	/// limit and no six seconds to spare: the suite has a handful of tests that reload the whole configuration
+	/// and they were the slowest thing in it by an order of magnitude. This only changes the wait, never the
+	/// sequence or the retry policy, so what the tests exercise is the same code path in the same order.
+	/// </para>
+	/// </summary>
+	internal static void SpaceHostCalls(TimeSpan spacing) =>
+		HostCallSpacing = spacing > TimeSpan.Zero ? spacing : DefaultHostCallSpacing;
 
 	/// <summary>First wait after a refused call, doubled on each further attempt up to <see cref="HostMaxRetryDelay"/>.</summary>
 	private static readonly TimeSpan HostRetryDelay = TimeSpan.FromMilliseconds(120);

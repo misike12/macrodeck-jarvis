@@ -14,6 +14,7 @@ namespace Jarvis.Plugin.Tests;
 /// </para>
 /// </summary>
 [TestFixture]
+[FastHostReads]
 public class SettingsRoundTripTests
 {
 	private static JarvisSettingsStore NewStore() =>

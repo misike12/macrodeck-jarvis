@@ -25,6 +25,7 @@ namespace Jarvis.Plugin.Tests;
 /// </para>
 /// </summary>
 [TestFixture]
+[FastHostReads]
 public class ConfigFlowPrefillTests
 {
 	[Test]
