@@ -29,8 +29,8 @@ Everything runs as the signed-in user except the optional service. See
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Build | `dotnet build -c Release` | 0 warnings, 0 errors |
-| Tests | `dotnet test` | **828 passed**, 0 failed |
+| Build | `dotnet build -c Release --warnaserror` | 0 warnings, 0 errors |
+| Tests | `dotnet test` | **880 passed**, 0 failed |
 | Manifest validation | `macrodeck-plugin validate --artifact ... --level Publication` | 0 errors, 0 warnings |
 | Conformance, project | `src/conformance.md` | conformant |
 | Conformance, artifact | `src/artifact-conformance.md` | conformant, and it carries MDC0104 through MDC0107 |
@@ -295,6 +295,48 @@ plugin wrong on hardware or in a configuration it claimed to support.
 - **Decimating aliased.** Converting a capture rate to 16 kHz was linear interpolation, which folds everything
   above the new halfway frequency down into the speech band, where a recogniser reads it as words that were
   never said. It is now a windowed-sinc low pass, with the alias down by more than twenty-eight decibels.
+
+- **Every enum setting reverted to its default on the first reload, silently.** Two faults sat behind it. The
+  store parsed stored values with `Enum.TryParse` and nothing else, which matches neither a hyphen nor anything
+  but the exact member name, while the setup flow writes kebab-case option values. And the option values were
+  hand-written strings that were not members of the enums they stood for: "llama-cpp" for `LocalLlamaCpp`,
+  "whisper-cpp" for `WhisperCppLocal`, "sapi" for `WindowsSapi`, "piper" for `PiperLocal`, "magpie" for
+  `NvidiaNim`, "challenge" for `SpokenChallenge`. Fixing only the parser would have traded a silent default for
+  a silent refusal. A user who chose a self-hosted provider was posting their token to NVIDIA, and a user who
+  chose the Windows voice was still being asked to download Piper.
+
+- **The language the assistant answered in was never assigned from anything.** The record has both
+  `SttLanguage` and `Language`, the prompt reads `Language`, and the store assigned only the first, so every
+  prompt carried the hard-coded "en" regardless of what the user chose.
+
+- **Barge-in's stored defaults contradicted the code's own.** The form offered a threshold of 0.6 where the
+  code expected 0.12, and the repository's own measurement note says a speaking voice peaks below 0.6, so
+  barge-in could not fire at all.
+
+- **A shell command's output handlers were attached after the reads had already started**, so anything a fast
+  command wrote in that window was delivered to nobody and lost. A cancelled command reported the killed
+  process's exit code as a completed run, inside a success.
+
+- **`focus_window`'s workaround never ran.** It compared the foreground window's input thread against the same
+  window's input thread, so the branch was never taken. A plugin started by a supervisor does not own the
+  foreground, so the tool was refusing windows it could have brought forward.
+
+- **Three more tools reported things they had not done**: `registry_delete` reported a deleted key when it
+  deleted nothing, `system_power`'s lock discarded the return value, and `browser_navigate` handed the
+  browser's failure sentence back inside a success.
+
+- **The orb could stop drawing on a perfectly readable widget.** A number in the payload that was not an
+  integer threw out of the reader instead of falling back, and the GIF's quantisation cache was a plain
+  dictionary written from two pool threads at once.
+
+- **The default vision model could not answer in time.** Verified against the real API: the 90b model did not
+  describe a screenshot inside the client's timeout, so the screenshot tool failed on first use while looking
+  correctly configured. The 11b model answers in seconds and is correct.
+
+- **Reading the configuration costs six seconds and cannot be fixed here.** It is one host call per field with
+  no bulk form, and the host refuses a plugin that calls back too quickly, so the calls are spaced. That
+  happens on every reconnect and every configuration change. It is a host contract, not a decision in this
+  code.
 
 ## Known limitations
 
