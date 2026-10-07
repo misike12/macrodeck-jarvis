@@ -303,7 +303,11 @@
   <data name="ConfigFlow.Voice.WakeWord.Label" xml:space="preserve">
     <value>Wake word</value>
   </data>
-<data name="ConfigFlow.Voice.Hotkey.Label" xml:space="preserve">
+<data name="ConfigFlow.Voice.WakeWord.Description" xml:space="preserve">
+    <value>A custom word is heard by transcribing each utterance, which is slower than the keyword model but works for any phrase.</value>
+    <comment>Shown under the wake word field. The pinned keyword models cover three phrases, and anything else is matched from the transcript instead.</comment>
+  </data>
+  <data name="ConfigFlow.Voice.Hotkey.Label" xml:space="preserve">
     <value>Push to talk key</value>
   </data>
   <data name="ConfigFlow.Voice.WakeWordEnabled.Label" xml:space="preserve">

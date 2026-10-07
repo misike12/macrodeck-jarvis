@@ -371,7 +371,20 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 			return;
 		}
 
-		if (settings.WakeWordEngine == WakeWordEngine.OpenWakeWord)
+		// A custom wake word has no keyword model, and the score path can only hear the three phrases this
+		// build pins. Choosing it and hearing "hey jarvis" back is the wrong answer twice over, so the
+		// transcript engine takes over instead: it matches any word in the settings.
+		var usesScorePath = settings.WakeWordEngine == WakeWordEngine.OpenWakeWord
+			&& OpenWakeWordEngineHost.HasModelFor(settings.WakeWord);
+
+		if (settings.WakeWordEngine == WakeWordEngine.OpenWakeWord && !usesScorePath)
+		{
+			_logger.Information(
+				"No keyword model hears '{Word}', so the wake word uses the transcript engine, which matches any word.",
+				settings.WakeWord);
+		}
+
+		if (usesScorePath)
 		{
 			if (!await _wakeEngine.ActivateAsync(settings, cancellationToken).ConfigureAwait(false))
 			{
@@ -395,7 +408,7 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 		_wakeWord.Enabled = true;
 		_wakeWord.Detected += OnWakeWordDetected;
 
-		if (settings.WakeWordEngine == WakeWordEngine.Transcript)
+		if (!usesScorePath)
 		{
 			// The feed itself. Everything above configures a detector that waits to be given levels, and
 			// without this line it waits for the rest of its life: the tap keeps the audio and the detector

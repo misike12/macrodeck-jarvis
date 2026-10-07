@@ -276,6 +276,62 @@ var concurrent = 0;
 		Assert.That(peak, Is.EqualTo(1), "more than one recognition ran at once");
 	}
 
+	/// <summary>
+	/// The words this build pins a keyword model for, in the shapes a person types them.
+	/// <para>
+	/// A miss here is not a cosmetic problem: the integration reads this to decide whether the score path can
+	/// hear the configured word at all, and hearing "hey jarvis" back after typing "jarvis" would be a wake
+	/// word that responds to a phrase nobody said.
+	/// </para>
+	/// </summary>
+	[TestCase("jarvis", true)]
+	[TestCase("Jarvis", true)]
+	[TestCase("hey jarvis", true)]
+	[TestCase("Hey, Jarvis!", true)]
+	[TestCase("  JARVIS  ", true)]
+	[TestCase("alexa", true)]
+	[TestCase("mycroft", true)]
+	[TestCase("hey mycroft", true)]
+	[TestCase("computer", false)]
+
+	// Digits and punctuation carry nothing here, so "jarvis2" is "jarvis". A model that could hear the
+	// digit would need a training sample of it, and none of the three pinned models has one.
+	[TestCase("jarvis2", true)]
+	[TestCase("", false)]
+	public void A_pinned_model_is_found_by_the_word_as_it_is_typed(string word, bool expected)
+	{
+		Assert.That(OpenWakeWordEngineHost.HasModelFor(word), Is.EqualTo(expected), $"'{word}'");
+	}
+
+	/// <summary>
+	/// A word with no model must name the default model and say so, rather than pretending. The caller uses
+	/// the flag to fall back to the transcript engine, which is what makes a custom wake word work.
+	/// </summary>
+	[Test]
+	public void A_word_with_no_model_is_reported_rather_than_silently_replaced()
+	{
+		var (asset, exact) = OpenWakeWordEngineHost.ModelAssetFor("computer");
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(exact, Is.False, "a custom word was reported as having a model");
+			Assert.That(asset, Is.Not.Empty, "the fallback left no model to load");
+		});
+	}
+
+	/// <summary>
+	/// A custom wake word has to be matchable by the loose matcher, because a custom word is by definition
+	/// served by the transcript engine. The observed mishearings for "jarvis" have to hold for any word.
+	/// </summary>
+	[TestCase("computer, what time is it", true)]
+	[TestCase("computor", true)]
+	[TestCase("what is the weather", false)]
+	[TestCase("Paris", false)]
+	public void A_custom_wake_word_is_matched_as_loosely_as_a_pinned_one(string heard, bool expected)
+	{
+		Assert.That(WakeWordDetector.Mentions(heard, "computer"), Is.EqualTo(expected), $"'{heard}'");
+	}
+
 	private static void InterlockedMax(ref int target, int value)
 	{
 		int current;

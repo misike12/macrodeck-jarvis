@@ -201,24 +201,48 @@ public sealed class OpenWakeWordEngineHost : IDisposable
 		}
 	}
 
+/// <summary>
+	/// The keyword models this build pins, and the words each one listens for.
+	/// <para>
+	/// A table rather than a switch because a custom wake word is the point of the setting, and a switch
+	/// with a default arm is how "my word is not on the list" turns into "it listens for a phrase the user
+	/// never said". The name is matched on letters only, because what the user types carries a greeting and
+	/// punctuation more often than not: "hey jarvis", "Hey, Jarvis!" and "jarvis" are the same word here.
+	/// </para>
+	/// </summary>
+	private static readonly Dictionary<string, string> KeywordModels =
+		new Dictionary<string, string>(StringComparer.Ordinal)
+		{
+			["jarvis"] = "wakeword-model-hey-jarvis",
+			["heyjarvis"] = "wakeword-model-hey-jarvis",
+			["alexa"] = "wakeword-model-alexa",
+			["mycroft"] = "wakeword-model-hey-mycroft",
+			["heymycroft"] = "wakeword-model-hey-mycroft",
+		};
+
 	/// <summary>
-	/// Maps the configured wake word onto a pinned keyword model. Word matching is deliberately blunt:
-	/// models exist for three phrases, and anything else falls back to the default one - logged, because
-	/// a wake word that silently listens for a phrase the user never said is worse than either option.
-	/// A custom word is the transcript engine's job, and the flow's description says so.
+	/// Maps the configured wake word onto a pinned keyword model.
+	/// <para>
+	/// A word with no model returns the default one and <c>exact: false</c>, so the caller can say so rather
+	/// than silently listening for a phrase the user never spoke. A custom word is still honoured: the caller
+	/// is expected to fall back to the transcript engine, which matches any word, so setting "computer" gets
+	/// "computer" rather than "hey jarvis".
+	/// </para>
 	/// </summary>
 	internal static (string AssetId, bool Exact) ModelAssetFor(string wakeWord)
 	{
 		var letters = new string(wakeWord.ToLowerInvariant().Where(char.IsLetter).ToArray());
 
-		return letters switch
-		{
-			"jarvis" or "heyjarvis" => ("wakeword-model-hey-jarvis", true),
-			"alexa" => ("wakeword-model-alexa", true),
-			"mycroft" or "heymycroft" => ("wakeword-model-hey-mycroft", true),
-			_ => (DefaultModelAsset, false),
-		};
+		return KeywordModels.TryGetValue(letters, out var asset)
+			? (asset, true)
+			: (DefaultModelAsset, false);
 	}
+
+	/// <summary>
+	/// Whether a pinned model can actually hear the configured word. Read by the integration to decide whether
+	/// to fall back to the transcript engine, so a custom wake word works instead of being quietly replaced.
+	/// </summary>
+	internal static bool HasModelFor(string wakeWord) => ModelAssetFor(wakeWord).Exact;
 
 	private void StopPump()
 	{
