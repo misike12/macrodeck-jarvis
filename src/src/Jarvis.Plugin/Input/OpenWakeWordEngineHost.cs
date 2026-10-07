@@ -146,6 +146,15 @@ public sealed class OpenWakeWordEngineHost : IDisposable
 			return false;
 		}
 
+		// Said on the way up, not only on the way down. Nothing logged between "the microphone is live" and
+		// the first score is the exact stretch where the wake word is either listening or silently dead, and
+		// silence there is indistinguishable from the plugin not running.
+		_logger.Information(
+			"The wake word is listening for '{Word}' on {Rate} Hz audio, using model {Model}.",
+			settings.WakeWord,
+			_sourceRate,
+			assetId);
+
 		lock (_gate)
 		{
 			// A new engine per activation. The old one is NOT disposed here: its pump may be inside

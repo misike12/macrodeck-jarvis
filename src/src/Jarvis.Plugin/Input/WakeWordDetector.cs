@@ -257,6 +257,8 @@ public sealed class WakeWordDetector : IDisposable
 			return;
 		}
 
+		NoteLoudest(score);
+
 		if (score >= ScoreThreshold)
 		{
 			_consecutiveScores++;
@@ -277,6 +279,57 @@ public sealed class WakeWordDetector : IDisposable
 		{
 			_consecutiveScores = 0;
 		}
+	}
+
+	/// <summary>How often the detector says what it has been hearing.</summary>
+	private static TimeSpan ReportInterval => TimeSpan.FromSeconds(30);
+
+	/// <summary>What it has heard, and whether anything was heard at all.</summary>
+	private float _loudest;
+
+	private int _chunksHeard;
+
+	private DateTimeOffset _nextReport = DateTimeOffset.MinValue;
+
+	/// <summary>
+	/// Reports what the model has actually been scoring, so silence is distinguishable from a dead pump.
+	/// <para>
+	/// Every other signal here is negative by construction: the wake word not firing looks identical whether
+	/// the models are missing, the pump died, the microphone is muted, or the open device is not the one being
+	/// spoken into. A run of scores near zero, and a stream of chunks, separates "listening and hearing
+	/// nothing" from "not listening at all", which is the difference between a settings mistake and a bug.
+	/// </para>
+	/// </summary>
+	private void NoteLoudest(float score)
+	{
+		_chunksHeard++;
+		_loudest = Math.Max(_loudest, score);
+
+		if (DateTimeOffset.UtcNow < _nextReport)
+		{
+			return;
+		}
+
+		_nextReport = DateTimeOffset.UtcNow + ReportInterval;
+
+		if (_chunksHeard == 0)
+		{
+			_logger.Warning(
+				"The wake word is enabled but no audio has reached it for {Seconds}s. "
+				+ "Check that the configured microphone is the one being spoken into.",
+				(int)ReportInterval.TotalSeconds);
+		}
+		else
+		{
+			_logger.Debug(
+				"The wake word has scored {Chunks} chunks in {Seconds}s, loudest {Loudest:0.000}.",
+				_chunksHeard,
+				(int)ReportInterval.TotalSeconds,
+				_loudest);
+		}
+
+		_chunksHeard = 0;
+		_loudest = 0;
 	}
 
 		/// <summary>

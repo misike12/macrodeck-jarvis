@@ -357,6 +357,15 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 
 		if (!settings.WakeWordEngineEnabled || !settings.MicrophoneAlwaysOn)
 		{
+			// Named rather than returning in silence. This was a bare return, so a user who expected to be
+			// spoken to got a live microphone, a plugin that looked healthy, and no wake word at all, with
+			// nothing anywhere saying why. A deck button still worked, so the plugin read as working.
+			_logger.Information(
+				"The wake word is off: {Reason}. Turn it on in the settings to be spoken to.",
+				!settings.WakeWordEngineEnabled
+					? "the wake word is disabled"
+					: "the microphone is not always on, so nothing is listening between turns");
+
 			return;
 		}
 
