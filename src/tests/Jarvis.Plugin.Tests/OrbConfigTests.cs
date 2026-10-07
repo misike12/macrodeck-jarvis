@@ -31,9 +31,64 @@ public class OrbConfigTests
 			Assert.That(parsed.RingSpeed, Is.EqualTo(1.0));
 			Assert.That(parsed.TextSize, Is.EqualTo(0.055));
 			Assert.That(parsed.AccentColor, Is.EqualTo("#4fd2ff"));
-			Assert.That(parsed.ShowText, Is.True);
+Assert.That(parsed.ShowText, Is.True);
 			Assert.That(parsed.AudioReactive, Is.True);
+			Assert.That(parsed.ShowButtons, Is.True);
+			Assert.That(parsed.ButtonBarSize, Is.EqualTo(0.16));
 		});
+	}
+
+	/// <summary>
+	/// Every key the widget owns has to be reachable from the editor, and every key the editor offers has to
+	/// be one the reader reads. A button setting that is stored but never offered cannot be turned off, and
+	/// an offered one the schema does not describe would be rejected on save.
+	/// </summary>
+	[Test]
+	public void The_button_settings_are_editable_and_declared()
+	{
+		var declared = ReadSchemaProperties();
+		var offered = InputKeys(OrbConfigView.Build(OrbWidgetData.DefaultElement));
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(declared, Contains.Item(OrbWidgetData.ShowButtonsKey));
+			Assert.That(declared, Contains.Item(OrbWidgetData.ButtonBarSizeKey));
+			Assert.That(offered, Contains.Item(OrbWidgetData.ShowButtonsKey));
+			Assert.That(offered, Contains.Item(OrbWidgetData.ButtonBarSizeKey));
+		});
+	}
+
+	/// <summary>
+	/// A widget placed before the buttons existed carries neither key, and has to keep working: both fall
+	/// back rather than the widget opening empty.
+	/// </summary>
+	[Test]
+	public void A_widget_stored_before_the_buttons_existed_still_draws_them_by_default()
+	{
+		var parsed = OrbWidgetData.Parse(JsonSerializer.Deserialize<JsonElement>("""{ "preset": "halo" }"""));
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(parsed.ShowButtons, Is.True);
+			Assert.That(parsed.ButtonBarSize, Is.EqualTo(0.16));
+		});
+	}
+
+	/// <summary>A stored value outside the offered range is clamped rather than carried into the tree.</summary>
+	[TestCase(0.0, 0.08)]
+	[TestCase(0.08, 0.08)]
+	[TestCase(0.2, 0.2)]
+	[TestCase(0.4, 0.4)]
+	[TestCase(9.0, 0.4)]
+	public void The_button_size_is_clamped_to_what_the_editor_offers(double stored, double expected)
+	{
+		// Written with an invariant format, because a comma decimal separator produces a payload the reader
+		// cannot parse and the failure would be about the test's locale rather than about the clamp.
+		var json = $$"""{ "buttonBarSize": {{stored.ToString(System.Globalization.CultureInfo.InvariantCulture)}} }""";
+
+		var parsed = OrbWidgetData.Parse(JsonSerializer.Deserialize<JsonElement>(json));
+
+		Assert.That(parsed.ButtonBarSize, Is.EqualTo(expected).Within(0.0001), $"{stored}");
 	}
 
 	/// <summary>
@@ -188,11 +243,12 @@ return document.RootElement
 			.ToDictionary(property => property.Name, property => property.Value.Clone(), StringComparer.Ordinal);
 	}
 
-	private static OrbUiProvider Provider() => new(
+	private static OrbUiProvider Provider(Action? start = null, Action? stop = null) => new(
 		new AssistantStateHolder(),
 		new ThrowingRegistry(),
 		RuntimeTestLog.Logger,
-		new OrbWidgetTypeProvider(RuntimeTestLog.Logger));
+		new OrbWidgetTypeProvider(RuntimeTestLog.Logger),
+		new OrbButtonActions(start ?? (() => { }), stop ?? (() => { })));
 
 	private sealed class ThrowingRegistry : IUiResourceRegistry
 	{

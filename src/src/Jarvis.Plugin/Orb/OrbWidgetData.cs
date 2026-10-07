@@ -27,6 +27,8 @@ public sealed record OrbWidgetData
 	public const string SensitivityKey = "sensitivity";
 	public const string ScopeKey = "scope";
 	public const string FlowsKey = "flows";
+	public const string ShowButtonsKey = "showButtons";
+	public const string ButtonBarSizeKey = "buttonBarSize";
 
 	public const string DefaultJson = """
 		{
@@ -44,7 +46,9 @@ public sealed record OrbWidgetData
 		  "borderStyle": "comet",
 		  "audioReactive": true,
 		  "sensitivity": 1.0,
-		  "scope": "global"
+		  "scope": "global",
+		  "showButtons": true,
+		  "buttonBarSize": 0.16
 		}
 		""";
 
@@ -67,6 +71,8 @@ public sealed record OrbWidgetData
 		    "audioReactive":  { "type": "boolean" },
 		    "sensitivity":    { "type": "number",  "minimum": 0.1, "maximum": 3 },
 		    "scope":          { "type": "string", "enum": ["global", "local"] },
+		    "showButtons":    { "type": "boolean" },
+		    "buttonBarSize":  { "type": "number",  "minimum": 0.08, "maximum": 0.4 },
 		    "flows":          { "type": "array" },
 		    "backgroundColor":{ "type": "string" },
 		    "label":          { "type": "string" },
@@ -111,6 +117,16 @@ public sealed record OrbWidgetData
 
 	public SessionScope Scope { get; init; } = SessionScope.Global;
 
+	/// <summary>
+	/// Whether the orb carries its own press-to-talk and stop buttons. Off by default in the sense that the
+	/// buttons are decoration until a handler is attached: a widget that renders them but cannot act on them
+	/// is worse than a widget without them.
+	/// </summary>
+	public bool ShowButtons { get; init; } = true;
+
+	/// <summary>How tall the button bar is, as a fraction of the widget.</summary>
+	public double ButtonBarSize { get; init; } = 0.16;
+
 	public static JsonElement DefaultElement => JsonSerializer.Deserialize<JsonElement>(DefaultJson);
 
 	public static OrbWidgetData Parse(JsonElement element)
@@ -139,6 +155,8 @@ public sealed record OrbWidgetData
 			AudioReactive = ReadBool(element, AudioReactiveKey, fallback.AudioReactive),
 			Sensitivity = Math.Clamp(ReadDouble(element, SensitivityKey, fallback.Sensitivity), 0.1, 3),
 			Scope = ReadEnum(element, ScopeKey, fallback.Scope),
+			ShowButtons = ReadBool(element, ShowButtonsKey, fallback.ShowButtons),
+			ButtonBarSize = Math.Clamp(ReadDouble(element, ButtonBarSizeKey, fallback.ButtonBarSize), 0.08, 0.4),
 		};
 	}
 

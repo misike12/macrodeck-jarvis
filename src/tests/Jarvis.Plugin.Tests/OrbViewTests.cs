@@ -24,11 +24,11 @@ namespace Jarvis.Plugin.Tests;
 [TestFixture]
 public class OrbViewTests
 {
-	private static readonly string[] BareOrb = ["ui.stack", "ui.image"];
+private static readonly string[] BareOrb = ["ui.stack", "ui.image"];
 
 	private static readonly string[] OrbWithText = ["ui.stack", "ui.image", "ui.text"];
 
-	private static UiView BuildFor(OrbWidgetData data) =>
+	private static UiView BuildFor(OrbWidgetData data, OrbButtonActions? buttons = null) =>
 		new(
 			new UiSurface { Kind = UiSurfaceKinds.Widget, SessionMode = UiSessionModes.Shared },
 			OrbView.Build(
@@ -36,7 +36,8 @@ public class OrbViewTests
 				new UiState<AssistantState>(AssistantState.Idle),
 				new UiState<MacroDeck.Ui.Model.Resources.UiResource?>(null),
 				new UiState<string>(string.Empty),
-				new UiState<string>(string.Empty)));
+				new UiState<string>(string.Empty),
+				buttons));
 
 	/// <summary>The default configuration, which is what a freshly added widget uses.</summary>
 	[Test]
@@ -137,6 +138,70 @@ public class OrbViewTests
 		Collect(view.Tree.Root, types);
 
 		Assert.That(types, Is.EqualTo(OrbWithText));
+	}
+
+	/// <summary>
+	/// A button with nothing behind it is a control that looks live and does nothing, which is the one
+	/// failure mode buttons have that an image does not. Rendering them without a handler is refused rather
+	/// than drawn.
+	/// </summary>
+	[Test]
+	public void Buttons_are_not_drawn_when_there_is_nothing_to_press()
+	{
+		using var view = BuildFor(new OrbWidgetData { ShowText = false, ShowButtons = true });
+		var types = new List<string>();
+		Collect(view.Tree.Root, types);
+
+		Assert.That(types, Is.EqualTo(BareOrb), "the orb drew buttons with no handler behind them");
+	}
+
+	[Test]
+	public void Buttons_are_not_drawn_when_the_user_turned_them_off()
+	{
+		using var view = BuildFor(
+			new OrbWidgetData { ShowText = false, ShowButtons = false },
+			new OrbButtonActions(() => { }, () => { }));
+
+		var types = new List<string>();
+		Collect(view.Tree.Root, types);
+
+		Assert.That(types, Is.EqualTo(BareOrb));
+	}
+
+	/// <summary>Both controls and the labels on them, so a bar cannot arrive half built.</summary>
+	[Test]
+	public void Both_buttons_are_drawn_when_asked_for()
+	{
+		using var view = BuildFor(
+			new OrbWidgetData { ShowButtons = true },
+			new OrbButtonActions(() => { }, () => { }));
+
+		var types = new List<string>();
+		Collect(view.Tree.Root, types);
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(types.Count(t => t == "ui.button"), Is.EqualTo(2), "the orb did not draw both buttons");
+			Assert.That(types.Count(t => t == "ui.modifier"), Is.EqualTo(1), "the stop button is not guarded");
+			Assert.That(types, Does.Contain("ui.stack"));
+		});
+	}
+
+	/// <summary>
+	/// The stop button is inert unless a turn is under way. A control that is visibly there and does nothing
+	/// when pressed is what <c>Disabled</c> exists for, and the state it reads has to be the orb's.
+	/// </summary>
+	[TestCase(AssistantState.Idle, false)]
+	[TestCase(AssistantState.Listening, true)]
+	[TestCase(AssistantState.Thinking, true)]
+	[TestCase(AssistantState.Speaking, true)]
+	[TestCase(AssistantState.Executing, true)]
+	[TestCase(AssistantState.Confirming, true)]
+	[TestCase(AssistantState.Error, false)]
+	[TestCase(AssistantState.Unavailable, false)]
+	public void Stop_is_offered_only_while_a_turn_is_under_way(AssistantState state, bool expected)
+	{
+		Assert.That(OrbView.IsBusy(state), Is.EqualTo(expected), $"{state}");
 	}
 
 	private static void Collect(MacroDeck.Ui.Model.Nodes.UiNode node, List<string> types)

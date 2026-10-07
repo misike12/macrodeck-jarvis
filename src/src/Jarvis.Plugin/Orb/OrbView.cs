@@ -1,4 +1,5 @@
 using Jarvis.Plugin.Core;
+using MacroDeck.Localization;
 using MacroDeck.Ui.Model.Resources;
 using MacroDeck.Ui.Components;
 using MacroDeck.Ui.Dsl;
@@ -6,6 +7,12 @@ using MacroDeck.Ui.Model.Surfaces;
 using MacroDeck.Ui.Runtime;
 
 namespace Jarvis.Plugin.Orb;
+
+/// <summary>
+/// What a press on the orb's own button means. Supplied by the session, so the view has no opinion about how
+/// a turn is started or stopped and can be built and asserted without one.
+/// </summary>
+public sealed record OrbButtonActions(Action StartListening, Action Stop);
 
 /// <summary>
 /// Composes the orb, which is one image.
@@ -30,13 +37,21 @@ internal static class OrbView
 		UiState<AssistantState> orbState,
 		UiState<UiResource?> core,
 		UiState<string> reply,
-		UiState<string> transcript)
+		UiState<string> transcript,
+		OrbButtonActions? buttons = null)
 	{
 		var layers = new List<UiElement> { CoreLayer(core) };
 
 		if (data.ShowText)
 		{
 			layers.Add(TextLayer(data, orbState, reply, transcript));
+		}
+
+		// Buttons need something to press. A widget with no handler would render two controls that do
+		// nothing at all, which is worse than not offering them.
+		if (data.ShowButtons && buttons is not null)
+		{
+			layers.Add(ButtonBar(data, orbState, buttons));
 		}
 
 		return new UiStack
@@ -87,6 +102,84 @@ internal static class OrbView
 			Role = UiComponentTextRoles.Primary,
 		};
 	}
+
+	/// <summary>
+	/// The orb's own controls. Two buttons, because two are what a turn needs and a third would only
+	/// duplicate a deck button.
+	/// <para>
+	/// The stop button is hidden while nothing is running rather than greyed: a disabled control on a
+	/// surface this small reads as broken rather than unavailable, and the state is already shown by the orb.
+	/// </para>
+	/// </summary>
+	private static UiStack ButtonBar(
+		OrbWidgetData data,
+		UiState<AssistantState> orbState,
+		OrbButtonActions buttons)
+	{
+		return new UiStack
+		{
+			Key = "buttons",
+			Direction = UiComponentDirections.Horizontal,
+			Justify = UiComponentJustify.Center,
+			Align = UiComponentAlignments.Center,
+			Gap = UiSize.FromBasis(0.03),
+			Children =
+			[
+				OrbButton(
+					"listen",
+					Strings.Orb.Button.Listen(),
+					data.AccentColor,
+					() => buttons.StartListening()),
+
+				// Present but inert rather than absent, so the bar does not change width as a turn starts
+				// and stops. A control that is visibly there and does nothing when pressed is exactly what
+				// Disabled is for.
+				new UiModifier
+				{
+					Key = "stop-guard",
+					Child = OrbButton(
+						"stop",
+						Strings.Orb.Button.Stop(),
+						data.TextColor,
+						() => buttons.Stop()),
+					Disabled = UiValue.From(() => !IsBusy(orbState.Value)),
+					Opacity = UiValue.From(() => IsBusy(orbState.Value) ? 1d : UiComponentModifiers.DimOpacity),
+				},
+			],
+		};
+	}
+
+	/// <summary>
+	/// Whether a turn is under way. Stop is offered for the states a cancel press would do something to, and
+	/// hidden for the rest.
+	/// </summary>
+	internal static bool IsBusy(AssistantState state) => state is AssistantState.Listening
+		or AssistantState.Thinking
+		or AssistantState.Speaking
+		or AssistantState.Executing
+		or AssistantState.Confirming;
+
+	private static UiButton OrbButton(string key, LocalizedString label, string colour, Action onPress) => new()
+	{
+		Key = key,
+		Background = UiValue.Of(colour),
+		Corner = UiValue.Of("round"),
+		Padding = UiSize.FromBasis(0.02),
+		Justify = UiComponentJustify.Center,
+		Align = UiComponentAlignments.Center,
+		Children =
+		[
+			new UiTextRun
+			{
+				Key = $"{key}-label",
+				Text = UiText.Of(label),
+				Size = UiSize.FromBasis(0.06),
+				Color = UiValue.Of("#04121c"),
+				Align = UiComponentAlignments.Center,
+			},
+		],
+		Events = [UiEventHandler.On(UiComponentEvents.Press, onPress)],
+	};
 
 	private static int MaxLinesFor(TextDisplayMode mode) => mode switch
 	{

@@ -237,7 +237,7 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 		// Rebuilt per connection rather than per widget, so the asset cache inside it is the process-wide one
 		// it is meant to be.
 		_orbProvider = context.UiResources is { } registry
-			? new OrbUiProvider(_state, registry, _logger, _widgetTypes)
+			? new OrbUiProvider(_state, registry, _logger, _widgetTypes, OrbButtonActions())
 			: null;
 
 		await _settings.ReloadAsync(context, cancellationToken).ConfigureAwait(false);
@@ -511,6 +511,14 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 
 	/// <summary>A wake word starts a turn exactly as a button press does.</summary>
 	private void OnWakeWordDetected() => StartListeningTurn();
+
+	/// <summary>
+	/// What the orb's own buttons do. The same two paths a deck button and the wake word use, so a press on
+	/// the widget is indistinguishable from a press on a tile: one turn at a time, started on its own token,
+	/// and cancelled the same way.
+	/// </summary>
+	private OrbButtonActions OrbButtonActions() =>
+		new(StartListeningTurn, () => _session.Cancel(killRunningCommand: false));
 
 	/// <summary>
 	/// Runs a turn without blocking the caller. Used by the hotkey and the wake word, both of which fire on

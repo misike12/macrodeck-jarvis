@@ -727,6 +727,22 @@
   </data>  <data name="ConfigFlow.Models.WhisperModel.Label" xml:space="preserve">
     <value>Whisper model</value>
   </data>
+  <data name="Orb.Button.Listen" xml:space="preserve">
+    <value>Talk</value>
+  </data>
+  <data name="Orb.Button.Stop" xml:space="preserve">
+    <value>Stop</value>
+  </data>
+  <data name="Orb.Config.ShowButtons" xml:space="preserve">
+    <value>Show buttons</value>
+    <comment>Whether the orb carries its own Talk and Stop buttons.</comment>
+  </data>
+  <data name="Orb.Config.ShowButtonsHint" xml:space="preserve">
+    <value>Two controls on the orb itself, so it can start and stop a turn without a separate deck button.</value>
+  </data>
+  <data name="Orb.Config.ButtonBarSize" xml:space="preserve">
+    <value>Button size</value>
+  </data>
   <data name="ConfigFlow.Voice.WindowsVoice.Label" xml:space="preserve">
     <value>Windows voice name</value>
   </data>

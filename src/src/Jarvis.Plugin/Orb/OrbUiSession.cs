@@ -17,8 +17,9 @@ namespace Jarvis.Plugin.Orb;
 /// </summary>
 internal sealed class OrbUiSession : IUiSession
 {
-private readonly OrbWidgetData _data;
+	private readonly OrbWidgetData _data;
 	private readonly OrbAssetCache _assets;
+	private readonly OrbButtonActions _buttons;
 
 	/// <summary>
 	/// The session's own cancellation, not the invocation's.
@@ -40,10 +41,12 @@ private readonly OrbWidgetData _data;
 public OrbUiSession(
 		OrbWidgetData data,
 		AssistantStateHolder state,
-		OrbAssetCache assets)
+		OrbAssetCache assets,
+		OrbButtonActions buttons)
 	{
 		_data = data;
 		_assets = assets;
+		_buttons = buttons;
 
 		_orbState = new UiState<AssistantState>(AssistantState.Idle);
 		_core = new UiState<UiResource?>(null);
@@ -56,7 +59,7 @@ public OrbUiSession(
 			SessionMode = UiSessionModes.Shared,
 		};
 
-_view = new UiView(surface, OrbView.Build(data, _orbState, _core, _reply, _transcript));
+_view = new UiView(surface, OrbView.Build(data, _orbState, _core, _reply, _transcript, buttons));
 
 		_view.HandlerFaulted += (_, args) =>
 			Faulted?.Invoke(this, new UiSessionFaultedEventArgs(args.NodeId, args.Exception));

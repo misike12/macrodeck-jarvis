@@ -171,6 +171,25 @@ public static class OrbConfigView
 						Binding = Bind.To(new UiState<double>(current.Sensitivity)),
 					},
 
+					new UiBooleanInput
+					{
+						Key = OrbWidgetData.ShowButtonsKey,
+						Label = Strings.Orb.Config.ShowButtons(),
+						Description = UiText.Of(Strings.Orb.Config.ShowButtonsHint()),
+						Binding = Bind.To(new UiState<bool>(current.ShowButtons)),
+					},
+
+					new UiNumberInput
+					{
+						Key = OrbWidgetData.ButtonBarSizeKey,
+						Label = Strings.Orb.Config.ButtonBarSize(),
+						Min = 0.08,
+						Max = 0.4,
+						Step = 0.01,
+						ShowSlider = true,
+						Binding = Bind.To(new UiState<double>(current.ButtonBarSize)),
+					},
+
 					new UiChoiceInput
 					{
 						Key = OrbWidgetData.ScopeKey,

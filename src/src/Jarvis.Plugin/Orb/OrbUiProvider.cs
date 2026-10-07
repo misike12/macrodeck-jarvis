@@ -19,7 +19,8 @@ public sealed class OrbUiProvider(
 	AssistantStateHolder state,
 	IUiResourceRegistry resources,
 	ILogger logger,
-	OrbWidgetTypeProvider widgetTypes) : IUiProvider
+	OrbWidgetTypeProvider widgetTypes,
+	OrbButtonActions buttons) : IUiProvider
 {
 	private readonly AssistantStateHolder _state = state;
 	private readonly ILogger _logger = logger.ForContext<OrbUiProvider>();
@@ -54,7 +55,7 @@ public sealed class OrbUiProvider(
 		}
 
 		return Task.FromResult<IUiSession?>(
-			new OrbUiSession(OrbWidgetData.Parse(data), _state, _assets));
+			new OrbUiSession(OrbWidgetData.Parse(data), _state, _assets, buttons));
 	}
 
 	/// <summary>
