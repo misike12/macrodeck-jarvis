@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using Jarvis.Plugin.Audio;
 using Jarvis.Plugin.Core;
 using Jarvis.Plugin.Speech;
 using MacroDeck.Sdk.Actions;
@@ -14,7 +15,7 @@ namespace Jarvis.Plugin.Speech;
 /// </summary>
 internal static class UtteranceAudio
 {
-	private const int TargetSampleRate = 16_000;
+	private const int TargetSampleRate = AudioResampler.SpeechRate;
 
 	/// <summary>
 	/// Resamples and writes a 16 kHz mono 16-bit WAV, returning its path. The device runs at 48 kHz, and
@@ -42,43 +43,14 @@ internal static class UtteranceAudio
 		return path;
 	}
 
-	/// <summary>
-	/// Linear interpolation between neighbouring samples. Good enough for speech at this ratio: the point is
-	/// to hand whisper the rate it expects, not to build a resampler.
+/// <summary>
+	/// Delegates to the shared resampler rather than implementing its own.
+	/// <para>
+	/// The wake word's front end and this recorder have to convert the same device audio to the same rate,
+	/// and two implementations would score the same word differently with nothing to say which was wrong.
+	/// </para>
 	/// </summary>
-	internal static float[] Resample(float[] samples, int from, int to)
-	{
-		if (from <= 0 || to <= 0 || samples.Length == 0)
-		{
-			return [];
-		}
-
-		if (from == to)
-		{
-			return samples;
-		}
-
-		var length = (int)Math.Round(samples.Length * (double)to / from, MidpointRounding.AwayFromZero);
-		var result = new float[length];
-		var step = (double)from / to;
-
-		for (var index = 0; index < length; index++)
-		{
-			var position = index * step;
-			var left = (int)position;
-
-			if (left >= samples.Length - 1)
-			{
-				result[index] = samples[^1];
-				continue;
-			}
-
-			var fraction = (float)(position - left);
-			result[index] = (samples[left] * (1 - fraction)) + (samples[left + 1] * fraction);
-		}
-
-		return result;
-	}
+	internal static float[] Resample(float[] samples, int from, int to) => AudioResampler.To(samples, from, to);
 
 	public static void Delete(string path)
 	{

@@ -393,41 +393,7 @@ public static class Downsample
 	/// </summary>
 	public static float[] ToInt16Scale(float[] samples, int sourceRate)
 	{
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(sourceRate, 0);
-
-		if (samples.Length == 0)
-		{
-			return [];
-		}
-
-		const int targetRate = 16_000;
-		float[] resampled;
-
-		if (sourceRate == targetRate)
-		{
-			resampled = samples;
-		}
-		else
-		{
-			var length = (int)Math.Round(samples.Length * (double)targetRate / sourceRate, MidpointRounding.AwayFromZero);
-			resampled = new float[length];
-			var step = (double)sourceRate / targetRate;
-
-			for (var index = 0; index < length; index++)
-			{
-				var position = index * step;
-				var left = (int)position;
-
-				if (left >= samples.Length - 1)
-				{
-					resampled[index] = samples[^1];
-					continue;
-				}
-
-				var fraction = (float)(position - left);
-				resampled[index] = (samples[left] * (1 - fraction)) + (samples[left + 1] * fraction);
-			}
-		}
+		var resampled = Jarvis.Plugin.Audio.AudioResampler.To(samples, sourceRate, TargetRate);
 
 		var result = new float[resampled.Length];
 
@@ -438,4 +404,6 @@ public static class Downsample
 
 		return result;
 	}
+
+	private const int TargetRate = 16_000;
 }

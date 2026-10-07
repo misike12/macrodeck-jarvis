@@ -24,10 +24,11 @@ namespace Jarvis.Plugin.Speech;
 public sealed class VoiceRecorder : IDisposable
 {
 	/// <summary>
-	/// Whisper's native sample rate. The device usually runs at 48 kHz, and resampling down costs a fraction
-	/// of a second and removes the need for whisper to do it.
+	/// Whisper's native sample rate. Asked for rather than required: a device that will not convert is
+	/// resampled down once on the way out, which costs a fraction of a second and works everywhere, where
+	/// insisting means no microphone at all on hardware that works in every other application.
 	/// </summary>
-	private const int TargetSampleRate = 16_000;
+	private const int TargetSampleRate = AudioResampler.SpeechRate;
 
 	private readonly ILogger _logger;
 	private readonly Lock _gate = new();
