@@ -116,10 +116,14 @@ public sealed class ProcessTracker : IDisposable
 			throw new Win32Exception((int)Marshal.GetLastWin32Error(), "The command could not be started.");
 		}
 
-		process.BeginOutputReadLine();
-		process.BeginErrorReadLine();
+		// Handlers attached before the reads start. BeginOutputReadLine starts reading immediately, so anything
+		// the child writes inside that window is delivered with nobody listening and is lost. A fast command
+		// produces its whole output in that window, so this is the ordinary case rather than a rare one.
 		process.OutputDataReceived += (_, e) => tracker.AppendLine(e.Data);
 		process.ErrorDataReceived += (_, e) => tracker.AppendLine(e.Data);
+
+		process.BeginOutputReadLine();
+		process.BeginErrorReadLine();
 
 		// Containment is applied after the start rather than through a suspended process, which is what
 		// closes the window between "running" and "in the job". A process that escapes that gap is still

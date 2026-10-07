@@ -177,8 +177,14 @@ public static class SystemTools
 						"The computer is going to sleep.", cancellationToken).ConfigureAwait(false);
 
 				case "lock":
-					LockWorkstation();
-					return ToolOutcome.Success("The workstation is locked.");
+					// Checked. LockWorkstation returns whether it worked, and it fails for ordinary reasons:
+					// another session is active, a policy forbids it, or the session is over a remote
+					// connection. Reporting success anyway tells the user their machine is locked when it is
+					// not, which is worse than saying it did not happen.
+					return LockWorkstation()
+						? ToolOutcome.Success("The workstation is locked.")
+						: ToolOutcome.Failure(
+							"The workstation could not be locked. It is often already locked, or another session is logged in.");
 
 				default:
 					return ToolOutcome.Failure(

@@ -352,16 +352,32 @@ private static extern nint ShellExecute(
 	[DllImport("kernel32.dll")]
 	private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
 
-	[DllImport("user32.dll")]
+[DllImport("user32.dll")]
 	private static extern bool AttachThreadInput(uint from, uint to, bool attach);
+
+	[DllImport("kernel32.dll")]
+	private static extern uint GetCurrentThreadId();
 
 	private static uint _foregroundThread;
 
+/// <summary>
+	/// Joins the foreground window's input queue to this thread's.
+	/// <para>
+	/// Windows will not let a process that does not own the foreground raise a window into it, which is the
+	/// normal state for a plugin started by a supervisor rather than by the user. Attaching the two input
+	/// queues is the supported way to be treated as though the press came from the focused window.
+	/// </para>
+	/// <para>
+	/// The thread being compared against has to be this one. It used to ask for the foreground window's own
+	/// thread a second time, which is the same number twice, so the branch was never taken and the
+	/// workaround never ran - the tool then refused windows it could perfectly well have raised.
+	/// </para>
+	/// </summary>
 	private static void AttachToForeground()
 	{
 		var foreground = GetForegroundWindow();
 		_foregroundThread = GetWindowThreadProcessId(foreground, out _);
-		var own = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+		var own = GetCurrentThreadId();
 
 		if (_foregroundThread != 0 && _foregroundThread != own)
 		{
@@ -371,7 +387,7 @@ private static extern nint ShellExecute(
 
 	private static void DetachFromForeground()
 	{
-		var own = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+		var own = GetCurrentThreadId();
 
 		if (_foregroundThread != 0 && _foregroundThread != own)
 		{

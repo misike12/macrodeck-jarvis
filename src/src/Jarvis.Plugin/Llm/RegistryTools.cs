@@ -386,13 +386,24 @@ public static class RegistryTools
 			{
 				var (hive, view) = ResolveHive(hiveName);
 
+				using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+
 				if (deleteKey)
 				{
-					RegistryKey.OpenBaseKey(hive, view).DeleteSubKeyTree(path, throwOnMissingSubKey: false);
+					// Checked rather than deleting with throwOnMissingSubKey off, which deletes nothing and
+					// reports success. The model is told a key was deleted that never existed, and the rules
+					// it works under say it may not claim an action happened unless the tool said so.
+					if (baseKey.OpenSubKey(path) is not { } existingKey)
+					{
+						return Task.FromResult(ToolOutcome.Failure($"{hiveName}\\{path} does not exist."));
+					}
+
+					existingKey.Close();
+					baseKey.DeleteSubKeyTree(path);
 					return Task.FromResult(ToolOutcome.Success($"Deleted {hiveName}\\{path} and anything under it."));
 				}
 
-				using var key = RegistryKey.OpenBaseKey(hive, view).OpenSubKey(path, writable: true);
+				using var key = baseKey.OpenSubKey(path, writable: true);
 
 				if (key is null)
 				{

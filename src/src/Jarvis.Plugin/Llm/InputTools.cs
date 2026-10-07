@@ -541,10 +541,15 @@ public static class InputTools
 			var data = unchecked((uint)(clamped * WheelDelta));
 			var flags = horizontal ? MouseHorizontalWheel : MouseWheel;
 
-			Send([Mouse(flags, 0, 0, data)]);
+			if (Send([Mouse(flags, 0, 0, data)]) != 1)
+			{
+				return Task.FromResult(ToolOutcome.Failure("The desktop refused the scroll."));
+			}
 
+			// The clamped count, not the requested one: a request for five hundred is sent as a hundred, and
+			// reporting five hundred tells the model the page moved further than it did.
 			return Task.FromResult(ToolOutcome.Success(
-				$"Scrolled {clicks} {(clicks == 1 ? "click" : "clicks")} {(horizontal ? "sideways" : "vertically")}."));
+				$"Scrolled {clamped} {(clamped == 1 ? "click" : "clicks")} {(horizontal ? "sideways" : "vertically")}."));
 		}
 	}
 

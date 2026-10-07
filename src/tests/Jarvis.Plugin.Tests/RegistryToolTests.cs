@@ -262,6 +262,26 @@ public class RegistryToolTests
 		});
 	}
 
+/// <summary>
+	/// Deleting a key that is not there deleted nothing and reported that it had. The tool used to call
+	/// DeleteSubKeyTree with throwOnMissingSubKey off, which is a silent no-op, and return success
+	/// unconditionally. The model is told a key was deleted that never existed, and it is not permitted to
+	/// claim an action happened unless the tool said so.
+	/// </summary>
+	[Test]
+	public async Task Deleting_a_key_that_is_not_there_says_so()
+	{
+		var outcome = await Invoke(
+			new RegistryTools.RegistryDeleteTool(),
+			Args(("hive", "HKCU"), ("path", RootPath), ("deleteKey", true)));
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(outcome.Ok, Is.False, "a key that was never there was reported as deleted");
+			Assert.That(outcome.Content, Does.Contain("does not exist"));
+		});
+	}
+
 	[Test]
 	public async Task Reading_a_key_that_is_not_there_says_so()
 	{

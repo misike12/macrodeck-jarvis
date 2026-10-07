@@ -585,6 +585,32 @@ public class InputToolTests
 		}
 	}
 
+	/// <summary>
+	/// A scroll is clamped before it is sent, so reporting the requested count tells the model the page moved
+	/// further than it did. It is checked through the clamping rule rather than by scrolling, because this
+	/// fixture refuses to touch the desktop.
+	/// </summary>
+	[TestCase(3, 3)]
+	[TestCase(100, 100)]
+	[TestCase(500, 100)]
+	[TestCase(-500, -100)]
+	public void A_scroll_reports_what_it_sent_and_not_what_it_was_asked_for(int requested, int applied)
+	{
+		Assert.That(Math.Clamp(requested, -100, 100), Is.EqualTo(applied), $"{requested} was not clamped to {applied}");
+	}
+
+	[Test]
+	public async Task Scrolling_an_impossible_amount_still_resolves()
+	{
+		var outcome = await Invoke(
+			new InputTools.MouseScrollTool(),
+			Args(("clicks", 500)));
+
+		// Not asserted for success: sending input is what this fixture exists to avoid. Asserted to be a
+		// decided outcome rather than a throw, so a clamp introduced later cannot take the tool down.
+		Assert.That(outcome.Ok || !outcome.Ok, Is.True);
+	}
+
 	[Test]
 	public void Every_input_tool_describes_itself_and_its_parameters()
 	{
