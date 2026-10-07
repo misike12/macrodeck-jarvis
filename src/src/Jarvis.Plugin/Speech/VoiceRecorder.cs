@@ -246,6 +246,18 @@ public sealed class VoiceRecorder : IDisposable
 		}
 	}
 
+	/// <summary>Whether anything has been loud enough to count as speech yet.</summary>
+	public bool HasHeardAnything
+	{
+		get
+		{
+			lock (_gate)
+			{
+				return _speaking;
+			}
+		}
+	}
+
 	private void OnData(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long _, long __)
 	{
 		if (flags.HasFlag(AudioClientBufferFlags.Silent))

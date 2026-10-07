@@ -184,22 +184,24 @@ public sealed class OpenWakeWordEngineHost : IDisposable
 			{
 				try
 				{
-					await foreach (var packet in reader.ReadAllAsync(stopping).ConfigureAwait(false))
+await foreach (var packet in reader.ReadAllAsync(stopping).ConfigureAwait(false))
+				{
+					ReportAudio(packet.Length);
+
+					var score = engine.Process(packet, sourceRate);
+
+					if (engine.IsDead)
 					{
-						var score = engine.Process(packet, sourceRate);
-
-						if (engine.IsDead)
-						{
-							// The engine gave up; draining more packets would spend CPU on inference that
-							// can never answer. The engine has already said why.
-							break;
-						}
-
-						if (score is { } value)
-						{
-							ScoreReady?.Invoke(value);
-						}
+						// The engine gave up; draining more packets would spend CPU on inference that
+						// can never answer. The engine has already said why.
+						break;
 					}
+
+					if (score is { } value)
+					{
+						ScoreReady?.Invoke(value);
+					}
+				}
 				}
 				catch (OperationCanceledException)
 				{
@@ -287,6 +289,45 @@ public sealed class OpenWakeWordEngineHost : IDisposable
 	/// to fall back to the transcript engine, so a custom wake word works instead of being quietly replaced.
 	/// </summary>
 	internal static bool HasModelFor(string wakeWord) => ModelAssetFor(wakeWord).Exact;
+
+	/// <summary>How often the pump says how much audio it has been given.</summary>
+	private static TimeSpan AudioReportInterval => TimeSpan.FromSeconds(15);
+
+	private int _audioSamples;
+
+	private DateTimeOffset _nextAudioReport = DateTimeOffset.MinValue;
+
+	/// <summary>
+	/// Reports how much audio has reached the engine, from inside the pump.
+	/// <para>
+	/// Measured at the door rather than at the detector, and on a timer rather than on arrival, because the
+	/// two failures that look identical from outside are a pump that is fed nothing and an engine that scores
+	/// what it is given and hears silence. Only the first is a fault; the second is a microphone pointed at
+	/// the wrong device, and a fixable one. Counting packets in the detector could not tell them apart,
+	/// because a silent stream produces detector calls too.
+	/// </para>
+	/// </summary>
+	private void ReportAudio(int sampleCount)
+	{
+		_audioSamples += sampleCount;
+
+		if (DateTimeOffset.UtcNow < _nextAudioReport)
+		{
+			return;
+		}
+
+		_nextAudioReport = DateTimeOffset.UtcNow + AudioReportInterval;
+
+		// Microphone rate, so the figure is comparable rather than dependent on the packet size the driver
+		// happens to use. A stream that is really running at 48 kHz reports about 720000 here.
+		var seconds = _sourceRate <= 0 ? 0d : (double)_audioSamples / _sourceRate;
+
+		_logger.Debug(
+			"The wake word engine has been given {Seconds:0.0}s of audio and is listening.",
+			seconds);
+
+		_audioSamples = 0;
+	}
 
 	private void StopPump()
 	{

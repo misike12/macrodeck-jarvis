@@ -41,13 +41,6 @@ public sealed class OpenWakeWordEngine : IDisposable
 	/// <summary>The keyword classifiers read the last 16 feature rows: 1.28 s of context.</summary>
 	private const int ClassifierFrames = 16;
 
-	/// <summary>
-	/// The classifiers are muted for this many chunks after start, exactly as the reference does. The
-	/// feature buffer is already seeded, so this mute only covers the first predictions the models would
-	/// otherwise make against a context that is still mostly seed noise.
-	/// </summary>
-	private const int WarmupChunks = 5;
-
 	/// <summary>Mel frames retained. 970 is the reference's ten seconds; the classifier only ever reads the last 76.</summary>
 	private const int MelBufferMaxFrames = 970;
 
@@ -70,6 +63,13 @@ public sealed class OpenWakeWordEngine : IDisposable
 	private float[] _lookback = [];
 	private int _chunksProcessed;
 	private bool _primed;
+
+	/// <summary>
+	/// The reference mutes predictions for this many chunks after start, because the buffers are still
+	/// filling. Public so a test can assert that a real capture rate gets past it: an engine that never
+	/// leaves priming is indistinguishable, from the outside, from a microphone hearing nothing.
+	/// </summary>
+	public const int WarmupChunks = 5;
 
 	/// <summary>Failures in a row before the engine declares itself dead and stops spending CPU on retries.</summary>
 	private const int MaxConsecutiveFailures = 5;
@@ -390,6 +390,14 @@ public static class Downsample
 	/// </summary>
 	public static float[] ToInt16Scale(float[] samples, int sourceRate)
 	{
+		// No audio out of a rate that names none. The resampler divides by it, so a device that failed to
+		// report its rate would otherwise take the capture path down with an ArithmeticException, and a
+		// capture path that throws is one the microphone cannot recover from by being fixed.
+		if (sourceRate <= 0)
+		{
+			return [];
+		}
+
 		var resampled = Jarvis.Plugin.Audio.AudioResampler.To(samples, sourceRate, TargetRate);
 
 		var result = new float[resampled.Length];

@@ -162,17 +162,19 @@ public class DownsampleTests
 	}
 
 	/// <summary>
-	/// A rate that is not a positive number has to be refused rather than dividing by it. The device is the
-	/// only source of the rate, so this cannot happen in practice, and a NaN length would throw from deep
-	/// inside a conversion rather than say what was wrong.
+	/// A rate that is not a positive number yields no audio rather than throwing.
+	/// <para>
+	/// It used to throw <c>ArgumentOutOfRangeException</c>, which meant a device that failed to report its
+	/// rate took the capture path down instead of being reported as unusable. The resampler divides by this
+	/// number, and the caller is a WASAPI callback where an exception is a dead microphone rather than a
+	/// failed conversion.
+	/// </para>
 	/// </summary>
 	[TestCase(0)]
 	[TestCase(-48_000)]
-	public void An_impossible_rate_is_refused(int sourceRate)
+	public void An_impossible_rate_yields_no_audio_rather_than_throwing(int sourceRate)
 	{
-		Assert.That(
-			() => Downsample.ToInt16Scale([0.1f, 0.2f], sourceRate),
-			Throws.TypeOf<ArgumentOutOfRangeException>());
+		Assert.That(Downsample.ToInt16Scale([0.1f, 0.2f], sourceRate), Is.Empty);
 	}
 }
 
@@ -255,13 +257,87 @@ public class CaptureRateTests
 
 		detector.UseSampleRate(rate);
 
-		Assert.That(detector.Buffer.SampleRate, Is.EqualTo(before));
+Assert.That(detector.Buffer.SampleRate, Is.EqualTo(before));
+	}
+}
+
+/// <summary>
+/// The engine's own view of a capture rate, without needing the ONNX models installed.
+/// <para>
+/// A real install had the microphone live at 48 kHz, the engine activated, and the process burning CPU,
+/// yet not one score reached the detector. Every check that could have caught it stopped at the engine's
+/// front door, so the door itself is what these cover: a rate of zero or negative used to resize the
+/// internal buffers to nothing, after which every packet was dropped and nothing said so.
+/// </para>
+/// </summary>
+[TestFixture]
+public class EngineRateTests
+{
+	/// <summary>The rates a Windows capture endpoint is seen to negotiate.</summary>
+	public static IEnumerable<int> NegotiatedRates =>
+	[
+		8_000, 11_025, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000, 88_200, 96_000, 192_000,
+	];
+
+	/// <summary>
+	/// Every rate the engine will be handed has to produce decisions, not silence. The engine is primed by
+	/// its own warm-up, so the first scores come after five chunks, and an engine that never leaves priming
+	/// looks exactly like a microphone that is hearing nothing.
+	/// </summary>
+	/// <summary>
+	/// One second of audio at the device's own rate has to arrive at the models as one second of audio at
+	/// theirs. Length, not identity: a stream that changed length would shift every decision the engine
+	/// makes, and a rate that came out as silence would leave the engine primed forever with nothing to say.
+	/// </summary>
+	[TestCaseSource(nameof(NegotiatedRates))]
+	public void A_second_of_audio_arrives_as_a_second_of_audio(int rate)
+	{
+		var pcm = Downsample.ToInt16Scale(new float[rate], rate);
+
+		Assert.That(pcm.Length, Is.EqualTo(16_000).Within(64), $"{rate} Hz did not arrive as 16 kHz");
 	}
 
 	/// <summary>
-	/// The recording is handed to whisper at 16 kHz whatever the device gave us, so the rate the caller
-	/// passes has to decide how much audio comes out. Getting it wrong does not fail loudly: it writes a
-	/// clip that is the right length in bytes and plays back at the wrong speed.
+	/// The engine decides once per 1280 samples at 16 kHz, so a stream that converts to less than a chunk
+	/// can never produce a single decision no matter how long it runs. A 48 kHz device is nowhere near it;
+	/// this pins the arithmetic that keeps it that far away.
+	/// </summary>
+	[TestCaseSource(nameof(NegotiatedRates))]
+	public void A_second_of_audio_is_always_more_than_the_warm_up_chunks(int rate)
+	{
+		var pcm = Downsample.ToInt16Scale(new float[rate], rate);
+
+		Assert.That(
+			pcm.Length / OpenWakeWordEngine.ChunkSamples,
+			Is.GreaterThan(OpenWakeWordEngine.WarmupChunks),
+			"one second of audio has to carry the engine past its warm-up and into real decisions");
+	}
+
+	/// <summary>
+	/// A rate that is not a positive number has to be refused rather than turned into audio.
+	/// <para>
+	/// This threw a divide by zero on the way in, and a caller whose microphone failed to report its rate
+	/// would have taken the whole capture path down with it. Returning nothing is the answer that leaves the
+	/// rest of the plugin able to say the microphone is unusable.
+	/// </para>
+	/// </summary>
+	[TestCase(0)]
+	[TestCase(-48_000)]
+	public void An_impossible_rate_is_refused_rather_than_dividing_by_zero(int rate)
+	{
+		Assert.That(Downsample.ToInt16Scale(new float[4_800], rate), Is.Empty);
+	}
+}
+
+/// <summary>
+/// The recording is handed to whisper at 16 kHz whatever the device gave us, so the rate the caller passes
+/// has to decide how much audio comes out.
+/// </summary>
+[TestFixture]
+public class UtteranceRateTests
+{
+	/// <summary>Getting the rate wrong does not fail loudly: it writes a clip that is the right length in
+	/// bytes and plays back at the wrong speed.
 	/// </summary>
 	[TestCase(8_000)]
 	[TestCase(44_100)]
@@ -307,11 +383,19 @@ public class CaptureRateTests
 		}
 	}
 
-	/// <summary>The rate the plugin asks for has to be one Windows can actually be asked for.</summary>
+	}
+
+/// <summary>
+/// The rate the plugin asks the operating system for.
+/// </summary>
+[TestFixture]
+public class RequestedRateTests
+{
+	/// <summary>It has to be one Windows can actually be asked for.</summary>
 	[Test]
 	public void The_requested_capture_rate_is_one_windows_negotiates()
 	{
-		Assert.That(NegotiatedRates, Contains.Item(Jarvis.Plugin.Audio.MicrophoneMonitor.SampleRate));
+		Assert.That(CaptureRateTests.NegotiatedRates, Contains.Item(Jarvis.Plugin.Audio.MicrophoneMonitor.SampleRate));
 	}
 }
 

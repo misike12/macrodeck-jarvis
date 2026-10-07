@@ -108,7 +108,18 @@ public sealed class ListeningPipeline : IDisposable
 	/// How long one turn may last. A watch timer rather than an endless wait, because a threshold that is
 	/// never crossed or never falls quiet would otherwise leave the microphone open indefinitely.
 	/// </summary>
-	private static TimeSpan MaxUtterance => TimeSpan.FromSeconds(20);
+private static TimeSpan MaxUtterance => TimeSpan.FromSeconds(20);
+
+	/// <summary>
+	/// How long to wait for speech to begin once a turn has started.
+	/// <para>
+	/// The utterance budget bounds a long answer, but a wake word fires on a 200 ms window and the request
+	/// that follows it usually arrives a second or two later. Someone who says nothing after that would
+	/// otherwise hold the microphone open for the full twenty seconds with the orb claiming to be listening,
+	/// which is the same silence this plugin has already had too much of.
+	/// </para>
+	/// </summary>
+	private static TimeSpan MaxWaitForStart => TimeSpan.FromSeconds(10);
 
 	/// <summary>How often the recorder is asked whether the speaker has finished.</summary>
 	private static TimeSpan PollInterval => TimeSpan.FromMilliseconds(100);
@@ -248,8 +259,12 @@ catch (OperationCanceledException)
 	/// Polls the recorder for its endpoint rather than waiting on an event it cannot raise: WASAPI delivers
 	/// audio on its own thread and the decision of when a person has finished talking belongs here.
 	/// </summary>
-	private async Task WaitForSpeechEndAsync(CancellationToken cancellationToken)
+private async Task WaitForSpeechEndAsync(CancellationToken cancellationToken)
 	{
+		// Bounded separately from the utterance budget, so silence after a wake word ends the turn rather than
+		// occupying the microphone for the rest of it.
+		var deadline = DateTimeOffset.UtcNow + MaxWaitForStart;
+
 		while (!cancellationToken.IsCancellationRequested)
 		{
 			if (!_recorder.IsRecording)
@@ -261,6 +276,12 @@ catch (OperationCanceledException)
 			if (_recorder.HasReachedEndpoint)
 			{
 				_logger.Debug("The speaker stopped; ending the utterance.");
+				return;
+			}
+
+			if (!_recorder.HasHeardAnything && DateTimeOffset.UtcNow >= deadline)
+			{
+				_logger.Debug("Nobody spoke after the wake word; ending the turn.");
 				return;
 			}
 
