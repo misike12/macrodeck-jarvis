@@ -641,9 +641,6 @@
   <data name="ConfigFlow.Behaviour.Timeout.Label" xml:space="preserve">
     <value>Zeitlimit für das Gespräch, in Sekunden</value>
   </data>
-  <data name="ConfigFlow.Behaviour.Lifetime.Label" xml:space="preserve">
-    <value>Dieses Gespräch so lange speichern, in Minuten</value>
-  </data>
   <data name="ConfigFlow.Behaviour.ServiceEnabled.Label" xml:space="preserve">
     <value>Den JARVIS-Dienst mit erhöhten Rechten verwenden</value>
   </data>

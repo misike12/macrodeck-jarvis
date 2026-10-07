@@ -34,7 +34,7 @@ public sealed class ConversationRunner(
 		};
 
 		var finalReply = new StringBuilder();
-		var maxIterations = Math.Clamp(current.MaxIterations, 1, 16);
+		var maxIterations = Math.Clamp(current.MaxIterations, JarvisFields.MinIterations, JarvisFields.MaxIterations);
 
 		for (var iteration = 0; iteration < maxIterations; iteration++)
 		{

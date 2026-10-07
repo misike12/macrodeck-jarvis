@@ -18,6 +18,131 @@ namespace Jarvis.Plugin.Tests;
 [TestFixture]
 public class ConfigFieldTableTests
 {
+	/// <summary>
+	/// The bounds the setup form offers have to be the bounds the store will keep.
+	/// <para>
+	/// Nothing enforced the declared minimum or maximum, and the two disagreed three times over:
+	/// maxIterations was declared 1 to 32, read back against 1 to 12 and clamped again to 1 to 16 at the
+	/// point of use, so a user who chose 20 was shown a value that silently became 12. Every number the
+	/// form offers is now checked against the range the store applies, and against the range the code that
+	/// consumes it clamps to.
+	/// </para>
+	/// </summary>
+	[Test]
+	public void Every_numeric_setting_declares_both_bounds_and_a_default_inside_them()
+	{
+		var unbounded = JarvisFields.All
+			.Where(field => field.Kind is JarvisFieldKind.Number)
+			.Where(field => field.Minimum is null || field.Maximum is null)
+			.Select(field => field.Name)
+			.ToArray();
+
+		Assert.That(unbounded, Is.Empty, "a number the form will accept but the store cannot place");
+
+		foreach (var field in JarvisFields.All.Where(field => field.Kind is JarvisFieldKind.Number))
+		{
+			Assert.That(field.Minimum!, Is.LessThan(field.Maximum!), $"{field.Name} has an empty range");
+		}
+	}
+
+	/// <summary>
+	/// A threshold that accepts zero is a threshold that can never fire, and the form has to say so.
+	/// Both thresholds were declared 0 to 1 while the store discarded anything at or below 0.001, so a user
+	/// who deliberately asked for maximum sensitivity got the default instead.
+	/// </summary>
+	[Test]
+	public void A_threshold_cannot_be_offered_a_value_that_can_never_be_crossed()
+	{
+		foreach (var name in new[]
+		{
+			JarvisSettingsStoreFields.WakeSensitivityField,
+			JarvisSettingsStoreFields.BargeInThresholdField,
+		})
+		{
+			var field = JarvisFields.All.Single(candidate => candidate.Name == name);
+
+			Assert.That(field.Minimum!, Is.GreaterThan(0), $"{name} can be set to a level nothing can reach");
+			Assert.That(field.Maximum, Is.EqualTo(JarvisFields.MaxThreshold));
+		}
+	}
+
+	/// <summary>
+	/// The conversation runner clamps the iteration count again at the point of use, so a form that offered a
+	/// value above that clamp would be offering a setting the turn quietly shortens.
+	/// </summary>
+	[Test]
+	public void The_declared_iteration_bound_matches_the_one_the_runner_applies()
+	{
+		var runner = File.ReadAllText(ProjectFile(Path.Combine("Core", "ConversationRunner.cs")));
+		var match = Regex.Match(runner, @"Math\.Clamp\(current\.MaxIterations,\s*(?<low>[\w.]+),\s*(?<high>[\w.]+)");
+
+		Assert.That(match.Success, Is.True, "the runner no longer clamps MaxIterations in the expected shape");
+
+		var field = JarvisFields.All.Single(candidate => candidate.Name == JarvisSettingsStoreFields.MaxIterationsField);
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(
+				match.Groups["low"].Value,
+				Is.EqualTo($"{nameof(JarvisFields)}.{nameof(JarvisFields.MinIterations)}"));
+			Assert.That(
+				match.Groups["high"].Value,
+				Is.EqualTo($"{nameof(JarvisFields)}.{nameof(JarvisFields.MaxIterations)}"));
+			Assert.That(field.Minimum, Is.EqualTo((double)JarvisFields.MinIterations));
+			Assert.That(field.Maximum, Is.EqualTo((double)JarvisFields.MaxIterations));
+		});
+	}
+
+	/// <summary>
+	/// A setting the safety gate reads and no step offers is a mode that cannot be used: the per-tool
+	/// permission switches were read and set by nobody, so choosing that mode asked for every tool forever.
+	/// </summary>
+	[Test]
+	public void Every_safety_mode_the_gate_reads_is_configurable()
+	{
+		var declared = JarvisFields.All.Select(field => field.Name).ToHashSet(StringComparer.Ordinal);
+
+		string[] required =
+		[
+			JarvisSettingsStoreFields.PermitReadField,
+			JarvisSettingsStoreFields.PermitWriteField,
+			JarvisSettingsStoreFields.PermitExecuteField,
+			JarvisSettingsStoreFields.CommandAllowlistField,
+		];
+
+		var missing = required.Where(name => !declared.Contains(name)).ToArray();
+
+		Assert.That(missing, Is.Empty, "read by the safety gate but set by no step, so the mode cannot be used");
+	}
+
+	/// <summary>
+	/// A declared field and the type the store parses it as have to agree. <c>lifetime</c> was a number with a
+	/// default of 30, parsed as a three-valued enum, so it never parsed and no code read the result anyway.
+	/// </summary>
+	[Test]
+	public void Every_field_the_store_parses_as_an_enum_is_declared_as_a_choice()
+	{
+		var source = File.ReadAllText(ProjectFile(Path.Combine("Core", "JarvisSettingsStore.cs")));
+
+		var parsedAsEnum = Regex
+			.Matches(source, @"ReadEnum\(JarvisSettingsStoreFields\.(\w+?)(?:Entry)?Field")
+			.Select(match => ConstantValue(match.Groups[1].Value))
+			.Where(name => name.Length > 0)
+			.ToHashSet(StringComparer.Ordinal);
+
+		var byName = JarvisFields.All.ToDictionary(field => field.Name, StringComparer.Ordinal);
+
+		var wrongKind = parsedAsEnum
+			.Where(name => byName.TryGetValue(name, out var field) && field.Kind is not JarvisFieldKind.Choice)
+			.Order(StringComparer.Ordinal)
+			.ToArray();
+
+		Assert.That(
+			wrongKind,
+			Is.Empty,
+			"parsed as an enum but offered as something a person cannot pick from a list");
+	}
+
 	[Test]
 	public void Every_declared_setting_has_a_unique_name()
 	{

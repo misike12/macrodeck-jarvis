@@ -383,9 +383,6 @@
   <data name="ConfigFlow.Behaviour.Timeout.Label" xml:space="preserve">
     <value>Conversation timeout, in seconds</value>
   </data>
-  <data name="ConfigFlow.Behaviour.Lifetime.Label" xml:space="preserve">
-    <value>Remember this conversation for, in minutes</value>
-  </data>
   <data name="ConfigFlow.Behaviour.ServiceEnabled.Label" xml:space="preserve">
     <value>Use the JARVIS elevated service</value>
   </data>
@@ -723,4 +720,28 @@
   </data>
   <data name="Errors.ConfirmationRequired" xml:space="preserve">
     <value>JARVIS wants to do something first, so it is waiting for you to confirm.</value>
-  </data></root>
+  </data>  <data name="ConfigFlow.Models.WhisperModel.Label" xml:space="preserve">
+    <value>Whisper model</value>
+  </data>
+  <data name="ConfigFlow.Voice.WindowsVoice.Label" xml:space="preserve">
+    <value>Windows voice name</value>
+  </data>
+  <data name="ConfigFlow.Voice.VolumePercent.Label" xml:space="preserve">
+    <value>Reply volume, percent</value>
+  </data>
+  <data name="ConfigFlow.Voice.SpeakReplies.Label" xml:space="preserve">
+    <value>Speak replies aloud</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.PermitRead.Label" xml:space="preserve">
+    <value>Allow read-only tools without asking</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.PermitWrite.Label" xml:space="preserve">
+    <value>Allow tools that change things without asking</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.PermitExecute.Label" xml:space="preserve">
+    <value>Allow tools that run commands without asking</value>
+  </data>
+  <data name="ConfigFlow.Behaviour.CommandAllowlist.Label" xml:space="preserve">
+    <value>Commands allowed without asking, comma separated</value>
+  </data>
+</root>

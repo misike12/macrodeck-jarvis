@@ -38,12 +38,7 @@ public enum WakeWordEngine
 	Transcript,
 }
 
-public enum LifetimeTier
-{
-	PluginOnly,
-	BackgroundProcess,
-	TrayCompanion,
-}
+
 
 public enum VisionProvider
 {

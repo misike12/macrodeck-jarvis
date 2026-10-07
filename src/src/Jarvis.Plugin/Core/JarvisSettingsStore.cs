@@ -19,9 +19,13 @@ public static class JarvisSettingsStoreFields
 	public const string VisionModelField = "visionModel";
 	public const string SttProviderField = "speechToText";
 	public const string SttModelField = "speechToTextModel";
+	public const string WhisperModelField = "whisperModel";
 	public const string TtsProviderField = "textToSpeech";
 	public const string TtsModelField = "textToSpeechModel";
 	public const string PiperVoiceField = "piperVoice";
+	public const string WindowsVoiceField = "windowsVoice";
+	public const string VolumePercentField = "volumePercent";
+	public const string SpeakRepliesField = "speakReplies";
 	public const string LanguageField = "language";
 	public const string WakeEngineField = "wakeWordEngine";
 	public const string WakeWordField = "wakeWord";
@@ -30,7 +34,6 @@ public static class JarvisSettingsStoreFields
 	public const string MicrophoneIdField = "microphoneId";
 	public const string MicrophoneNameField = "microphoneName";
 	public const string MicrophoneAlwaysOnField = "microphoneAlwaysOn";
-	public const string LifetimeField = "lifetime";
 	public const string BargeInField = "bargeIn";
 	public const string BargeInThresholdField = "bargeInThreshold";
 	public const string SafetyField = "safety";
@@ -38,6 +41,10 @@ public static class JarvisSettingsStoreFields
 	public const string CancelDepthField = "cancelDepth";
 	public const string MaxIterationsField = "maxIterations";
 	public const string TimeoutField = "conversationTimeoutSeconds";
+	public const string PermitReadField = "permitReadTools";
+	public const string PermitWriteField = "permitWriteTools";
+	public const string PermitExecuteField = "permitExecuteTools";
+	public const string CommandAllowlistField = "commandAllowlist";
 	public const string MemoryField = "memory";
 	public const string PersonaField = "persona";
 	public const string PromptField = "customSystemPrompt";
@@ -132,8 +139,11 @@ public sealed class JarvisSettingsStore
 	/// sensitivity above 1 can never be crossed by a voice, and clamping to 1 would leave the user with a
 	/// feature that silently never fires.
 	/// </summary>
-	private double ReadRange(string field, double current, double minimum, double maximum) =>
-		Clamp(
+	private double ReadRange(string field, double current)
+	{
+		var bounds = Bounds.For(field);
+
+		return Clamp(
 			double.TryParse(
 				Stored(field),
 				System.Globalization.NumberStyles.Float,
@@ -142,8 +152,29 @@ public sealed class JarvisSettingsStore
 				? parsed
 				: double.NaN,
 			current,
-			minimum,
-			maximum);
+			bounds.Minimum,
+			bounds.Maximum);
+	}
+
+	/// <summary>
+	/// The range one numeric setting is read back against.
+	/// <para>
+	/// Taken from the declared field rather than from a second list here, because a second list is a second
+	/// thing to keep in step: the form offered 1 to 32 iterations while the store kept 1 to 12 and the turn
+	/// clamped again to 16, so a value the form accepted was quietly changed twice on its way to being used.
+	/// </para>
+	/// </summary>
+	private readonly record struct Bounds(double Minimum, double Maximum)
+	{
+		public static Bounds For(string field)
+		{
+			var declared = JarvisFields.All.FirstOrDefault(candidate => candidate.Name == field);
+
+			return declared is null
+				? new Bounds(0, double.MaxValue)
+				: new Bounds(declared.Minimum ?? double.MinValue, declared.Maximum ?? double.MaxValue);
+		}
+	}
 
 	/// <summary>
 	/// One rule for every stored number: out-of-range is discarded rather than clamped. Clamping a
@@ -154,8 +185,34 @@ public sealed class JarvisSettingsStore
 		double.IsNaN(value) || value < minimum || value > maximum ? current : value;
 
 	/// <summary>Reads a stored whole number inside a usable range.</summary>
-	private int ReadCount(string field, int current, int minimum, int maximum) =>
-		(int)ReadRange(field, current, minimum, maximum);
+	private int ReadCount(string field, int current) => (int)ReadRange(field, current);
+
+	
+
+	/// <summary>
+	/// Splits the stored allowlist into command names.
+	/// <para>
+	/// An empty stored value keeps the built-in list rather than granting nothing: a user who switches to the
+	/// allowlist mode and never edits the field has expressed no opinion, and silently permitting no command at
+	/// all would look exactly like the mode being broken.
+	/// </para>
+	/// </summary>
+	public static IReadOnlyList<string> ParseCommandAllowlist(string? stored)
+	{
+		if (string.IsNullOrWhiteSpace(stored))
+		{
+			return JarvisSettings.DefaultCommandAllowlist;
+		}
+
+		var entries = stored
+			.Split([',', ';', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+			.Where(entry => !entry.Contains('*', StringComparison.Ordinal))
+			.ToArray();
+
+		return entries.Length == 0 ? JarvisSettings.DefaultCommandAllowlist : entries;
+	}
+
+	
 
 	/// <summary>Reads a value written during this reload.</summary>
 	private string Stored(string field) => _read.GetValueOrDefault(field) ?? string.Empty;
@@ -400,7 +457,9 @@ public async Task ReloadAsync(IIntegrationContext? context, CancellationToken ca
 			TextToSpeech = ReadEnum(JarvisSettingsStoreFields.TtsProviderField, current.TextToSpeech),
 			NimTextToSpeechModel = FirstNonEmpty(Text(JarvisSettingsStoreFields.TtsModelField), current.NimTextToSpeechModel),
 			PiperVoice = FirstNonEmpty(Text(JarvisSettingsStoreFields.PiperVoiceField), current.PiperVoice),
+			WindowsVoice = FirstNonEmpty(Text(JarvisSettingsStoreFields.WindowsVoiceField), current.WindowsVoice),
 			SttLanguage = FirstNonEmpty(Text(JarvisSettingsStoreFields.LanguageField), current.SttLanguage),
+			WhisperModel = FirstNonEmpty(Text(JarvisSettingsStoreFields.WhisperModelField), current.WhisperModel),
 
 			WakeWordEngine = ReadEnum(JarvisSettingsStoreFields.WakeEngineField, current.WakeWordEngine),
 			WakeWord = FirstNonEmpty(Text(JarvisSettingsStoreFields.WakeWordField), current.WakeWord),
@@ -420,16 +479,25 @@ public async Task ReloadAsync(IIntegrationContext? context, CancellationToken ca
 
 			// A sensitivity of 1 or more can never be crossed by a normal speaking voice, so a value
 			// outside the usable range is discarded rather than silently disabling the feature.
-			WakeWordSensitivity = ReadRange(JarvisSettingsStoreFields.WakeSensitivityField, current.WakeWordSensitivity, 0.001, 1),
-			BargeInThreshold = ReadRange(JarvisSettingsStoreFields.BargeInThresholdField, current.BargeInThreshold, 0.001, 1),
+			WakeWordSensitivity = ReadRange(JarvisSettingsStoreFields.WakeSensitivityField, current.WakeWordSensitivity),
+			BargeInThreshold = ReadRange(JarvisSettingsStoreFields.BargeInThresholdField, current.BargeInThreshold),
 
 			MicrophoneId = FirstNonEmpty(Text(JarvisSettingsStoreFields.MicrophoneIdField), current.MicrophoneId),
 			MicrophoneName = FirstNonEmpty(Text(JarvisSettingsStoreFields.MicrophoneNameField), current.MicrophoneName),
 
-			MaxIterations = ReadCount(JarvisSettingsStoreFields.MaxIterationsField, current.MaxIterations, 1, 12),
+			MaxIterations = ReadCount(JarvisSettingsStoreFields.MaxIterationsField, current.MaxIterations),
 			ConversationTimeoutSeconds = ReadCount(
-				JarvisSettingsStoreFields.TimeoutField, current.ConversationTimeoutSeconds, 5, 600),
-			Lifetime = ReadEnum(JarvisSettingsStoreFields.LifetimeField, current.Lifetime),
+				JarvisSettingsStoreFields.TimeoutField, current.ConversationTimeoutSeconds),
+			VolumePercent = ReadCount(JarvisSettingsStoreFields.VolumePercentField, current.VolumePercent),
+			SpeakReplies = ReadFlag(JarvisSettingsStoreFields.SpeakRepliesField, current.SpeakReplies),
+
+			// The standing permissions and the allowlist behind SafetyMode.Allowlist and
+			// SafetyMode.ToolPermissions were read by the gate and set by nobody: both modes were inert, and
+			// the tool-permission mode asked for every tool forever because all three switches were false.
+			PermitRead = ReadFlag(JarvisSettingsStoreFields.PermitReadField, current.PermitRead),
+			PermitWrite = ReadFlag(JarvisSettingsStoreFields.PermitWriteField, current.PermitWrite),
+			PermitExecute = ReadFlag(JarvisSettingsStoreFields.PermitExecuteField, current.PermitExecute),
+			CommandAllowlist = ParseCommandAllowlist(Text(JarvisSettingsStoreFields.CommandAllowlistField)),
 
 			// The three elevated-service switches were read into the dictionary and then never copied into
 			// the snapshot, so the code that consulted them saw false forever. That is why a user who turned

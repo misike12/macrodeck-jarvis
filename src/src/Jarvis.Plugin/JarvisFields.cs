@@ -64,6 +64,32 @@ internal static class JarvisFields
 	private static ActionParameterOption Option(string value, LocalizedText label) =>
 		new() { Value = value, Label = label };
 
+	/// <summary>
+	/// The bounds every numeric setting is declared and read against.
+	/// <para>
+	/// Public because they are not only this file's business: the store reads a stored number against the
+	/// bound its own field declares, and a test asserts the turn honours the iteration bound. One set of
+	/// numbers, rather than one per place that needs them.
+	/// </para>
+	/// </summary>
+	public const int MinIterations = 1;
+
+	/// <summary>Model round trips one turn may take. Above this the host's own invocation ceiling arrives first.</summary>
+	public const int MaxIterations = 16;
+
+	public const int MinTimeoutSeconds = 10;
+
+	public const int MaxTimeoutSeconds = 600;
+
+	public const int MinVolumePercent = 0;
+
+	public const int MaxVolumePercent = 100;
+
+	/// <summary>A threshold is a fraction, so anything at or below zero can never be crossed.</summary>
+	public const double MinThreshold = 0.001;
+
+	public const double MaxThreshold = 1;
+
 	public static readonly IReadOnlyList<JarvisField> All =
 	[
 		// Provider.
@@ -117,6 +143,9 @@ internal static class JarvisFields
 		new(JarvisSettingsStoreFields.SttModelField, JarvisFieldKind.Text, ModelsStep,
 			() => Strings.ConfigFlow.Models.SttModel.Label(), Default: JarvisSettings.DefaultNimSpeechToTextModel,
 			OnlyWhenField: JarvisSettingsStoreFields.SttProviderField, OnlyWhenValue: "nvidia-nim"),
+		new(JarvisSettingsStoreFields.WhisperModelField, JarvisFieldKind.Text, ModelsStep,
+			() => Strings.ConfigFlow.Models.WhisperModel.Label(), Default: JarvisSettings.DefaultWhisperModel,
+			OnlyWhenField: JarvisSettingsStoreFields.SttProviderField, OnlyWhenValue: "whisper-cpp"),
 
 		// Voice and input.
 		new(JarvisSettingsStoreFields.TtsProviderField, JarvisFieldKind.Choice, VoiceStep,
@@ -130,6 +159,14 @@ internal static class JarvisFields
 		new(JarvisSettingsStoreFields.PiperVoiceField, JarvisFieldKind.Text, VoiceStep,
 			() => Strings.ConfigFlow.Voice.PiperVoice.Label(), Default: "en_GB-alan-medium",
 			OnlyWhenField: JarvisSettingsStoreFields.TtsProviderField, OnlyWhenValue: "piper"),
+		new(JarvisSettingsStoreFields.WindowsVoiceField, JarvisFieldKind.Text, VoiceStep,
+			() => Strings.ConfigFlow.Voice.WindowsVoice.Label(),
+			OnlyWhenField: JarvisSettingsStoreFields.TtsProviderField, OnlyWhenValue: "sapi"),
+		new(JarvisSettingsStoreFields.VolumePercentField, JarvisFieldKind.Number, VoiceStep,
+			() => Strings.ConfigFlow.Voice.VolumePercent.Label(), Default: "100",
+			Minimum: MinVolumePercent, Maximum: MaxVolumePercent),
+		new(JarvisSettingsStoreFields.SpeakRepliesField, JarvisFieldKind.Flag, VoiceStep,
+			() => Strings.ConfigFlow.Voice.SpeakReplies.Label(), Default: "true"),
 		new(JarvisSettingsStoreFields.TtsModelField, JarvisFieldKind.Text, VoiceStep,
 			() => Strings.ConfigFlow.Voice.TtsModel.Label(), Default: JarvisSettings.DefaultNimTextToSpeechModel,
 			OnlyWhenField: JarvisSettingsStoreFields.TtsProviderField, OnlyWhenValue: "nvidia-nim"),
@@ -151,7 +188,7 @@ internal static class JarvisFields
 			() => Strings.ConfigFlow.Voice.WakeWord.Label(), Default: "jarvis"),
 		new(JarvisSettingsStoreFields.WakeSensitivityField, JarvisFieldKind.Number, VoiceStep,
 			() => Strings.ConfigFlow.Voice.WakeSensitivity.Label(), Default: "0.06",
-			Minimum: 0.0, Maximum: 1.0, Advanced: true),
+			Minimum: MinThreshold, Maximum: MaxThreshold, Advanced: true),
 		new(JarvisSettingsStoreFields.MicrophoneAlwaysOnField, JarvisFieldKind.Flag, VoiceStep,
 			() => Strings.ConfigFlow.Voice.MicrophoneAlwaysOn.Label(), Default: "true"),
 		// Chosen from a list, not typed: endpoint ids look like "{0.0.1.00000000}.{…}" and nobody should
@@ -197,16 +234,32 @@ internal static class JarvisFields
 			() => Strings.ConfigFlow.Behaviour.BargeIn.Label(), Default: "false"),
 		new(JarvisSettingsStoreFields.BargeInThresholdField, JarvisFieldKind.Number, BehaviourStep,
 			() => Strings.ConfigFlow.Behaviour.BargeInThreshold.Label(), Default: "0.6",
-			Minimum: 0.0, Maximum: 1.0, Advanced: true),
+			Minimum: MinThreshold, Maximum: MaxThreshold, Advanced: true),
 		new(JarvisSettingsStoreFields.MaxIterationsField, JarvisFieldKind.Number, BehaviourStep,
-			() => Strings.ConfigFlow.Behaviour.MaxIterations.Label(), Default: "8",
-			Minimum: 1.0, Maximum: 32.0, Advanced: true),
+			() => Strings.ConfigFlow.Behaviour.MaxIterations.Label(), Default: "4",
+			Minimum: MinIterations, Maximum: MaxIterations,
+			Advanced: true),
 		new(JarvisSettingsStoreFields.TimeoutField, JarvisFieldKind.Number, BehaviourStep,
 			() => Strings.ConfigFlow.Behaviour.Timeout.Label(), Default: "120",
-			Minimum: 10.0, Maximum: 600.0, Advanced: true),
-		new(JarvisSettingsStoreFields.LifetimeField, JarvisFieldKind.Number, BehaviourStep,
-			() => Strings.ConfigFlow.Behaviour.Lifetime.Label(), Default: "30",
-			Minimum: 1.0, Maximum: 600.0, Advanced: true),
+			Minimum: MinTimeoutSeconds, Maximum: MaxTimeoutSeconds,
+			Advanced: true),
+
+		// The three standing permissions and the allowlist. All four were read by the safety gate and set by
+		// no step, so the tool-permission mode asked for every tool forever and the allowlist mode permitted
+		// the same fixed commands whatever the user wanted.
+		new(JarvisSettingsStoreFields.PermitReadField, JarvisFieldKind.Flag, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.PermitRead.Label(), Default: "false",
+			OnlyWhenField: JarvisSettingsStoreFields.SafetyField, OnlyWhenValue: "tool-permissions"),
+		new(JarvisSettingsStoreFields.PermitWriteField, JarvisFieldKind.Flag, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.PermitWrite.Label(), Default: "false",
+			OnlyWhenField: JarvisSettingsStoreFields.SafetyField, OnlyWhenValue: "tool-permissions"),
+		new(JarvisSettingsStoreFields.PermitExecuteField, JarvisFieldKind.Flag, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.PermitExecute.Label(), Default: "false",
+			OnlyWhenField: JarvisSettingsStoreFields.SafetyField, OnlyWhenValue: "tool-permissions"),
+		new(JarvisSettingsStoreFields.CommandAllowlistField, JarvisFieldKind.Text, BehaviourStep,
+			() => Strings.ConfigFlow.Behaviour.CommandAllowlist.Label(),
+			Default: string.Join(',', JarvisSettings.DefaultCommandAllowlist),
+			OnlyWhenField: JarvisSettingsStoreFields.SafetyField, OnlyWhenValue: "allowlist"),
 		new(JarvisSettingsStoreFields.MemoryField, JarvisFieldKind.Choice, BehaviourStep,
 			() => Strings.ConfigFlow.Behaviour.Memory.Label(), Default: "persistent-notes", Required: true,
 			Options:

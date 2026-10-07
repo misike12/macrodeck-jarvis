@@ -28,6 +28,15 @@ public sealed record JarvisSettings
 
 	public const string DefaultNimTextToSpeechModel = "nvidia/magpie-tts-flow";
 
+	public const string DefaultWhisperModel = "base-q5_1";
+
+	/// <summary>
+	/// Commands the allowlist safety mode permits when the user has expressed no preference. Read-only,
+	/// inspection and version commands only, so switching to the mode does not hand the model a shell.
+	/// </summary>
+	public static readonly IReadOnlyList<string> DefaultCommandAllowlist =
+		["dir", "echo", "type", "where", "whoami", "hostname", "tasklist", "ver"];
+
 	public LlmProvider Llm { get; init; } = LlmProvider.NvidiaNim;
 
 	public string LlmModel { get; init; } = DefaultLlmModel;
@@ -40,7 +49,7 @@ public sealed record JarvisSettings
 
 	public string NimSpeechToTextModel { get; init; } = DefaultNimSpeechToTextModel;
 
-	public string WhisperModel { get; init; } = "base-q5_1";
+	public string WhisperModel { get; init; } = DefaultWhisperModel;
 
 	public string Language { get; init; } = "en";
 
@@ -90,8 +99,6 @@ public sealed record JarvisSettings
 
 	/// <summary>Whether the microphone stays open so the orb and the wake word can both react.</summary>
 	public bool MicrophoneAlwaysOn { get; init; } = true;
-
-	public LifetimeTier Lifetime { get; init; } = LifetimeTier.PluginOnly;
 
 	public bool BargeInEnabled { get; init; } = true;
 
@@ -143,7 +150,7 @@ public sealed record JarvisSettings
 
 	public bool ElevatedServiceAdminOperations { get; init; }
 
-	public IReadOnlyList<string> CommandAllowlist { get; init; } = ["dir", "echo", "git", "dotnet", "code", "type", "where", "tasklist"];
+	public IReadOnlyList<string> CommandAllowlist { get; init; } = DefaultCommandAllowlist;
 
 	public bool HasLlmCredentials => Llm switch
 	{

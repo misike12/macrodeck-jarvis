@@ -172,6 +172,73 @@ public class SettingsRoundTripTests
 	}
 
 	/// <summary>
+	/// The allowlist a user types has to reach the gate in the shape the gate matches against.
+	/// <para>
+	/// There was no way to set one at all: the safety gate consulted a list of eight fixed commands, so the
+	/// allowlist mode permitted the same things whatever the user chose. These cover the shapes a person
+	/// actually types, since the field is free text.
+	/// </para>
+	/// </summary>
+	[TestCase("git,dotnet", new[] { "git", "dotnet" })]
+	[TestCase("git, dotnet ,  code", new[] { "git", "dotnet", "code" })]
+	[TestCase("git\ndotnet;code", new[] { "git", "dotnet", "code" })]
+	[TestCase("git", new[] { "git" })]
+	public void The_command_allowlist_is_split_on_everything_a_person_uses(string stored, string[] expected)
+	{
+		Assert.That(
+			JarvisSettingsStore.ParseCommandAllowlist(stored),
+			Is.EqualTo(expected));
+	}
+
+	/// <summary>
+	/// A field that parses to nothing must not permit nothing silently: the user who switched to the allowlist
+	/// mode expressed no opinion about which commands, so the read-only default list applies.
+	/// </summary>
+	[TestCase(null)]
+	[TestCase("")]
+	[TestCase("   ")]
+	[TestCase(",,,")]
+	[TestCase("git *")]
+	public void An_empty_allowlist_keeps_the_read_only_default(string? stored)
+	{
+		Assert.That(
+			JarvisSettingsStore.ParseCommandAllowlist(stored),
+			Is.EqualTo(JarvisSettings.DefaultCommandAllowlist));
+	}
+
+	/// <summary>
+	/// The default list is the safety mode's whole point, so it must not contain a shell, a scheduler or a
+	/// downloader. It shipped with git, dotnet and code in it.
+	/// </summary>
+	[Test]
+	public void The_default_allowlist_permits_nothing_that_changes_the_machine()
+	{
+		var dangerous = new[] { "cmd", "powershell", "pwsh", "wscript", "cscript", "mshta", "reg", "schtasks", "curl", "wget", "git", "dotnet", "code", "npm", "python", "certutil", "bitsadmin" };
+
+		var permitted = JarvisSettings.DefaultCommandAllowlist;
+
+		Assert.That(
+			permitted.Intersect(dangerous, StringComparer.OrdinalIgnoreCase),
+			Is.Empty,
+			"the default allowlist permits a command that can change the machine or reach the network");
+	}
+
+	/// <summary>
+	/// Every numeric bound the form declares has to be one a person can actually satisfy, and the
+	/// iteration bound has to agree with the one the turn applies. Both were stated three different ways.
+	/// </summary>
+	[Test]
+	public void A_declared_numeric_bound_can_actually_be_chosen()
+	{
+		foreach (var field in JarvisFields.All.Where(field => field.Kind is JarvisFieldKind.Number))
+		{
+			Assert.That(field.Minimum, Is.Not.Null, $"{field.Name} has no minimum");
+			Assert.That(field.Maximum, Is.Not.Null, $"{field.Name} has no maximum");
+			Assert.That(field.Minimum!, Is.LessThan(field.Maximum!), $"{field.Name} has an empty range");
+		}
+	}
+
+	/// <summary>
 	/// Walks up to the project directory rather than counting levels: the test output nests one level
 	/// differently per configuration, and a wrong count produces a file-not-found rather than a real
 	/// failure, which is a miserable way to discover a broken test.
