@@ -477,7 +477,7 @@
     <value>The model provider is rate limiting requests. Try again shortly.</value>
   </data>
   <data name="Errors.ComponentMissing" xml:space="preserve">
-    <value>{component} is not downloaded yet.</value>
+    <value>{component} is not downloaded yet. Run the "Install a JARVIS component" action to fetch it.</value>
     <comment>[string] component: the component that still has to be downloaded.</comment>
   </data>
   <data name="Errors.AlreadyRunning" xml:space="preserve">
@@ -486,6 +486,10 @@
 <data name="Errors.TurnCancelled" xml:space="preserve">
       <comment>Shown when a turn was stopped before it produced an answer, by a cancel press or by the host giving up on it.</comment>
       <value>That was cancelled before JARVIS answered.</value>
+    </data>
+    <data name="Errors.TurnFailed" xml:space="preserve">
+      <comment>Shown on the orb when a wake word or hotkey turn hit an unexpected error. The reason is in the log.</comment>
+      <value>Something went wrong. See the log.</value>
     </data>
     <data name="Errors.TurnStarted" xml:space="preserve">
       <comment>Shown on the button that started a turn. The turn outlives the press, so the answer arrives as speech rather than in the button.</comment>

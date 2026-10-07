@@ -7,6 +7,7 @@ using Jarvis.Plugin.Llm;
 using Jarvis.Plugin.Orb;
 using Jarvis.Plugin.Runtime;
 using Jarvis.Plugin.Speech;
+using MacroDeck.Localization;
 using MacroDeck.Sdk;
 using MacroDeck.Sdk.Actions;
 using MacroDeck.Sdk.ConfigFlow;
@@ -47,6 +48,7 @@ private readonly RuntimeManager _runtime;
 	private readonly OpenWakeWordEngineHost _wakeEngine;
 	private readonly WhisperTranscriber _transcriber;
 	private readonly ServiceAvailability _serviceAvailability;
+
 	/// <summary>
 	/// The host's UI resource registry, written by InitializeAsync and read by every session.
 	/// <para>
@@ -324,20 +326,7 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 	/// The hotkey does what a press of the button does. The press is fire-and-forget because it runs on
 	/// the hotkey's own message thread: blocking there would stop the hotkey from being seen again.
 	/// </summary>
-	private void OnHotkeyPressed()
-	{
-		_ = Task.Run(async () =>
-		{
-			try
-			{
-				await _listening.ListenAndAnswerAsync(prompt: null, CancellationToken.None).ConfigureAwait(false);
-			}
-			catch (Exception exception) when (exception is not OutOfMemoryException)
-			{
-				_logger.Warning(exception, "The hotkey turn failed.");
-			}
-		});
-	}
+	private void OnHotkeyPressed() => _ = RunUnattendedTurnAsync("The hotkey turn");
 
 	/// <summary>
 	/// Wires the selected wake word engine. The keyword spotter scores the raw stream in-process: the
@@ -532,20 +521,88 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 	/// Runs a turn without blocking the caller. Used by the hotkey and the wake word, both of which fire on
 	/// threads that must stay free: a blocked hotkey thread stops the hotkey being seen again.
 	/// </summary>
-	private void StartListeningTurn()
+	private void StartListeningTurn() => _ = RunUnattendedTurnAsync("An unattended turn");
+
+	/// <summary>
+	/// Runs a turn nobody is waiting on, and reports how it ended either way.
+	/// <para>
+	/// The returned result used to be dropped, which made every failure invisible. There is no button press
+	/// to show a red result, no log line because the failure was never inspected, and no speech because it
+	/// happened before any reply existed. A user who pressed the hotkey or said the wake word got nothing at
+	/// all: no sound, no movement, and not one line in the log. Saying the wake word and watching the orb
+	/// sit still is indistinguishable from the plugin not running.
+	/// </para>
+	/// <para>
+	/// The orb is the one surface guaranteed to be on screen, since it needs neither speech recognition nor
+	/// speech synthesis, so a failure goes there as well as into the log. The next turn clears the message.
+	/// </para>
+	/// </summary>
+	private async Task RunUnattendedTurnAsync(string what)
 	{
-		_ = Task.Run(async () =>
+		ActionResult result;
+
+		try
 		{
-			try
-			{
-				await _listening.ListenAndAnswerAsync(prompt: null, CancellationToken.None).ConfigureAwait(false);
-			}
-			catch (Exception exception) when (exception is not OutOfMemoryException)
-			{
-				_logger.Warning(exception, "An unattended turn failed.");
-			}
-		});
+			result = await _listening.ListenAndAnswerAsync(prompt: null, CancellationToken.None).ConfigureAwait(false);
+		}
+		catch (Exception exception) when (exception is not OutOfMemoryException)
+		{
+			_logger.Warning(exception, "{What} threw.", what);
+			ShowUnattendedFailure(Readable(Strings.Errors.TurnFailed()));
+			return;
+		}
+
+		if (result.Status == ActionResultStatus.Succeeded)
+		{
+			_logger.Information("{What} completed.", what);
+			return;
+		}
+
+		// The reason, not just "it failed". The usual cause is a component that was never downloaded, and
+		// naming it is the difference between a user who knows which button to press and one who gives up.
+		// LocalizedText is a struct, so emptiness is asked rather than tested against null.
+		var reason = Readable(result.ErrorMessage.IsEmpty ? result.Message : result.ErrorMessage);
+
+		_logger.Warning("{What} did not complete: {Reason} ({Code})", what, reason, result.ErrorCode);
+		ShowUnattendedFailure(reason);
 	}
+
+	/// <summary>
+	/// Resolves localized text for a person to read, because <c>LocalizedText.ToString()</c> does not.
+	/// <para>
+	/// Built from this plugin's own catalog rather than injected: <c>UseLocalization</c> does not register
+	/// <see cref="ILocalizationResolver"/> in the service graph, and a scope that resolves here but not in
+	/// the harness would mean the tests never saw the text a user sees.
+	/// </para>
+	/// </summary>
+	private static readonly LocalizationResolver Text = BuildResolver();
+
+	private static LocalizationResolver BuildResolver()
+	{
+		var registry = new LocalizationCatalogRegistry();
+		registry.Register(Strings.LocalizationCatalog);
+
+		return new LocalizationResolver(registry);
+	}
+
+	/// <summary>
+	/// Turns a localized value into the words to show.
+	/// <para>
+	/// <c>LocalizedText.ToString()</c> deliberately renders the descriptor, not the translation: it answers
+	/// <c>plugin:com.misike12.jarvis:Errors.ComponentMissing(component)</c> and leaves the placeholder
+	/// unfilled. That is the right thing for a diagnostic and the wrong thing anywhere a person reads, so the
+	/// text goes through the resolver instead of being stringified.
+	/// </para>
+	/// </summary>
+	private static string Readable(LocalizedText text) =>
+		Text.Resolve(text, CultureInfo.CurrentUICulture.Name) ?? text.ToString();
+
+	/// <summary>
+	/// Puts an unattended turn's failure on the orb, the one surface that is always visible. Returns the
+	/// text so the caller logs the same words the user sees.
+	/// </summary>
+	private void ShowUnattendedFailure(string reason) =>
+		_state.Transition(AssistantState.Error, statusLine: reason);
 
 	/// <summary>
 	/// Finds out whether the elevated service is there, so the tools that need it are either offered or not
@@ -671,16 +728,17 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 	/// rather than only moving a percentage bar somewhere else.
 	/// <para>
 	/// Localized rather than composed from the asset id. This string is bound to a widget a user reads, and
-	/// it was three English fragments with a raw enum phase name in the middle.
+	/// it was three English fragments with a raw enum phase name in the middle. It goes through the resolver
+	/// rather than <c>ToString()</c>, which would show the raw resource descriptor on the widget.
 	/// </para>
 	/// </summary>
 	private static string Describe(RuntimeProgress progress) => progress.AssetId switch
 	{
 		"" or null => string.Empty,
-		_ when !progress.Active => Strings.Variables.DownloadFinished(progress.AssetId).ToString(),
-		_ => Strings.Variables.DownloadRunning(
+		_ when !progress.Active => Readable(Strings.Variables.DownloadFinished(progress.AssetId)),
+		_ => Readable(Strings.Variables.DownloadRunning(
 			progress.AssetId,
-			((int)Math.Round(progress.Percent)).ToString(CultureInfo.InvariantCulture)).ToString(),
+			((int)Math.Round(progress.Percent)).ToString(CultureInfo.InvariantCulture))),
 	};
 
 	/// <summary>

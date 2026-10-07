@@ -1,9 +1,11 @@
+using System.Reflection;
 using Jarvis.Plugin;
 using Jarvis.Plugin.Actions;
 using Jarvis.Plugin.Core;
 using MacroDeck.Plugin.Testing;
 using MacroDeck.Sdk;
 using MacroDeck.Sdk.Actions;
+using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 
 namespace Jarvis.Plugin.Tests;
@@ -114,7 +116,7 @@ var outcome = await harness.Actions.GetActionStateAsync(
 		Assert.That(outcome.Succeeded, Is.True, "A legitimate no-op is success.");
 	}
 
-	[Test]
+[Test]
 	public async Task The_variables_reflect_the_state()
 	{
 		await using var harness = CreateHarness();
@@ -125,6 +127,109 @@ var outcome = await harness.Actions.GetActionStateAsync(
 			var reading = await harness.Variables.GetAsync(localId);
 			Assert.That(reading, Is.Not.Null, $"{localId} should be readable.");
 		}
+	}
+
+	/// <summary>
+	/// A turn nobody is waiting on used to fail in complete silence.
+	/// <para>
+	/// The hotkey and the wake word both discarded the returned result, so a turn that failed produced no log
+	/// line, no orb state and no speech: a user said the wake word, the detector logged that it fired, and
+	/// then nothing happened at all. With an empty log that looks exactly like the plugin not running.
+	/// </para>
+	/// <para>
+	/// Asserting on the resolved words also proves the shared graph registers localization: an unresolved key
+	/// would read <c>plugin:com.misike12.jarvis:Errors.ComponentMissing</c>, which is what the orb would then
+	/// have shown the user.
+	/// </para>
+	/// </summary>
+	[Test]
+	public async Task An_unattended_turn_that_fails_writes_the_reason_down()
+	{
+		await using var harness = CreateHarness();
+		await harness.InitializeIntegrationsAsync();
+
+		StartUnattendedTurn(harness);
+
+		await harness.Logs.WaitForAsync(entry =>
+			entry.Level == "warning" && entry.Message.Contains("did not complete"));
+	}
+
+	/// <summary>
+	/// The reason has to name the component, not just say something went wrong: the usual cause is a model
+	/// that was never downloaded, and a user who knows which one can fix it.
+	/// </summary>
+	[Test]
+	public async Task The_reason_names_the_component_rather_than_the_resource_key()
+	{
+		await using var harness = CreateHarness();
+		await harness.InitializeIntegrationsAsync();
+
+		StartUnattendedTurn(harness);
+
+		await harness.Logs.WaitForAsync(entry =>
+			entry.Level == "warning" && entry.Message.Contains("whisper", StringComparison.OrdinalIgnoreCase));
+	}
+
+	/// <summary>
+	/// The orb is the only surface guaranteed to be on screen, since it needs neither speech recognition nor
+	/// speech synthesis. A failure that is only in the log still looks like nothing happened to whoever said
+	/// the wake word and was not looking at the log viewer.
+	/// </summary>
+	[Test]
+	public async Task An_unattended_turn_that_fails_reaches_the_orb()
+	{
+		await using var harness = CreateHarness();
+		await harness.InitializeIntegrationsAsync();
+
+		StartUnattendedTurn(harness);
+
+		await WaitForAsync(() => OrbStateIs(harness, "error"));
+	}
+
+	/// <summary>
+	/// Called by the wake word, the hotkey and the orb's own button. Private because none of those callers
+	/// waits for the turn, but reachable here to prove that one of them does report.
+	/// </summary>
+	private static void StartUnattendedTurn(PluginTestHarness harness)
+	{
+		var integration = harness.Services.GetRequiredService<PluginIntegration>();
+		var start = typeof(PluginIntegration).GetMethod(
+			"StartListeningTurn",
+			BindingFlags.Instance | BindingFlags.NonPublic);
+
+		Assert.That(start, Is.Not.Null, "PluginIntegration no longer has the unattended turn entry point.");
+
+		start.Invoke(integration, null);
+	}
+
+	/// <summary>The text a text variable currently holds, read past the value envelope.</summary>
+	private static async Task<bool> OrbStateIs(PluginTestHarness harness, string expected)
+	{
+		var outcome = await harness.Variables.GetAsync("state");
+
+		if (outcome?.Data is not { } data)
+		{
+			return false;
+		}
+
+		return data.TryGetProperty("value", out var value)
+			&& value.TryGetProperty("text", out var text)
+			&& text.GetString() == expected;
+	}
+
+	private static async Task WaitForAsync(Func<Task<bool>> condition, int attempts = 100)
+	{
+		for (var attempt = 0; attempt < attempts; attempt++)
+		{
+			if (await condition())
+			{
+				return;
+			}
+
+			await Task.Delay(50);
+		}
+
+		Assert.Fail("The expected state was never reached.");
 	}
 
 /// <summary>

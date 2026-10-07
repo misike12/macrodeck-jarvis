@@ -22,6 +22,11 @@ public static class PluginServices
 {
 	public static PluginHostBuilder AddJarvis(this PluginHostBuilder builder)
 	{
+		// Here rather than only in Program.cs, because a harness that resolves text differently from the
+		// real host would quietly accept an unresolved key where a user sees one. Registering it in the shared
+		// graph means every test renders the words a user would read.
+		builder.UseLocalization(Strings.LocalizationCatalog);
+
 		builder.Services.AddSingleton<JarvisSettingsStore>();
 		builder.Services.AddSingleton<AssistantStateHolder>();
 		builder.Services.AddSingleton<ConversationRunner>();

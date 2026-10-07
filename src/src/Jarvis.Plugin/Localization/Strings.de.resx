@@ -422,7 +422,7 @@
     <value>Zu viele Anfragen. Bitte einen Moment warten.</value>
   </data>
   <data name="Errors.ComponentMissing" xml:space="preserve">
-    <value>{component} wurde noch nicht heruntergeladen.</value>
+    <value>{component} wurde noch nicht heruntergeladen. Führe die Aktion "JARVIS-Komponente installieren" aus.</value>
     <comment>[string] component: die fehlende Komponente.</comment>
   </data>
   <data name="Errors.AlreadyRunning" xml:space="preserve">
@@ -431,6 +431,10 @@
   <data name="Errors.TurnCancelled" xml:space="preserve">
     <comment>Wird gezeigt, wenn eine Antwort abgebrochen wurde, bevor JARVIS etwas gesagt hat.</comment>
     <value>Das wurde abgebrochen, bevor JARVIS geantwortet hat.</value>
+  </data>
+  <data name="Errors.TurnFailed" xml:space="preserve">
+    <comment>Wird auf der Kugel angezeigt, wenn ein Sprachwort- oder Hotkey-Durchlauf unerwartet fehlgeschlagen ist. Der Grund steht im Protokoll.</comment>
+    <value>Etwas ist schiefgelaufen. Siehe Protokoll.</value>
   </data>
   <data name="Errors.MicrophoneUnavailable" xml:space="preserve">
     <value>Kein Mikrofon verfügbar.</value>

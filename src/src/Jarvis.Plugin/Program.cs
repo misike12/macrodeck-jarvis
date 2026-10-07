@@ -2,11 +2,10 @@ using Jarvis.Plugin;
 using MacroDeck.Plugin.Hosting;
 using MacroDeck.Plugin.Serilog;
 
-// Identity, description and icon come from manifest.json at the content root. Strings is generated from
-// Localization/*.resx, so UseLocalization is what makes every label resolve in the user's language.
+// Identity, description and icon come from manifest.json at the content root. Localization is registered in
+// AddJarvis so the tests resolve strings the same way this process does.
 var plugin = MacroDeckPlugin.CreatePlugin(args)
 	.UseMacroDeckLogging()
-	.UseLocalization(Strings.LocalizationCatalog)
 	.RegisterIntegration<PluginIntegration>()
 	.AddJarvis()
 	.Build();
