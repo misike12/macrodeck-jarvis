@@ -42,10 +42,8 @@ internal sealed record JarvisField(
 	Func<LocalizedText>? Description = null,
 	double? Minimum = null,
 	double? Maximum = null,
-
-	/// <summary>Granularity of a slider. Named apart from <see cref="Step"/>, which is the config step this
-	/// field belongs to.</summary>
 	double? SliderStep = null,
+
 	Func<IReadOnlyList<ActionParameterOption>>? OptionsSource = null);
 
 /// <summary>

@@ -788,9 +788,8 @@ public class WakeWordSensitivityTests
 		using var loose = NewDetector(sensitivity);
 
 		var strictFired = 0;
-		var looseFired = 0;
-		strict.Detected += () => strictFired++;
-		loose.Detected += () => looseFired++;
+		var looseFired = 0;strict.Detected += _ => strictFired++;
+			loose.Detected += _ => looseFired++;
 
 		for (var chunk = 0; chunk < 6; chunk++)
 		{
@@ -830,7 +829,7 @@ public class WakeWordScorePathTests
 		using var detector = NewDetector();
 
 		var fired = 0;
-		detector.Detected += () => fired++;
+		detector.Detected += _ => fired++;
 
 		for (var chunk = 0; chunk < 10; chunk++)
 		{
@@ -846,7 +845,7 @@ public class WakeWordScorePathTests
 		using var detector = NewDetector();
 
 		var fired = 0;
-		detector.Detected += () => fired++;
+		detector.Detected += _ => fired++;
 
 		detector.OfferScore(0.9f);
 
@@ -859,7 +858,7 @@ public class WakeWordScorePathTests
 		using var detector = NewDetector();
 
 		var fired = 0;
-		detector.Detected += () => fired++;
+		detector.Detected += _ => fired++;
 
 		// Two confident, one miss, two confident: never three in a row, so never a fire.
 		detector.OfferScore(0.9f);
@@ -878,7 +877,7 @@ public class WakeWordScorePathTests
 		detector.Enabled = false;
 
 		var fired = 0;
-		detector.Detected += () => fired++;
+		detector.Detected += _ => fired++;
 
 		for (var chunk = 0; chunk < 10; chunk++)
 		{
@@ -903,7 +902,7 @@ public class WakeWordScorePathTests
 		detector.Recognizer = (_, _) => Task.FromResult<string?>("hey jarvis");
 
 		var fired = 0;
-		detector.Detected += () => fired++;
+		detector.Detected += _ => fired++;
 
 		await detector.OfferAsync(0.9, TestContext.CurrentContext.CancellationToken);
 		await Task.Delay(200, TestContext.CurrentContext.CancellationToken);

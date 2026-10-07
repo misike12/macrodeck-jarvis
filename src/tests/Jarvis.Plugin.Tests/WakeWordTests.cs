@@ -204,7 +204,7 @@ buffer.Append(Samples.Six);
 		};
 
 		var fired = 0;
-		detector.Detected += () => fired++;
+		detector.Detected += _ => fired++;
 
 // An utterance is speech followed by a pause, not a single loud sample: the check runs when the voice
 		// stops, because that is the first moment the whole word is in the buffer to be recognised. The pause

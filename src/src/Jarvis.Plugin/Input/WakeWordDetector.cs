@@ -125,10 +125,11 @@ public sealed class WakeWordDetector : IDisposable
 	/// The level has to fall to this fraction of the sensitivity before an utterance counts as finished.
 	/// <para>
 	/// A separate, lower figure rather than the sensitivity itself, because the smoothed level sags between
-	/// syllables and a pause inside one word would otherwise cut the utterance in half.
+	/// syllables and a pause inside one word would otherwise cut the utterance in half. Lower than the
+	/// original 0.6 so the wake word fires sooner after speech stops.
 	/// </para>
 	/// </summary>
-	private const double ReleaseRatio = 0.6;
+	private const double ReleaseRatio = 0.4;
 
 	/// <summary>
 	/// Samples quieter than this are room tone for the purpose of finding where an utterance starts and
@@ -267,8 +268,8 @@ public sealed class WakeWordDetector : IDisposable
 
 	public bool Enabled { get; set; }
 
-	/// <summary>Raised when the wake word is recognised.</summary>
-	public event Action? Detected;
+	/// <summary>Raised when the wake word is recognised, with the transcribed text if available.</summary>
+	public event Action<string?>? Detected;
 
 	/// <summary>
 	/// Runs the actual check. Supplied by the owner rather than constructed here, so this class has no
@@ -322,16 +323,15 @@ public sealed class WakeWordDetector : IDisposable
 			_consecutiveScores++;
 
 			if (_consecutiveScores >= patience)
-			{
-				_logger.Information(
-					"Wake word scored {Score} over {Patience} chunks at threshold {Threshold:0.00}; firing.",
-					score,
-					_consecutiveScores,
-					threshold);
+			{						_logger.Information(
+						"Wake word scored {Score} over {Patience} chunks at threshold {Threshold:0.00}; firing.",
+						score,
+						_consecutiveScores,
+						threshold);
 
-				_consecutiveScores = 0;
-				_nextAllowed = DateTimeOffset.UtcNow + ScoreCooldown;
-				Detected?.Invoke();
+						_consecutiveScores = 0;
+						_nextAllowed = DateTimeOffset.UtcNow + ScoreCooldown;
+						Detected?.Invoke(null);
 			}
 		}
 		else
@@ -460,14 +460,12 @@ public sealed class WakeWordDetector : IDisposable
 				return;
 			}
 
-var heard = await recogniser(samples, cancellationToken).ConfigureAwait(false);
-
-		if (heard is { } text && Mentions(text, Word))
-		{
-			_logger.Information("Wake word '{Word}' heard in: {Text}", Word, text);
-			_nextAllowed = DateTimeOffset.UtcNow + Cooldown;
-			Detected?.Invoke();
-		}
+var heard = await recogniser(samples, cancellationToken).ConfigureAwait(false);			if (heard is { } text && Mentions(text, Word))
+			{
+				_logger.Information("Wake word '{Word}' heard in: {Text}", Word, text);
+				_nextAllowed = DateTimeOffset.UtcNow + Cooldown;
+				Detected?.Invoke(text);
+			}
 		else
 		{
 			// Reported because the alternative is a wake word that silently never fires: a threshold crossed

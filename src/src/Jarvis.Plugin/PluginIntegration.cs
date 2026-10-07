@@ -40,8 +40,8 @@ public sealed class PluginIntegration : IPluginIntegration, IConfigFlowProvider,
 	private readonly AssistantStateHolder _state;
 	private readonly AssistantSession _session;
 	private readonly OrbWidgetTypeProvider _widgetTypes;
-	private readonly MicrophoneMonitor _microphone;
-private readonly RuntimeManager _runtime;
+	private readonly MicrophoneMonitor _microphone;	private readonly RuntimeManager _runtime;
+	private readonly NimSpeechTranscriber _nimTranscriber;
 	private readonly ListeningPipeline _listening;
 	private readonly GlobalHotkey _hotkey;
 	private readonly WakeWordDetector _wakeWord;
@@ -99,6 +99,8 @@ WhisperTranscriber transcriber,
 		_wakeWord = wakeWord;
 		_wakeEngine = wakeEngine;
 		_transcriber = transcriber;
+		_nimTranscriber = new NimSpeechTranscriber(runtime, logger);
+		_transcriber.NimTranscriber = _nimTranscriber;
 		_serviceAvailability = serviceAvailability;
 
 		_widgetTypes = new OrbWidgetTypeProvider(logger);
@@ -253,6 +255,17 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 			settings.HasLlmCredentials);
 
 		await ProbeElevatedServiceAsync(settings, cancellationToken).ConfigureAwait(false);
+
+		// Probe NIM STT so we know whether to use it for faster transcription.
+		await _nimTranscriber.ProbeAsync(cancellationToken).ConfigureAwait(false);
+		if (_nimTranscriber.IsAvailable)
+		{
+			_logger.Information("NIM speech-to-text is available; using it for faster transcription.");
+		}
+		else
+		{
+			_logger.Information("NIM speech-to-text is not available; using local whisper.");
+		}
 
 		if (settings.MicrophoneAlwaysOn)
 		{
@@ -516,7 +529,7 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 	private bool _wakeWordWithoutRecognizerReported;
 
 	/// <summary>A wake word starts a turn exactly as a button press does.</summary>
-	private void OnWakeWordDetected() => StartListeningTurn();
+	private void OnWakeWordDetected(string? transcribed) => StartListeningTurn(transcribed);
 
 	/// <summary>
 	/// What the orb's own buttons do. The same two paths a deck button and the wake word use, so a press on
@@ -524,13 +537,13 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 	/// and cancelled the same way.
 	/// </summary>
 	private OrbButtonActions OrbButtonActions() =>
-		new(StartListeningTurn, () => _session.Cancel(killRunningCommand: false));
+		new(() => StartListeningTurn(null), () => _session.Cancel(killRunningCommand: false));
 
 	/// <summary>
 	/// Runs a turn without blocking the caller. Used by the hotkey and the wake word, both of which fire on
 	/// threads that must stay free: a blocked hotkey thread stops the hotkey being seen again.
 	/// </summary>
-	private void StartListeningTurn() => _ = RunUnattendedTurnAsync("An unattended turn");
+	private void StartListeningTurn(string? prompt) => _ = RunUnattendedTurnAsync("An unattended turn", prompt);
 
 	/// <summary>
 	/// Runs a turn nobody is waiting on, and reports how it ended either way.
@@ -546,13 +559,13 @@ private async Task InitializeCoreAsync(IIntegrationContext context, Cancellation
 	/// speech synthesis, so a failure goes there as well as into the log. The next turn clears the message.
 	/// </para>
 	/// </summary>
-	private async Task RunUnattendedTurnAsync(string what)
+	private async Task RunUnattendedTurnAsync(string what, string? prompt = null)
 	{
 		ActionResult result;
 
 		try
 		{
-			result = await _listening.ListenAndAnswerAsync(prompt: null, CancellationToken.None).ConfigureAwait(false);
+			result = await _listening.ListenAndAnswerAsync(prompt, CancellationToken.None).ConfigureAwait(false);
 		}
 		catch (Exception exception) when (exception is not OutOfMemoryException)
 		{

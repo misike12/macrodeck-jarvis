@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using Jarvis.Plugin.Audio;
+using Jarvis.Plugin.Core;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using Serilog;
@@ -40,19 +41,15 @@ public sealed class VoiceRecorder : IDisposable
 	private int _quietRuns;
 
 	/// <param name="logger">Diagnostics. Everything this class reports is a log line, never a result.</param>
-	/// <param name="speechThreshold">Level above which audio counts as speech.</param>
-	/// <param name="silenceMilliseconds">Quiet that ends an utterance.</param>
-	/// <param name="maximumMilliseconds">Hard cap, so a room tone that never falls quiet cannot record forever.</param>
+	/// <param name="settings">Runtime settings; speech threshold and silence duration come from here.</param>
 	public VoiceRecorder(
 		ILogger logger,
-		double speechThreshold = 0.02,
-		int silenceMilliseconds = 900,
-		int maximumMilliseconds = 20_000)
+		JarvisSettings settings)
 	{
 		_logger = logger.ForContext<VoiceRecorder>();
-		SpeechThreshold = speechThreshold;
-		SilenceMilliseconds = silenceMilliseconds;
-		MaximumMilliseconds = maximumMilliseconds;
+		SpeechThreshold = settings.SpeechThreshold;
+		SilenceMilliseconds = settings.SilenceMilliseconds;
+		MaximumMilliseconds = settings.MaximumRecordingMilliseconds;
 	}
 
 	public double SpeechThreshold { get; }

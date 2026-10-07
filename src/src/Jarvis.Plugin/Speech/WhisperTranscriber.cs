@@ -61,6 +61,12 @@ public sealed class WhisperTranscriber(RuntimeManager runtime, ILogger logger)
 	private readonly RuntimeManager _runtime = runtime;
 	private readonly ILogger _logger = logger.ForContext<WhisperTranscriber>();
 
+	/// <summary>
+	/// Optional NIM STT transcriber for faster transcription when the API key is available.
+	/// When set, TranscribeAsync tries NIM first and falls back to local whisper.
+	/// </summary>
+	public NimSpeechTranscriber? NimTranscriber { get; set; }
+
 	public bool IsAvailable => _runtime.AssetPath(PinnedAssets.WhisperBinary) is not null;
 
 	/// <summary>The model files actually on disk, by name. Empty when the component is not installed.</summary>
@@ -75,6 +81,26 @@ public sealed class WhisperTranscriber(RuntimeManager runtime, ILogger logger)
 		string language,
 		CancellationToken cancellationToken)
 	{
+		// Try NIM STT first if available — it is much faster than local whisper on CPUs.
+		if (NimTranscriber is { } nim)
+		{
+			try
+			{
+				var nimResult = await nim.TranscribeAsync(wavPath, language, cancellationToken).ConfigureAwait(false);
+	
+				if (nimResult.Ok)
+				{
+					return nimResult;
+				}
+	
+				_logger.Information("NIM STT failed ({Failure}); falling back to local whisper.", nimResult.Failure);
+			}
+			catch (Exception exception) when (exception is not OutOfMemoryException)
+			{
+				_logger.Warning(exception, "NIM STT threw; falling back to local whisper.");
+			}
+		}
+
 		if (_runtime.UnpackedFile(PinnedAssets.WhisperBinary, "Release", "whisper-cli.exe") is not { } executable)
 		{
 			return TranscriptionResult.Failed(TranscriptionFailure.NotInstalled);
@@ -175,10 +201,11 @@ public sealed class WhisperTranscriber(RuntimeManager runtime, ILogger logger)
 		// Timestamps would prefix every segment with a time, which is noise in a chat transcript.
 		info.ArgumentList.Add("-nt");
 
-		// A quarter of the machine's cores: whisper scales poorly past that, and using everything makes the
-		// assistant unresponsive while it is thinking.
+		// Use all cores: we measured 17s with 2 threads on a 4-core machine, and whisper scales
+		// nearly linearly with thread count for short clips. The assistant is not responsive during
+		// transcription anyway because the mic is open.
 		info.ArgumentList.Add("-t");
-		info.ArgumentList.Add(Math.Clamp(Environment.ProcessorCount / 2, 1, 8).ToString(
+		info.ArgumentList.Add(Math.Clamp(Environment.ProcessorCount, 1, 16).ToString(
 			System.Globalization.CultureInfo.InvariantCulture));
 
 		using var process = Process.Start(info)

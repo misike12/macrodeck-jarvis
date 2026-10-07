@@ -34,7 +34,9 @@ public static class PluginServices
 		builder.Services.AddSingleton<WindowsSynthesizer>();
 		builder.Services.AddSingleton<PiperSynthesizer>();
 		builder.Services.AddSingleton<WhisperTranscriber>();
-		builder.Services.AddSingleton<VoiceRecorder>();
+		builder.Services.AddSingleton<VoiceRecorder>(provider =>
+			new VoiceRecorder(provider.GetRequiredService<ILogger>(),
+				provider.GetRequiredService<JarvisSettingsStore>().Current));
 		builder.Services.AddSingleton<ListeningPipeline>();
 		builder.Services.AddSingleton<GlobalHotkey>();
 		builder.Services.AddSingleton<WakeWordDetector>();

@@ -119,6 +119,21 @@ public sealed record JarvisSettings
 	/// </summary>
 	public double BargeInThreshold { get; init; } = 0.12;
 
+	/// <summary>
+	/// RMS above which recorded audio counts as speech for the listening pipeline.
+	/// </summary>
+	public double SpeechThreshold { get; init; } = 0.02;
+
+	/// <summary>
+	/// How long recorded audio must stay quiet before the utterance is considered finished.
+	/// </summary>
+	public int SilenceMilliseconds { get; init; } = 250;
+
+	/// <summary>
+	/// Maximum recording duration. Protects against a room tone that never falls quiet.
+	/// </summary>
+	public int MaximumRecordingMilliseconds { get; init; } = 15_000;
+
 	public SafetyMode Safety { get; init; } = SafetyMode.ConfirmAll;
 
 	/// <summary>

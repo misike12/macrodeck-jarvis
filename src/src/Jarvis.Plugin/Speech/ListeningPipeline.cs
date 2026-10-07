@@ -108,18 +108,17 @@ public sealed class ListeningPipeline : IDisposable
 	/// How long one turn may last. A watch timer rather than an endless wait, because a threshold that is
 	/// never crossed or never falls quiet would otherwise leave the microphone open indefinitely.
 	/// </summary>
-private static TimeSpan MaxUtterance => TimeSpan.FromSeconds(20);
+private static TimeSpan MaxUtterance => TimeSpan.FromSeconds(30);
 
 	/// <summary>
 	/// How long to wait for speech to begin once a turn has started.
 	/// <para>
 	/// The utterance budget bounds a long answer, but a wake word fires on a 200 ms window and the request
-	/// that follows it usually arrives a second or two later. Someone who says nothing after that would
-	/// otherwise hold the microphone open for the full twenty seconds with the orb claiming to be listening,
-	/// which is the same silence this plugin has already had too much of.
+	/// that follows it usually arrives within a couple of seconds. Someone who says nothing after that would
+	/// otherwise hold the microphone open too long with the orb claiming to be listening.
 	/// </para>
 	/// </summary>
-	private static TimeSpan MaxWaitForStart => TimeSpan.FromSeconds(10);
+	private static TimeSpan MaxWaitForStart => TimeSpan.FromSeconds(2);
 
 	/// <summary>How often the recorder is asked whether the speaker has finished.</summary>
 	private static TimeSpan PollInterval => TimeSpan.FromMilliseconds(100);

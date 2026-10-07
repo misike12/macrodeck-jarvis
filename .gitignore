@@ -1,5 +1,7 @@
 # Never commit the developer settings file or the API keys it holds.
 jarvis.settings.json
+# API keys for measurement and testing
+**/nvapi-key.txt
 # Tool scratch directories and the task list, which is the owner's scratchpad.
 .freebuff/
 todo.md
