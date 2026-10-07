@@ -30,6 +30,9 @@ jobs:
         run: dotnet tool install --global MacroDeck.Plugin.Packaging
 
       - name: Build the plugin
+        run: dotnet build src/Jarvis.Plugin.slnx -c Release --warnaserror
+
+      - name: Build the artifact
         run: macrodeck-plugin build --source src/Jarvis.Plugin --output ./artifacts
 
       - name: Validate the artifact at publication level

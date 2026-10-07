@@ -21,8 +21,12 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # Warnings are errors. The repository rule is a warning-free build and nothing was enforcing it:
+      # the workstate claimed zero warnings while the build produced four, and the report describing that
+      # sat in the same commit. Directory.Build.props turns CS8602 into an error already; this closes the
+      # rest rather than picking one diagnostic out.
       - name: Build
-        run: dotnet build src/Jarvis.Plugin.slnx -c Release
+        run: dotnet build src/Jarvis.Plugin.slnx -c Release --warnaserror
 
       - name: Test
         run: dotnet test src/Jarvis.Plugin.slnx -c Release --no-build
@@ -33,11 +37,10 @@ jobs:
       - name: Validate the manifest
         run: macrodeck-plugin validate --manifest src/Jarvis.Plugin/manifest.json --level Publication
 
-      - name: Conformance
-        run: macrodeck-plugin test --project src/Jarvis.Plugin --report markdown --output src/conformance.md
-
       # The artifact is the subject that carries the manifest checks. The project report skips MDC0104
       # through MDC0107 by construction, so gating on it would be gating on something that cannot pass.
+      # Both reports are produced here rather than the project one being run separately first, which is
+      # what the previous version did: it ran the project suite, then ran it again inside the script.
       - name: Pack and check conformance against the artifact
         run: ./src/scripts/regenerate-conformance.ps1
 
@@ -45,6 +48,13 @@ jobs:
       # conformance while validating none of the manifest. This fails instead.
       - name: The artifact report must be conformant
         run: ./src/scripts/require-conformance.ps1 -Report src/artifact-conformance.md
+
+      # The reports are committed, so they can go stale: a change to the capability shape can land with
+      # the committed reports still describing the previous commit, which is the exact failure the gate
+      # above was added to prevent. Nothing checked that the file on disk is the file that was just
+      # produced, so a developer who regenerated locally and forgot to commit would pass CI.
+      - name: The committed reports must be the ones just produced
+        run: git diff --exit-code -- src/conformance.md src/artifact-conformance.md
 
       - uses: actions/upload-artifact@v4
         with:
