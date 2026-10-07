@@ -1,5 +1,7 @@
+using System.Globalization;
 using Jarvis.Plugin.Audio;
 using Jarvis.Plugin.Core;
+using Jarvis.Plugin.Input;
 using MacroDeck.Localization;
 using MacroDeck.Sdk.Actions;
 
@@ -224,8 +226,9 @@ Option(ValueOf(TextToSpeechProvider.PiperLocal), Strings.ConfigFlow.Voice.Option
 			() => Strings.ConfigFlow.Voice.WakeWord.Label(), Default: "jarvis",
 			Description: () => Strings.ConfigFlow.Voice.WakeWord.Description()),
 		new(JarvisSettingsStoreFields.WakeSensitivityField, JarvisFieldKind.Number, VoiceStep,
-			() => Strings.ConfigFlow.Voice.WakeSensitivity.Label(), Default: "0.06",
-			Minimum: MinThreshold, Maximum: MaxThreshold, Advanced: true),
+			() => Strings.ConfigFlow.Voice.WakeSensitivity.Label(), Default: WakeWordDetector.DefaultSensitivity.ToString(CultureInfo.InvariantCulture),
+			Minimum: MinThreshold, Maximum: MaxThreshold, Advanced: true,
+			Description: () => Strings.ConfigFlow.Voice.WakeSensitivity.Description()),
 		new(JarvisSettingsStoreFields.MicrophoneAlwaysOnField, JarvisFieldKind.Flag, VoiceStep,
 			() => Strings.ConfigFlow.Voice.MicrophoneAlwaysOn.Label(), Default: "true"),
 		// Chosen from a list, not typed: endpoint ids look like "{0.0.1.00000000}.{…}" and nobody should

@@ -1,3 +1,5 @@
+using Jarvis.Plugin.Input;
+
 namespace Jarvis.Plugin.Core;
 
 /// <summary>
@@ -93,7 +95,7 @@ public sealed record JarvisSettings
 	/// room tone on this machine is 0.036 and a speaking voice peaks far below 0.6, so the earlier default
 	/// of 0.6 sat above anything the microphone would ever see and the wake word could never fire at all.
 	/// </summary>
-	public double WakeWordSensitivity { get; init; } = 0.06;
+	public double WakeWordSensitivity { get; init; } = WakeWordDetector.DefaultSensitivity;
 
 	public string PushToTalkHotkey { get; init; } = "Ctrl+Alt+J";
 

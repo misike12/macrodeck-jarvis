@@ -316,6 +316,9 @@
   <data name="ConfigFlow.Voice.WakeSensitivity.Label" xml:space="preserve">
     <value>Wake word sensitivity</value>
   </data>
+  <data name="ConfigFlow.Voice.WakeSensitivity.Description" xml:space="preserve">
+    <value>How easily the wake word is believed. The default is 0.06. Raising it lowers the score a chunk needs, so a quieter or further-off voice is heard sooner; lowering it demands more confidence and fewer false triggers. Very high values can start firing on background noise.</value>
+  </data>
   <data name="ConfigFlow.Voice.MicrophoneAlwaysOn.Label" xml:space="preserve">
     <value>Keep the microphone open</value>
   </data>

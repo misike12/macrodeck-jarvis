@@ -703,6 +703,117 @@ public class OpenWakeWordEngineLiveTests
 }
 
 /// <summary>
+/// The sensitivity setting reaching the keyword path.
+/// <para>
+/// The setting was labelled "wake word sensitivity" and adjusted nothing on this engine: the threshold was
+/// a constant, and only the transcript path's loudness gate moved. A user raising it to hear a quieter voice
+/// saw no change at all, and silence was the only symptom.
+/// </para>
+/// </summary>
+[TestFixture]
+public class WakeWordSensitivityTests
+{
+	/// <summary>Nobody who has touched nothing gets the behaviour that shipped.</summary>
+	[Test]
+	public void The_default_sensitivity_is_the_threshold_that_was_hardcoded()
+	{
+		Assert.That(
+			WakeWordDetector.ScoreThresholdFor(WakeWordDetector.DefaultSensitivity),
+			Is.EqualTo(WakeWordDetector.ScoreThreshold));
+	}
+
+	/// <summary>The whole point of the setting: more sensitive means a lower bar, not a higher one.</summary>
+	[TestCase(0.06)]
+	[TestCase(0.12)]
+	[TestCase(0.3)]
+	[TestCase(1.0)]
+	public void Raising_the_sensitivity_lowers_the_threshold(double sensitivity)
+	{
+		var previous = double.MaxValue;
+
+		foreach (var value in new[] { sensitivity, sensitivity * 2, sensitivity * 4 }.Where(v => v <= 1))
+		{
+			var threshold = WakeWordDetector.ScoreThresholdFor(value);
+
+			Assert.That(threshold, Is.LessThan(previous), $"{value} was not more sensitive than the step below it");
+			previous = threshold;
+		}
+	}
+
+	/// <summary>Turning it down must never produce a lower bar than before, or the setting means nothing.</summary>
+	[TestCase(0.001)]
+	[TestCase(0.03)]
+	[TestCase(0.06)]
+	public void Lowering_the_sensitivity_never_makes_detection_easier(double sensitivity)
+	{
+		Assert.That(
+			WakeWordDetector.ScoreThresholdFor(sensitivity),
+			Is.EqualTo(WakeWordDetector.ScoreThreshold));
+	}
+
+	/// <summary>
+	/// A low enough bar would otherwise fire on the room. The floor keeps a very high sensitivity from
+	/// turning the wake word into a noise detector, which is the failure a user chasing reliability causes.
+	/// </summary>
+	[TestCase(1.0)]
+	[TestCase(10.0)]
+	[TestCase(100.0)]
+	public void The_threshold_stops_before_it_would_accept_anything(double sensitivity)
+	{
+		Assert.That(
+			WakeWordDetector.ScoreThresholdFor(sensitivity),
+			Is.EqualTo(WakeWordDetector.MinimumScoreThreshold).Within(0.0001));
+	}
+
+	/// <summary>A bar low enough to hear a quiet voice also passes on more of the room, so the run shortens.</summary>
+	[Test]
+	public void A_low_threshold_shortens_the_run_it_requires()
+	{
+		Assert.That(
+			WakeWordDetector.ScorePatienceFor(0.5),
+			Is.LessThan(WakeWordDetector.ScorePatienceFor(WakeWordDetector.DefaultSensitivity)));
+	}
+
+	/// <summary>
+	/// A quieter utterance that the shipped threshold rejected has to fire once the setting is raised.
+	/// Excludes the default, which is the unchanged case the first two tests already pin.
+	/// </summary>
+	[TestCase(0.2)]
+	[TestCase(0.5)]
+	public void A_score_the_default_rejects_fires_once_the_setting_is_raised(double sensitivity)
+	{
+		const float tentative = 0.3f;
+
+		using var strict = NewDetector(sensitivity: WakeWordDetector.DefaultSensitivity);
+		using var loose = NewDetector(sensitivity);
+
+		var strictFired = 0;
+		var looseFired = 0;
+		strict.Detected += () => strictFired++;
+		loose.Detected += () => looseFired++;
+
+		for (var chunk = 0; chunk < 6; chunk++)
+		{
+			strict.OfferScore(tentative);
+			loose.OfferScore(tentative);
+		}
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(strictFired, Is.Zero, $"the shipped threshold accepted {tentative}");
+			Assert.That(looseFired, Is.EqualTo(1), $"sensitivity {sensitivity} still rejected {tentative}");
+		});
+	}
+
+	private static WakeWordDetector NewDetector(double sensitivity = WakeWordDetector.DefaultSensitivity) =>
+		new(RuntimeTestLog.Logger, TimeSpan.FromSeconds(1))
+		{
+			Enabled = true,
+			Sensitivity = sensitivity,
+		};
+}
+
+/// <summary>
 /// The detector's score path: fire after a run of confident chunks, not on one, and not while cooling
 /// down. The scores are handed over the way the pump does, because what is under test here is the
 /// counting and the cooldown, not the model - the model's own scores are asserted in the fixture above.

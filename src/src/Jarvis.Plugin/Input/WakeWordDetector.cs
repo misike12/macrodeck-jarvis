@@ -153,6 +153,53 @@ public sealed class WakeWordDetector : IDisposable
 	/// <summary>The number of consecutive over-threshold chunks a score run requires.</summary>
 	public const int ScorePatience = 3;
 
+	/// <summary>
+	/// The sensitivity the shipped default corresponds to, and the threshold it therefore produces.
+	/// <para>
+	/// The setting has always been a level in the transcript path's own terms, so 0.06 is its default and
+	/// no other figure in the plugin is calibrated against it. Anchoring here keeps a wake word that nobody
+	/// has touched behaving exactly as it did before the setting started reaching this path.
+	/// </para>
+	/// </summary>
+	public const double DefaultSensitivity = 0.06;
+
+	/// <summary>
+	/// The loosest a score threshold may go.
+	/// <para>
+	/// The models score the real phrase at 0.999 and non-phrases below 0.01, so anything under a tenth is
+	/// asking for the model's mistakes rather than for a quieter voice. Left in place because a user who
+	/// reaches for this wants to hear what the noise floor scores, and refusing to go there hides it.
+	/// </para>
+	/// </summary>
+	public const double MinimumScoreThreshold = 0.05;
+
+	/// <summary>
+	/// How confident a chunk has to be, given the sensitivity.
+	/// <para>
+	/// Doubling the sensitivity halves the threshold, which is the only reading of the number that makes
+	/// sense on both engines: on the transcript path it is a loudness gate, and turning it up has to lower
+	/// the bar rather than raise it. Capped so a quiet room cannot turn the wake word into a noise
+	/// detector, and never allowed above the value that used to be hardcoded, so raising the sensitivity
+	/// cannot make detection worse than leaving it alone.
+	/// </para>
+	/// </summary>
+	public static double ScoreThresholdFor(double sensitivity) =>
+		Math.Clamp(
+			ScoreThreshold * (DefaultSensitivity / Math.Max(sensitivity, MinimumScoreThreshold)),
+			MinimumScoreThreshold,
+			ScoreThreshold);
+
+	/// <summary>
+	/// How many chunks in a row have to pass, given how low the threshold has been set.
+	/// <para>
+	/// A threshold low enough to hear a quiet voice also passes on more of the room, so the run is
+	/// shortened to match: the phrase itself covers six or seven chunks even when spoken quietly, so two is
+	/// still the word and not a syllable.
+	/// </para>
+	/// </summary>
+	public static int ScorePatienceFor(double sensitivity) =>
+		ScoreThresholdFor(sensitivity) <= 0.15 ? 2 : ScorePatience;
+
 	/// <summary>How long after a score fire the score path goes quiet. Mirrors the transcript cooldown.</summary>
 	private static readonly TimeSpan ScoreCooldown = TimeSpan.FromSeconds(5);
 
@@ -212,7 +259,11 @@ public sealed class WakeWordDetector : IDisposable
 
 	public string Word { get; set; } = "jarvis";
 
-	public double Sensitivity { get; set; } = 0.06;
+	/// <summary>
+	/// How willing the detector is to believe it heard the word. Read by both engines: as a loudness gate on
+	/// the transcript path, and through <see cref="ScoreThresholdFor"/> on the keyword path.
+	/// </summary>
+	public double Sensitivity { get; set; } = DefaultSensitivity;
 
 	public bool Enabled { get; set; }
 
@@ -259,16 +310,24 @@ public sealed class WakeWordDetector : IDisposable
 
 		NoteLoudest(score);
 
-		if (score >= ScoreThreshold)
+		// Read through the sensitivity rather than against the constants, so the setting reaches this path.
+		// It did not: the threshold was hardcoded, and the one control labelled "wake word sensitivity" only
+		// ever moved the transcript path's loudness gate. A user raising it on the keyword engine watched
+		// nothing change, which is the same silence as a broken microphone.
+		var threshold = ScoreThresholdFor(Sensitivity);
+		var patience = ScorePatienceFor(Sensitivity);
+
+		if (score >= threshold)
 		{
 			_consecutiveScores++;
 
-			if (_consecutiveScores >= ScorePatience)
+			if (_consecutiveScores >= patience)
 			{
 				_logger.Information(
-					"Wake word scored {Score} over {Patience} chunks; firing.",
+					"Wake word scored {Score} over {Patience} chunks at threshold {Threshold:0.00}; firing.",
 					score,
-					_consecutiveScores);
+					_consecutiveScores,
+					threshold);
 
 				_consecutiveScores = 0;
 				_nextAllowed = DateTimeOffset.UtcNow + ScoreCooldown;

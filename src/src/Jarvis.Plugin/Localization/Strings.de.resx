@@ -611,6 +611,9 @@
   <data name="ConfigFlow.Voice.WakeSensitivity.Label" xml:space="preserve">
     <value>Empfindlichkeit des Aktivierungsworts</value>
   </data>
+  <data name="ConfigFlow.Voice.WakeSensitivity.Description" xml:space="preserve">
+    <value>Wie leicht geglaubt wird, das Aktivierungswort gehört zu haben. Standard ist 0,06. Ein höherer Wert senkt den benötigten Score, sodass eine leisere oder weiter entfernte Stimme früher gehört wird; ein niedrigerer Wert verlangt mehr Sicherheit und weniger Fehlalarme. Sehr hohe Werte können im Hintergrundsgeräusch auslösen.</value>
+  </data>
   <data name="ConfigFlow.Voice.MicrophoneAlwaysOn.Label" xml:space="preserve">
     <value>Mikrofon offen halten</value>
   </data>
