@@ -252,17 +252,23 @@ public class ConfigFieldTableTests
 		new(AssignedFieldsInSettingsSnapshot(), StringComparer.Ordinal);
 
 	/// <summary>
-	/// The field names the store copies into the snapshot it builds.
+	/// The field names the store reads while building the snapshot it publishes.
 	/// <para>
-	/// Found by reading the assignment block out of the source rather than by reflection, because the block
-	/// is a single object initialiser spanning thirty properties and a test that only counted them would not
-	/// notice one being dropped.
+	/// Found by reading the block out of the source rather than by reflection, because the block is a single
+	/// object initialiser spanning forty properties and a test that only counted them would not notice one
+	/// being dropped.
+	/// </para>
+	/// <para>
+	/// The scan starts a little before the initialiser rather than at it. A field read into a local first,
+	/// because two snapshot properties are derived from one stored value, is applied just as much as one read
+	/// inline, and starting at the initialiser reported it as dropped. What this asserts is that the store
+	/// uses the value, not that it spells the use a particular way.
 	/// </para>
 	/// </summary>
 	private static IReadOnlyList<string> AssignedFieldsInSettingsSnapshot()
 	{
 		var text = File.ReadAllText(ProjectFile(Path.Combine("Core", "JarvisSettingsStore.cs")));
-		var start = text.IndexOf("var next = new JarvisSettings", StringComparison.Ordinal);
+		var start = text.IndexOf("string? Text(string field)", StringComparison.Ordinal);
 
 		if (start < 0)
 		{

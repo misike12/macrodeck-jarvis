@@ -490,6 +490,11 @@ public async Task ReloadAsync(IIntegrationContext? context, CancellationToken ca
 		// are the same edit rather than two that can drift.
 		string? Text(string field) => _read.GetValueOrDefault(field);
 
+		// Read once, because two fields are derived from it. Taken from what this reload read rather than
+		// from the previous snapshot, which would leave the assistant answering in the language the user
+		// chose last time rather than the one they just picked.
+		var language = FirstNonEmpty(Text(JarvisSettingsStoreFields.LanguageField), current.SttLanguage);
+
 		var next = new JarvisSettings
 		{
 			NvidiaApiKey = nvidiaKey,
@@ -508,7 +513,7 @@ public async Task ReloadAsync(IIntegrationContext? context, CancellationToken ca
 			NimTextToSpeechModel = FirstNonEmpty(Text(JarvisSettingsStoreFields.TtsModelField), current.NimTextToSpeechModel),
 			PiperVoice = FirstNonEmpty(Text(JarvisSettingsStoreFields.PiperVoiceField), current.PiperVoice),
 			WindowsVoice = FirstNonEmpty(Text(JarvisSettingsStoreFields.WindowsVoiceField), current.WindowsVoice),
-			SttLanguage = FirstNonEmpty(Text(JarvisSettingsStoreFields.LanguageField), current.SttLanguage),
+			SttLanguage = language,
 			WhisperModel = FirstNonEmpty(Text(JarvisSettingsStoreFields.WhisperModelField), current.WhisperModel),
 
 			WakeWordEngine = ReadEnum(JarvisSettingsStoreFields.WakeEngineField, current.WakeWordEngine),
@@ -554,7 +559,7 @@ public async Task ReloadAsync(IIntegrationContext? context, CancellationToken ca
 			// need and it is what the flow has always offered; the prompt's language is taken from it unless
 			// the user has not chosen one, in which case auto-detect is what the recogniser will do and the
 			// assistant follows.
-			Language = Current.SttLanguage,
+			Language = language,
 
 			// The three elevated-service switches were read into the dictionary and then never copied into
 			// the snapshot, so the code that consulted them saw false forever. That is why a user who turned

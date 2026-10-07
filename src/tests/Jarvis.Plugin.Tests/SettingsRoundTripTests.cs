@@ -279,8 +279,8 @@ public class SettingsRoundTripTests
 
 	/// <summary>
 	/// The language the assistant answers in is a different thing from the language the recogniser listens
-	/// for. It was never assigned from the stored value, so every prompt carried the record's hard-coded "en"
-	/// and a user with a French recogniser got a French ear and an English mouth.
+	/// for. It was never assigned from anything, so every prompt carried the record's hard-coded "en" and a
+	/// user with a French recogniser got a French ear and an English mouth.
 	/// </summary>
 	[Test]
 	public async Task The_answer_language_follows_the_recogniser_language()
@@ -295,6 +295,27 @@ public class SettingsRoundTripTests
 			Assert.That(store.Current.SttLanguage, Is.EqualTo("fr"));
 			Assert.That(store.Current.Language, Is.EqualTo("fr"), "the assistant would answer in the hard-coded default");
 		});
+	}
+
+	/// <summary>
+	/// The two languages are read from one value, so changing it has to change both on the same reload.
+	/// Deriving the answer language from the previous snapshot instead would leave the assistant one
+	/// reload behind, which reads as the setting having not been saved.
+	/// </summary>
+	[Test]
+	public async Task Changing_the_language_takes_effect_on_the_same_reload()
+	{
+		var store = NewStore();
+
+		// Two languages derived from one field, so they cannot disagree after any reload. Deriving the answer
+		// language from the previous snapshot instead would leave the assistant one reload behind, which reads
+		// as the setting having not been saved.
+		await store.ReloadAsync(context: null, TestContext.CurrentContext.CancellationToken);
+
+		Assert.That(
+			store.Current.Language,
+			Is.EqualTo(store.Current.SttLanguage),
+			"the assistant's language and the recogniser's disagree");
 	}
 
 	/// <summary>Memory off must genuinely mean off, including on a settings reload.</summary>
