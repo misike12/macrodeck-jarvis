@@ -35,6 +35,15 @@ public static class InputTools
 	private const uint MouseRightUp = 0x0010;
 	private const uint MouseMiddleDown = 0x0020;
 	private const uint MouseMiddleUp = 0x0040;
+
+	// The two side buttons. MOUSEEVENTF_XDOWN and XUP cover both, and which button is which is carried in
+	// the data field rather than the flags, so the two constants are the same flag with different data.
+	private const uint MouseSideDown = 0x0080;
+	private const uint MouseSideUp = 0x0100;
+
+	private const uint XButton1 = 0x0001;
+	private const uint XButton2 = 0x0002;
+
 	private const uint MouseWheel = 0x0800;
 	private const uint MouseHorizontalWheel = 0x01000;
 
@@ -361,11 +370,64 @@ public static class InputTools
 
 		public bool RequiresConfirmation => true;
 
+		/// <summary>
+		/// Every button Windows can send. "double" and "triple" are clicks of the left button rather than
+		/// buttons of their own, so they are expressed as a count.
+		/// </summary>
+		internal static readonly string[] ButtonNames =
+			["left", "right", "middle", "back", "forward", "double", "triple"];
+
+/// <summary>
+	/// One mouse button, as the two inputs that press and release it.
+	/// <para>
+	/// A value rather than the native structures themselves, so the resolution can be asserted without the
+	/// interop layout becoming part of anything a test can see. The side buttons carry their identity in
+	/// <see cref="Data"/> rather than in <see cref="DownFlags"/>, which is the only shape Windows accepts
+	/// for them, so data is part of every button rather than an exception.
+	/// </para>
+	/// </summary>
+	internal readonly record struct MouseButton(uint DownFlags, uint UpFlags, uint Data)
+	{
+	}
+
+	/// <summary>Resolves a button name. Case and surrounding space do not matter; anything unknown does not resolve.</summary>
+	internal static bool TryResolveButton(string? name, out MouseButton button)
+	{
+		switch (name?.Trim().ToLowerInvariant())
+		{
+			case "left":
+			case "double":
+			case "triple":
+				button = new MouseButton(MouseLeftDown, MouseLeftUp, 0);
+				return true;
+
+			case "right":
+				button = new MouseButton(MouseRightDown, MouseRightUp, 0);
+				return true;
+
+			case "middle":
+				button = new MouseButton(MouseMiddleDown, MouseMiddleUp, 0);
+				return true;
+
+			case "back":
+				button = new MouseButton(MouseSideDown, MouseSideUp, XButton1);
+				return true;
+
+			case "forward":
+				button = new MouseButton(MouseSideDown, MouseSideUp, XButton2);
+				return true;
+
+			default:
+				button = default;
+				return false;
+		}
+	}
+
 		public ToolDefinition Definition => new()
 		{
 			Name = Name,
 			Description = "Clicks the mouse, optionally moving to a position first. The button is left, "
-				+ "right, middle or double.",
+				+ "right, middle, back, forward, double or triple.",
 			Parameters = new JsonObject
 			{
 				["type"] = "object",
@@ -376,8 +438,9 @@ public static class InputTools
 					["button"] = new JsonObject
 					{
 						["type"] = "string",
-						["description"] = "left, right, middle or double. Default left.",
-						["enum"] = new JsonArray("left", "right", "middle", "double"),
+						["description"] = "Which button to click. Default left. Back and forward are the "
+							+ "two side buttons, which most mice map to browser back and forward.",
+						["enum"] = new JsonArray([.. ButtonNames]),
 					},
 				},
 			},
@@ -389,39 +452,46 @@ public static class InputTools
 			var y = arguments["y"]?.GetValue<int?>();
 			var button = arguments["button"]?.GetValue<string>()?.Trim().ToLowerInvariant() ?? "left";
 
-			var (down, up) = button switch
-			{
-				"left" => (MouseLeftDown, MouseLeftUp),
-				"right" => (MouseRightDown, MouseRightUp),
-				"middle" => (MouseMiddleDown, MouseMiddleUp),
-				"double" => (MouseLeftDown, MouseLeftUp),
-				_ => (0u, 0u),
-			};
-
-			if (down == 0)
+			if (!TryResolveButton(button, out var press))
 			{
 				return Task.FromResult(ToolOutcome.Failure(
-					"The button must be left, right, middle or double."));
+					$"The button must be one of {string.Join(", ", ButtonNames)}."));
 			}
 
-			// A stuck modifier turns this click into a different click entirely, so the modifiers go first.
-			ReleaseAllModifiers();
+			// Checked before anything is moved or pressed, so a cancelled click leaves the desktop alone.
+			if (cancellationToken.IsCancellationRequested)
+			{
+				return Task.FromResult(ToolOutcome.Failure($"The {button} click was cancelled before it started."));
+			}
+
+			// Double and triple are one down and up sent repeatedly rather than a button of their own, so
+			// they travel through the same path as a single click and cannot drift apart from it.
+			var clicks = button switch { "double" => 2, "triple" => 3, _ => 1 };
+			var batch = new Input[(x is not null && y is not null ? 1 : 0) + (clicks * 2)];
+			var offset = 0;
 
 			if (x is not null && y is not null)
 			{
 				var (absoluteX, absoluteY) = ToAbsolute(x.Value, y.Value);
-				Send([Mouse(MouseMove | MouseAbsolute | MouseVirtualDesk, absoluteX, absoluteY)]);
+				batch[offset++] = Mouse(MouseMove | MouseAbsolute | MouseVirtualDesk, absoluteX, absoluteY);
 			}
 
-			Send([Mouse(down, 0, 0), Mouse(up, 0, 0)]);
-
-			if (button == "double")
+			for (var click = 0; click < clicks; click++)
 			{
-				Send([Mouse(down, 0, 0), Mouse(up, 0, 0)]);
+				batch[offset + (click * 2)] = Mouse(press.DownFlags, 0, 0, press.Data);
+				batch[offset + (click * 2) + 1] = Mouse(press.UpFlags, 0, 0, press.Data);
+			}
+
+			// One batch rather than a move followed by a click, so a desktop that refuses the click cannot
+			// leave the pointer somewhere the user did not ask for.
+			if (Send(batch) != batch.Length)
+			{
+				return Task.FromResult(ToolOutcome.Failure(
+					$"The desktop refused part of the {button} click."));
 			}
 
 			return Task.FromResult(ToolOutcome.Success(
-				button == "double" ? "Double clicked." : $"Clicked {button}."));
+				clicks == 1 ? $"Clicked {button}." : $"{clicks} clicks of the left button."));
 		}
 	}
 
@@ -481,6 +551,12 @@ public static class InputTools
 	/// <summary>Presses, drags, and releases.</summary>
 	public sealed class MouseDragTool : ITool
 	{
+		/// <summary>
+		/// The buttons a drag can hold. A multi-click is a count rather than a button, so it is excluded, and
+		/// the list is derived from the click tool's rather than written out again so the two cannot drift.
+		/// </summary>
+		internal static readonly string[] HoldableButtons =
+			[.. MouseClickTool.ButtonNames.Where(name => name is not ("double" or "triple"))];
 		public string Name => "mouse_drag";
 
 		public bool RequiresConfirmation => true;
@@ -489,7 +565,8 @@ public static class InputTools
 		{
 			Name = Name,
 			Description = "Drags with the mouse held down, from one point to another. The movement is "
-				+ "staged in small steps, which is what drag and drop actually needs.",
+				+ "staged in small steps, which is what drag and drop actually needs. The button "
+				+ "defaults to left, which is what a drag and drop uses.",
 			Parameters = new JsonObject
 			{
 				["type"] = "object",
@@ -499,6 +576,12 @@ public static class InputTools
 					["fromY"] = new JsonObject { ["type"] = "integer", ["description"] = "Where the drag starts." },
 					["toX"] = new JsonObject { ["type"] = "integer", ["description"] = "Where the drag ends." },
 					["toY"] = new JsonObject { ["type"] = "integer", ["description"] = "Where the drag ends." },
+					["button"] = new JsonObject
+					{
+						["type"] = "string",
+						["description"] = "Which button to hold. Default left.",
+						["enum"] = new JsonArray([.. HoldableButtons]),
+					},
 				},
 				["required"] = new JsonArray("fromX", "fromY", "toX", "toY"),
 			},
@@ -510,28 +593,54 @@ public static class InputTools
 			var fromY = arguments["fromY"]?.GetValue<int?>();
 			var toX = arguments["toX"]?.GetValue<int?>();
 			var toY = arguments["toY"]?.GetValue<int?>();
+			var button = arguments["button"]?.GetValue<string>()?.Trim().ToLowerInvariant() ?? "left";
 
 			if (fromX is null || fromY is null || toX is null || toY is null)
 			{
 				return Task.FromResult(ToolOutcome.Failure("A drag needs a start and an end position."));
 			}
 
+			// A multi-click is not a drag: the button has to be one that goes down and comes back up, so
+			// double and triple are refused here rather than pressed and left down.
+			if (button is "double" or "triple")
+			{
+				return Task.FromResult(ToolOutcome.Failure("A drag cannot be a double or triple click."));
+			}
+
+			if (!MouseClickTool.TryResolveButton(button, out var held))
+			{
+				return Task.FromResult(ToolOutcome.Failure(
+					$"The button must be one of {string.Join(", ", HoldableButtons)}."));
+			}
+
+			if (cancellationToken.IsCancellationRequested)
+			{
+				return Task.FromResult(ToolOutcome.Failure("The drag was cancelled before it started."));
+			}
+
+			// Released before the button is pressed: a stuck Ctrl turns a left click into a right-click
+			// somewhere else entirely, and a stuck Shift turns a drag into a select-and-drag.
 			ReleaseAllModifiers();
 
 			const int Step = 8;
 			const int MinimumSteps = 4;
 
 			var (startX, startY) = ToAbsolute(fromX.Value, fromY.Value);
-			Send([Mouse(MouseMove | MouseAbsolute | MouseVirtualDesk, startX, startY), Mouse(MouseLeftDown, 0, 0)]);
+			Send([Mouse(MouseMove | MouseAbsolute | MouseVirtualDesk, startX, startY), Mouse(held.DownFlags, 0, 0, held.Data)]);
 
 			// A drag sent as a single jump is usually ignored: applications track the pointer and only start
 			// a drag once they have seen it move while the button is down.
 			var distance = Math.Max(Math.Abs(toX.Value - fromX.Value), Math.Abs(toY.Value - fromY.Value));
 			var steps = Math.Clamp(distance / Step, MinimumSteps, 60);
+			var cancelled = false;
 
 			for (var step = 1; step <= steps; step++)
 			{
-				cancellationToken.ThrowIfCancellationRequested();
+				if (cancellationToken.IsCancellationRequested)
+				{
+					cancelled = true;
+					break;
+				}
 
 				var progress = step / (double)steps;
 				var (moveX, moveY) = ToAbsolute(
@@ -541,10 +650,19 @@ public static class InputTools
 				Send([Mouse(MouseMove | MouseAbsolute | MouseVirtualDesk, moveX, moveY)]);
 			}
 
-			Send([Mouse(MouseLeftUp, 0, 0)]);
+			// Released whether the drag finished, was cancelled, or the token was already cancelled before
+			// the first step. A button left down holds whatever was underneath it, and the caller is told
+			// which happened rather than being handed a drag that stopped halfway.
+			Send([Mouse(held.UpFlags, 0, 0, held.Data)]);
+
+			if (cancelled)
+			{
+				return Task.FromResult(ToolOutcome.Failure(
+					$"The drag was cancelled part way from {fromX}, {fromY} to {toX}, {toY}, and the button was released."));
+			}
 
 			return Task.FromResult(ToolOutcome.Success(
-				$"Dragged from {fromX}, {fromY} to {toX}, {toY}."));
+				$"Dragged from {fromX}, {fromY} to {toX}, {toY} with the {button} button."));
 		}
 	}
 

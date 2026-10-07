@@ -38,8 +38,8 @@ public class InputToolTests
 		return node;
 	}
 
-	private static Task<ToolOutcome> Invoke(ITool tool, JsonObject arguments) =>
-		tool.InvokeAsync(arguments, CancellationToken.None);
+	private static Task<ToolOutcome> Invoke(ITool tool, JsonObject arguments, CancellationToken cancellationToken = default) =>
+		tool.InvokeAsync(arguments, cancellationToken);
 
 	/// <summary>Every single one of these can move the mouse or type into whatever is focused.</summary>
 	[Test]
@@ -307,14 +307,151 @@ public class InputToolTests
 	[TestCase("middle")]
 	[TestCase("double")]
 	[TestCase("LEFT")]
-	public void The_accepted_buttons_are_the_documented_four(string button)
+	public void The_accepted_buttons_are_the_documented_set(string button)
 	{
-		var accepted = new[] { "left", "right", "middle", "double" };
+		Assert.That(InputTools.MouseClickTool.ButtonNames, Contains.Item(button.ToLowerInvariant()));
 
-		Assert.That(accepted, Contains.Item(button.ToLowerInvariant()));
-		Assert.That(new InputTools.MouseClickTool().Definition.Parameters?["properties"]?["button"]?["enum"]
-			?.AsArray().Select(node => node!.GetValue<string>()),
-			Is.EqualTo(accepted));
+		Assert.That(
+			new InputTools.MouseClickTool().Definition.Parameters?["properties"]?["button"]?["enum"]
+				?.AsArray().Select(node => node!.GetValue<string>()),
+			Is.EqualTo(InputTools.MouseClickTool.ButtonNames));
+	}
+
+	/// <summary>
+	/// The two side buttons are the ones the plugin had no way to press at all. Which physical button each
+	/// one is depends on the mouse, so they are named by role: most mice map them to browser back and
+	/// forward, which is the reason a person asks for them.
+	/// </summary>
+	[TestCase("back", true)]
+	[TestCase("forward", true)]
+	[TestCase("triple", true)]
+	[TestCase("wheel", false)]
+	[TestCase("middle-click", false)]
+	[TestCase("", false)]
+	public void Every_button_windows_can_send_resolves_and_anything_else_does_not(string button, bool expected)
+	{
+		Assert.That(
+			InputTools.MouseClickTool.TryResolveButton(button, out _),
+			Is.EqualTo(expected),
+			$"'{button}'");
+	}
+
+	/// <summary>
+	/// A press with no matching release is the one failure mode that damages the user's session rather than
+	/// just missing a click, so the release flag has to name a release and nothing may stay held.
+	/// </summary>
+	[TestCase("left", 0x0002u, 0x0004u)]
+	[TestCase("right", 0x0008u, 0x0010u)]
+	[TestCase("middle", 0x0020u, 0x0040u)]
+	[TestCase("back", 0x0080u, 0x0100u)]
+	[TestCase("forward", 0x0080u, 0x0100u)]
+	[TestCase("double", 0x0002u, 0x0004u)]
+	[TestCase("triple", 0x0002u, 0x0004u)]
+	public void Every_button_resolves_to_its_own_press_and_release(string button, uint down, uint up)
+	{
+		InputTools.MouseClickTool.TryResolveButton(button, out var resolved);
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(resolved.DownFlags, Is.EqualTo(down), $"{button} press");
+			Assert.That(resolved.UpFlags, Is.EqualTo(up), $"{button} release");
+			Assert.That(resolved.UpFlags & down, Is.Zero, $"{button} is still held after the release");
+		});
+	}
+
+	/// <summary>
+	/// The side buttons are sent with the same flag for both directions and the button in the data field,
+	/// which is the only shape Windows accepts for them. Getting it wrong produces a click that is silently
+	/// dropped, so it is pinned rather than inferred.
+	/// </summary>
+	[Test]
+	public void The_side_buttons_carry_their_identity_in_the_data_field()
+	{
+		InputTools.MouseClickTool.TryResolveButton("back", out var back);
+		InputTools.MouseClickTool.TryResolveButton("forward", out var forward);
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(back.Data, Is.EqualTo(1u), "back is the first side button");
+			Assert.That(forward.Data, Is.EqualTo(2u), "forward is the second side button");
+			Assert.That(back.Data, Is.Not.EqualTo(forward.Data));
+		});
+	}
+
+	/// <summary>
+	/// The three main buttons carry no data, so anything non-zero there would be read as a wheel delta or a
+	/// button identity that was never meant to be sent.
+	/// </summary>
+	[TestCase("left")]
+	[TestCase("right")]
+	[TestCase("middle")]
+	public void The_main_buttons_carry_no_data(string button)
+	{
+		InputTools.MouseClickTool.TryResolveButton(button, out var resolved);
+
+		Assert.That(resolved.Data, Is.Zero, $"{button} carries a data value it should not");
+	}
+
+	/// <summary>
+	/// A multi-click is a count, not a button, so it cannot be a drag: the press is held down and the
+	/// release would never arrive.
+	/// </summary>
+	[TestCase("double")]
+	[TestCase("triple")]
+	public async Task A_drag_refuses_a_multi_click(string button)
+	{
+		var outcome = await Invoke(
+			new InputTools.MouseDragTool(),
+			Args(("fromX", 1), ("fromY", 1), ("toX", 2), ("toY", 2), ("button", button)));
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(outcome.Ok, Is.False);
+			Assert.That(outcome.Content, Does.Contain("double or triple"));
+		});
+	}
+
+	/// <summary>
+	/// The button a drag uses has to be one of the ones the click tool can resolve, or the press would be
+	/// built from nothing. Shared with the click tool rather than a second list.
+	/// </summary>
+	[Test]
+	public void The_drag_offers_exactly_the_buttons_that_can_be_held()
+	{
+		var offered = new InputTools.MouseDragTool().Definition.Parameters?["properties"]?["button"]?["enum"]
+			?.AsArray().Select(node => node!.GetValue<string>()).ToArray();
+
+		var holdable = InputTools.MouseClickTool.ButtonNames
+			.Where(name => name is not ("double" or "triple"))
+			.ToArray();
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(offered, Is.EqualTo(holdable));
+			Assert.That(offered, Does.Not.Contain("double"));
+			Assert.That(offered, Does.Not.Contain("triple"));
+		});
+	}
+
+	/// <summary>
+	/// A drag that was cancelled part way must still let the button up. Leaving it down holds whatever was
+	/// under the pointer for the rest of the session, and the caller has to be told it did not finish.
+	/// </summary>
+	[Test]
+	public async Task A_cancelled_drag_reports_that_it_stopped_rather_than_succeeding()
+	{
+		using var cancellation = new CancellationTokenSource();
+
+		await cancellation.CancelAsync();
+
+		var outcome = await Invoke(
+			new InputTools.MouseDragTool(),
+			Args(("fromX", 10), ("fromY", 10), ("toX", 800), ("toY", 800)),
+			cancellation.Token);
+
+		// The drag is refused before anything is sent when the token is already cancelled, so the shape that
+		// matters is that this does not report a completed drag.
+		Assert.That(outcome.Ok, Is.False);
 	}
 
 	[TestCase("wheel")]
@@ -325,6 +462,21 @@ public class InputToolTests
 		var outcome = await Invoke(new InputTools.MouseClickTool(), Args(("button", button)));
 
 		Assert.That(outcome.Ok, Is.False);
+	}
+
+	[TestCase("wheel")]
+	[TestCase("")]
+	public async Task An_unknown_drag_button_is_refused_before_anything_is_pressed(string button)
+	{
+		var outcome = await Invoke(
+			new InputTools.MouseDragTool(),
+			Args(("fromX", 1), ("fromY", 1), ("toX", 2), ("toY", 2), ("button", button)));
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(outcome.Ok, Is.False);
+			Assert.That(outcome.Content, Does.Contain("left"));
+		});
 	}
 
 	[TestCase(0)]
