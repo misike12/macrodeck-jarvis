@@ -191,6 +191,11 @@ capture a default before the config read finishes.
 - Persist credentials as `ConfigFlowValue.Secret` so they land in the host's encrypted secret store.
   Never write a token to a plain string field, a log line, or a file of your own. Rotating credentials go
   back through `SetSecretAsync`.
+- **A choice's stored value has to name a member of the enum the store parses it as.** Derive both from the
+  member rather than writing either out by hand. The setup flow persists option values and the store reads
+  them with `Enum.TryParse`, which matches neither a hyphen nor anything but the exact member name, so
+  kebab-case values silently revert to the default. It also accepts a numeric that names no member, which
+  every `switch` over these then sends to its default arm.
 - Never run your own OAuth redirect server. Return `ConfigFlowResult.External(url, resumeStepId)` and let
   the host own the redirect and the callback correlation.
 - An integration that provides a config flow starts **disabled** until the user completes it. Everything
@@ -253,7 +258,13 @@ capture a default before the config read finishes.
 
 - `Directory.Build.props` sets `Nullable`, `ImplicitUsings`, `latest-recommended` analysis,
   `EnforceCodeStyleInBuild` and `CS8602` as an error. Build warning-free; do not relax these to make a
-  build pass.
+  build pass. CI builds with `--warnaserror`, so a warning fails the pipeline rather than waiting to be
+  noticed.
+- Doc comments are checked by the compiler, in the configurations that are not packed. A mismatched tag, a
+  `cref` naming something other than what it claims and a half-documented parameter all fail the build.
+  `CS1591` is excluded, because not every member needs a comment and requiring one would be decoration.
+  Documentation is generated for development builds only: the XML sits beside the assembly and the packer
+  ships everything beside it, so a Release build must not produce it.
 - C# in `src/` is tab-indented. Match the surrounding file rather than reformatting it.
 - Suppress a diagnostic with the narrowest scope that fits and **always with a reason** on the
   `#pragma` or the `NoWarn` entry.
